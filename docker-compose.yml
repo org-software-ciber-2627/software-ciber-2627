@@ -1,0 +1,108 @@
+services:
+  identidad:
+    build: ./modules/01-identidad
+    ports:
+      - "8001:80"
+    networks:
+      - ciberurjc
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  ids:
+    build: ./modules/02-ids
+    ports:
+      - "8002:80"
+    networks:
+      - ciberurjc
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  honeypot:
+    build: ./modules/03-honeypot
+    ports:
+      - "8003:80"
+    networks:
+      - ciberurjc
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  escaner:
+    build: ./modules/04-escaner
+    ports:
+      - "8004:80"
+    networks:
+      - ciberurjc
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  siem:
+    build: ./modules/05-siem
+    ports:
+      - "8005:80"
+    networks:
+      - ciberurjc
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  soar:
+    build: ./modules/06-soar
+    ports:
+      - "8006:80"
+    networks:
+      - ciberurjc
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  dashboard:
+    build: ./modules/07-dashboard
+    ports:
+      - "8007:80"
+    networks:
+      - ciberurjc
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  pentesting:
+    build: ./modules/08-pentesting
+    ports:
+      - "8008:80"
+    networks:
+      - ciberurjc
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+networks:
+  ciberurjc:
+    driver: bridge

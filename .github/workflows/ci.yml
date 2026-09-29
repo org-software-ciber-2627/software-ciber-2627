@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build-and-health:
+    name: build-and-health
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build images
+        run: docker compose build
+
+      - name: Start services
+        run: docker compose up -d --wait
+
+      - name: Check health endpoints
+        run: |
+          set -e
+          for port in 8001 8002 8003 8004 8005 8006 8007 8008; do
+            echo "Comprobando puerto $port..."
+            curl -f "http://localhost:${port}/health"
+          done
+
+      - name: Stop services
+        if: always()
+        run: docker compose down
+
+  event-schema:
+    name: event-schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install check-jsonschema
+        run: pip install check-jsonschema
+
+      - name: Validate event schema examples
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(modules/*/contract/examples/*.json)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No hay ejemplos de eventos todavia; nada que validar."
+            exit 0
+          fi
+          check-jsonschema --schemafile shared/event-schema.json "${files[@]}"
