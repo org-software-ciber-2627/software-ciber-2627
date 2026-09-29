@@ -17,3 +17,5 @@ Este equipo mantiene la infraestructura de integración compartida: el `docker-c
 
 ## Estado
 Contenedor placeholder (`nginx:alpine`) que responde `GET /health`. Sustituid el `Dockerfile` por la implementación real del Dashboard cuando esté lista.
+
+<!-- prueba de proteccion de rama, PR descartable -->
