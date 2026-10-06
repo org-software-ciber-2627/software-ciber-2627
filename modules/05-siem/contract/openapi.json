@@ -1,0 +1,674 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SIEM · Contrato de integración (SCRUM-6)",
+    "version": "0.1.0-draft",
+    "description": "Propuesta basada en los ejemplos disponibles. Esquema compartido y autenticación siguen como placeholders. Este documento no implementa endpoints. Nombre y puerto confirmados en la copia local del repositorio. Confirmar respuestas, idempotencia y acuerdos intergrupo antes de aprobar."
+  },
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "servers": [
+    {
+      "url": "http://localhost:8005",
+      "description": "Dirección local confirmada en el README del módulo SIEM."
+    }
+  ],
+  "x-status": "draft-pending-agreement",
+  "x-authentication-status": "Pending Identity contract: admin, analista, servicio roles exist; credential format and SIEM endpoint permissions unspecified. No public-access policy is established.",
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Salud del módulo",
+        "responses": {
+          "200": {
+            "description": "Respuesta de salud confirmada en la configuración del placeholder.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                },
+                "example": {
+                  "status": "ok",
+                  "module": "05-siem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events": {
+      "post": {
+        "operationId": "receiveEvent",
+        "summary": "Registrar un evento de seguridad",
+        "description": "Un objeto por petición. Política propuesta: deduplicar por (source, event_id); reintento idéntico devuelve 200, contenido distinto 409. No garantiza la creación de una alerta.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecurityEvent"
+              },
+              "examples": {
+                "ids": {
+                  "summary": "Simulado, pendiente de grupo 2",
+                  "value": {
+                    "event_id": "IDS-EJEMPLO-001",
+                    "timestamp": "2026-09-22T18:30:15Z",
+                    "source": "ids",
+                    "event_type": "port_scan",
+                    "severity": "medium",
+                    "title": "Posible escaneo de puertos",
+                    "description": "Una IP ha contactado con 20 puertos del mismo destino en 60 segundos.",
+                    "details": {
+                      "rule_id": "IDS-001",
+                      "source_ip": "192.168.1.50",
+                      "target_ip": "192.168.1.10",
+                      "protocol": "tcp",
+                      "distinct_ports_count": 20,
+                      "window_seconds": 60
+                    }
+                  }
+                },
+                "honeypot": {
+                  "summary": "Ejemplo adaptado disponible",
+                  "value": {
+                    "event_id": "HP-981839239323",
+                    "timestamp": "2026-09-22T18:30:15Z",
+                    "source": "honeypot",
+                    "event_type": "fuerza_bruta",
+                    "severity": "medium",
+                    "title": "Intento de fuerza bruta en el honeypot",
+                    "description": "El honeypot ha registrado un evento clasificado como fuerza bruta sobre SSH.",
+                    "details": {
+                      "source_ip": "192.168.1.50",
+                      "service": "ssh",
+                      "username": "root",
+                      "credential": "123456",
+                      "command": null
+                    }
+                  }
+                },
+                "scanner": {
+                  "summary": "Ejemplo adaptado disponible",
+                  "value": {
+                    "event_id": "b52ee782-265f-4ec7-a719-484460628ef9",
+                    "timestamp": "2026-09-29T10:30:00Z",
+                    "source": "scanner",
+                    "event_type": "vulnerability_detected",
+                    "severity": "medium",
+                    "title": "Cabecera de seguridad ausente",
+                    "description": "El servicio HTTP no devuelve X-Content-Type-Options.",
+                    "details": {
+                      "target": {
+                        "ip": "192.168.56.10",
+                        "port": 80,
+                        "protocol": "tcp",
+                        "service": "http"
+                      },
+                      "scan_id": "scan-001",
+                      "tool": "nmap",
+                      "profile": "web",
+                      "script_id": "http-headers",
+                      "evidence": "X-Content-Type-Options no aparece en las cabeceras recibidas.",
+                      "cve": null,
+                      "cvss": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Evento nuevo registrado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventReceipt"
+                },
+                "example": {
+                  "status": "accepted",
+                  "source": "honeypot",
+                  "event_id": "HP-981839239323"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Evento idéntico ya registrado; no se duplica.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventReceipt"
+                },
+                "example": {
+                  "status": "duplicate",
+                  "source": "honeypot",
+                  "event_id": "HP-981839239323"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON mal formado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INVALID_JSON",
+                    "message": "El cuerpo no es JSON válido."
+                  }
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Tipo de contenido no admitido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNSUPPORTED_MEDIA_TYPE",
+                    "message": "Se requiere application/json."
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "El evento incumple el esquema.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "El evento no cumple el esquema."
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Mismo identificador con otro contenido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "EVENT_CONFLICT",
+                    "message": "Ya existe el evento con contenido distinto."
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "No se ha podido completar la operación."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alerts": {
+      "get": {
+        "operationId": "listAlerts",
+        "summary": "Consultar alertas",
+        "description": "Sin filtros, paginación ni orden garantizado en esta propuesta. Lista vacía: {\"alerts\": []}. El mock contiene una alerta por evento.",
+        "responses": {
+          "200": {
+            "description": "Lista de alertas.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertsResponse"
+                },
+                "example": {
+                  "alerts": [
+                    {
+                      "alert_id": "SIEM-ALERT-EJEMPLO-001",
+                      "event_id": "IDS-EJEMPLO-001",
+                      "timestamp": "2026-09-22T18:30:15Z",
+                      "source": "ids",
+                      "event_type": "port_scan",
+                      "severity": "medium",
+                      "title": "Posible escaneo de puertos",
+                      "description": "Una IP ha contactado con 20 puertos del mismo destino en 60 segundos.",
+                      "source_ip": "192.168.1.50",
+                      "target_ip": "192.168.1.10",
+                      "details": {
+                        "rule_id": "IDS-001",
+                        "source_ip": "192.168.1.50",
+                        "target_ip": "192.168.1.10",
+                        "protocol": "tcp",
+                        "distinct_ports_count": 20,
+                        "window_seconds": 60
+                      }
+                    },
+                    {
+                      "alert_id": "SIEM-ALERT-EJEMPLO-002",
+                      "event_id": "HP-981839239323",
+                      "timestamp": "2026-09-22T18:30:15Z",
+                      "source": "honeypot",
+                      "event_type": "fuerza_bruta",
+                      "severity": "medium",
+                      "title": "Intento de fuerza bruta en el honeypot",
+                      "description": "El honeypot ha registrado un evento clasificado como fuerza bruta sobre SSH.",
+                      "source_ip": "192.168.1.50",
+                      "target_ip": null,
+                      "details": {
+                        "source_ip": "192.168.1.50",
+                        "service": "ssh",
+                        "username": "root",
+                        "credential": "123456",
+                        "command": null
+                      }
+                    },
+                    {
+                      "alert_id": "SIEM-ALERT-EJEMPLO-003",
+                      "event_id": "b52ee782-265f-4ec7-a719-484460628ef9",
+                      "timestamp": "2026-09-29T10:30:00Z",
+                      "source": "scanner",
+                      "event_type": "vulnerability_detected",
+                      "severity": "medium",
+                      "title": "Cabecera de seguridad ausente",
+                      "description": "El servicio HTTP no devuelve X-Content-Type-Options.",
+                      "source_ip": null,
+                      "target_ip": "192.168.56.10",
+                      "details": {
+                        "target": {
+                          "ip": "192.168.56.10",
+                          "port": 80,
+                          "protocol": "tcp",
+                          "service": "http"
+                        },
+                        "scan_id": "scan-001",
+                        "tool": "nmap",
+                        "profile": "web",
+                        "script_id": "http-headers",
+                        "evidence": "X-Content-Type-Options no aparece en las cabeceras recibidas.",
+                        "cve": null,
+                        "cvss": null
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "No se ha podido completar la operación."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alerts/{id}": {
+      "get": {
+        "operationId": "getAlert",
+        "summary": "Consultar una alerta por alert_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "example": "SIEM-ALERT-EJEMPLO-001"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Alerta solicitada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Alert"
+                },
+                "example": {
+                  "alert_id": "SIEM-ALERT-EJEMPLO-001",
+                  "event_id": "IDS-EJEMPLO-001",
+                  "timestamp": "2026-09-22T18:30:15Z",
+                  "source": "ids",
+                  "event_type": "port_scan",
+                  "severity": "medium",
+                  "title": "Posible escaneo de puertos",
+                  "description": "Una IP ha contactado con 20 puertos del mismo destino en 60 segundos.",
+                  "source_ip": "192.168.1.50",
+                  "target_ip": "192.168.1.10",
+                  "details": {
+                    "rule_id": "IDS-001",
+                    "source_ip": "192.168.1.50",
+                    "target_ip": "192.168.1.10",
+                    "protocol": "tcp",
+                    "distinct_ports_count": 20,
+                    "window_seconds": 60
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Alerta inexistente.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "ALERT_NOT_FOUND",
+                    "message": "No existe la alerta solicitada."
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "No se ha podido completar la operación."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "SecurityEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_id",
+          "timestamp",
+          "source",
+          "event_type",
+          "severity",
+          "title",
+          "description",
+          "details"
+        ],
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Unique within source; stable on retries. UUID is not required."
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "Z$",
+            "description": "Original detection time in UTC."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "ids",
+              "honeypot",
+              "scanner"
+            ]
+          },
+          "event_type": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Shared catalog pending; existing examples retained."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Producer-specific data; internal validation pending agreement."
+          }
+        }
+      },
+      "Alert": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_id",
+          "timestamp",
+          "source",
+          "event_type",
+          "severity",
+          "title",
+          "description",
+          "details",
+          "alert_id",
+          "source_ip",
+          "target_ip"
+        ],
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Unique within source; stable on retries. UUID is not required."
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "Z$",
+            "description": "Original detection time in UTC."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "ids",
+              "honeypot",
+              "scanner"
+            ]
+          },
+          "event_type": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Shared catalog pending; existing examples retained."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Producer-specific data; internal validation pending agreement."
+          },
+          "alert_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stable identifier generated by SIEM."
+          },
+          "source_ip": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "ipv4",
+            "description": "Observed source IP; null for scanner."
+          },
+          "target_ip": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "ipv4",
+            "description": "Destination asset; null when unavailable."
+          }
+        }
+      },
+      "EventReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "source",
+          "event_id"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "duplicate"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "ids",
+              "honeypot",
+              "scanner"
+            ]
+          },
+          "event_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "INVALID_JSON",
+                  "UNSUPPORTED_MEDIA_TYPE",
+                  "VALIDATION_ERROR",
+                  "EVENT_CONFLICT",
+                  "ALERT_NOT_FOUND",
+                  "INTERNAL_ERROR"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      },
+      "Health": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "module"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok"
+          },
+          "module": {
+            "type": "string",
+            "const": "05-siem"
+          }
+        }
+      },
+      "AlertsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "alerts"
+        ],
+        "properties": {
+          "alerts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Alert"
+            }
+          }
+        }
+      }
+    }
+  }
+}
