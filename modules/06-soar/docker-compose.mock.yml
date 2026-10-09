@@ -1,0 +1,8 @@
+services:
+  siem-mock:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
+    container_name: soar_siem_mock
+    ports:
+      - "8000:8000"
