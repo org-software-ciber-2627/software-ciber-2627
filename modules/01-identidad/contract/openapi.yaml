@@ -1,0 +1,399 @@
+openapi: 3.0.3
+
+info:
+  title: Identidad y secretos
+  version: 1.0.1
+  description: |
+    API de autenticación, gestión de usuarios y acceso a secretos.
+
+    **Token.** `POST /auth/login` y `POST /auth/register` devuelven un JWT firmado con HS256
+    (claims: `sub` = nombre de usuario, `role`, `iat`, `exp`). Caducidad: 30 minutos
+    (valor del Sprint 1; cualquier cambio se avisará por Pull Request y por Teams).
+
+    **Cómo validar desde otro módulo.** No decodifiquéis ni verifiquéis el token por vuestra
+    cuenta: llamad a `GET /auth/validate` con la cabecera `Authorization: Bearer <token>`.
+
+    **Roles.** `normal`, `admin` y `servicio`. Los usuarios registrados por `POST /auth/register`
+    nacen con rol `normal`; las cuentas `admin` y `servicio` se precargan en el Sprint 1.
+
+    **Secretos.** `GET /secrets/{clave}` solo está permitido al rol `servicio`.
+
+    **Salud.** `GET /health` lo usan el CI y el docker-compose del monorepo.
+
+    Resumen de formato de error: `{ "error": "<mensaje>" }` (y `{ "valid": false, "error": "<mensaje>" }`
+    en `/auth/validate`).
+  contact:
+    name: CypherGate
+
+servers:
+  - url: http://localhost:8001
+    description: Entorno local con docker compose
+
+paths:
+
+  /health:
+    get:
+      summary: Estado del servicio
+      description: Lo consultan el CI y el docker-compose. Debe responder 200 en el puerto interno 80.
+      operationId: health
+      security: []
+      responses:
+        '200':
+          description: Servicio operativo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /auth/register:
+    post:
+      summary: Registro de un usuario
+      description: Registra una nueva cuenta de usuario con rol `normal` y devuelve un JWT.
+      operationId: register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Usuario registrado con éxito
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+        '400':
+          description: Datos de entrada no válidos o incompletos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: El usuario o el email ya existen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Error no esperado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/login:
+    post:
+      summary: Login
+      description: Autentica a un usuario con nombre de usuario y contraseña y devuelve un JWT.
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Usuario y contraseña correctos. Devuelve un JWT.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Falta el nombre de usuario o la contraseña
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Usuario o contraseña incorrectos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Error no esperado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/validate:
+    get:
+      summary: Validar JWT
+      description: Comprueba si el token JWT proporcionado es válido y devuelve la información del usuario y su rol.
+      operationId: validateToken
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Token válido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidateResponse'
+        '401':
+          description: Token inválido, expirado o no autorizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidateError'
+        '500':
+          description: Error no esperado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /secrets/{clave}:
+    get:
+      summary: Obtener secreto
+      description: >
+        Obtiene el secreto asociado a la clave proporcionada. Requiere un token JWT válido
+        y que el usuario esté autenticado con el rol `servicio`.
+      operationId: getSecret
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: clave
+          in: path
+          required: true
+          description: Clave del secreto que se desea obtener
+          schema:
+            type: string
+          example: api_key
+      responses:
+        '200':
+          description: Secreto obtenido correctamente
+          headers:
+            Cache-Control:
+              description: Siempre `no-store`; la respuesta no debe almacenarse en caché.
+              schema:
+                type: string
+                example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretResponse'
+        '400':
+          description: Clave no válida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token inválido, expirado o no autorizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Token válido, pero el rol no es `servicio`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No se encontró un secreto para la clave proporcionada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Error no esperado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - module
+      properties:
+        status:
+          type: string
+          description: Estado del servicio
+          example: ok
+        module:
+          type: string
+          description: Identificador del módulo
+          example: 01-identidad
+
+    RegisterRequest:
+      type: object
+      required:
+        - username
+        - password
+        - email
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          description: Nombre de usuario
+          example: usuario.ejemplo
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 128
+          description: Contraseña del usuario (nunca se almacena en claro)
+          example: contraseña-de-ejemplo
+        email:
+          type: string
+          format: email
+          description: Email del usuario
+          example: usuario.ejemplo@ciberurjc.local
+
+    RegisterResponse:
+      type: object
+      required:
+        - token
+        - user
+      properties:
+        token:
+          type: string
+          description: Token JWT
+          example: eyJhbGciOiJIUzI1NiIs...
+        user:
+          $ref: '#/components/schemas/UserResponse'
+
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          description: Nombre de usuario
+          example: usuario.ejemplo
+        password:
+          type: string
+          format: password
+          description: Contraseña del usuario
+          example: contraseña-de-ejemplo
+
+    LoginResponse:
+      type: object
+      required:
+        - token
+        - user
+      properties:
+        token:
+          type: string
+          description: Token de acceso JWT
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        user:
+          $ref: '#/components/schemas/UserResponse'
+
+    UserResponse:
+      type: object
+      required:
+        - id
+        - username
+        - email
+        - role
+      properties:
+        id:
+          type: integer
+          description: Identificador del usuario
+          example: 1
+        username:
+          type: string
+          description: Nombre de usuario
+          example: usuario.ejemplo
+        email:
+          type: string
+          format: email
+          description: Email del usuario
+          example: usuario.ejemplo@ciberurjc.local
+        role:
+          $ref: '#/components/schemas/Role'
+
+    Role:
+      type: string
+      enum:
+        - normal
+        - admin
+        - servicio
+      description: Rol del usuario
+      example: normal
+
+    ValidateResponse:
+      type: object
+      required:
+        - valid
+        - user_id
+        - username
+        - role
+      properties:
+        valid:
+          type: boolean
+          description: Indica si el token es válido
+          example: true
+        user_id:
+          type: integer
+          description: Identificador del usuario (el mismo que `UserResponse.id`)
+          example: 1
+        username:
+          type: string
+          description: Nombre de usuario
+          example: usuario.ejemplo
+        role:
+          $ref: '#/components/schemas/Role'
+
+    ValidateError:
+      type: object
+      required:
+        - error
+        - valid
+      properties:
+        error:
+          type: string
+          description: Motivo del fallo en la validación del token
+          example: Token inválido
+        valid:
+          type: boolean
+          description: Siempre `false`
+          example: false
+
+    SecretResponse:
+      type: object
+      required:
+        - clave
+        - valor
+      properties:
+        clave:
+          type: string
+          description: Clave del secreto
+          example: api_key
+        valor:
+          type: string
+          description: Valor del secreto descifrado
+          example: valor-de-ejemplo
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Mensaje de error
+          example: Usuario o contraseña incorrectos
+
+  securitySchemes:
+
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
