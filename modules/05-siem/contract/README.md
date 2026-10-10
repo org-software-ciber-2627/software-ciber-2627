@@ -1,4 +1,4 @@
-# HU2 · Contrato de integración del SIEM (SCRUM-6)
+# HU2 · Contrato de integración del SIEM (SEM-6)
 
 Versión: `0.1.0-draft`. Estado: **propuesta revisable, pendiente de acuerdos y publicación**.
 
@@ -6,7 +6,7 @@ Este contrato permite a IDS, Honeypot y Escáner preparar el envío de eventos, 
 
 ## Ubicación y fuentes
 
-Publicar estos archivos en `modules/05-siem/contract/` y los datos de ejemplo en `modules/05-siem/mocks/`. La carpeta se ha confirmado en la copia local del repositorio compartido. La rama debe pertenecer al equipo 5 e incluir `SCRUM-6`, siguiendo la convención existente.
+Publicar estos archivos en `modules/05-siem/contract/` y los datos de ejemplo en `modules/05-siem/mocks/`. La carpeta se ha confirmado en la copia local del repositorio compartido. La rama debe pertenecer al equipo 5 e incluir `SEM-6`, siguiendo la convención existente.
 
 Se han utilizado los tres JSON de `alertas_grupos/` y `mock_alertas_siem_soar.json`. Los originales se conservan sin cambios. El ejemplo IDS es simulado y está pendiente de confirmar con el grupo 2. Honeypot y Escáner son los ejemplos adaptados disponibles en el proyecto; no se presentan como datos reales de producción.
 
@@ -99,14 +99,14 @@ Códigos propuestos: `INVALID_JSON`, `UNSUPPORTED_MEDIA_TYPE`, `VALIDATION_ERROR
 
 ## Cierre de la HU2
 
-Lista provisional, a contrastar con los criterios reales de SCRUM-6:
+Lista provisional, a contrastar con los criterios reales de SEM-6:
 
 - [ ] Incorporar los criterios de aceptación de la tarjeta.
 - [x] Confirmar carpeta `modules/05-siem/`, nombre `05-siem` y puerto `8005` en la copia local del repositorio.
 - [ ] Alinear la entrada con `shared/event-schema.json` y confirmar el ejemplo IDS.
 - [ ] Incorporar la autenticación de `shared/auth-contract.md`.
 - [ ] Acordar formatos y respuestas con productores, SOAR y Dashboard.
-- [ ] Publicar el contrato y ejemplos en la rama del equipo con `SCRUM-6` en rama y commit.
+- [ ] Publicar el contrato y ejemplos en la rama del equipo con `SEM-6` en rama y commit.
 - [ ] Abrir PR a `main`; comprobar `build-and-health` y `event-schema` en verde.
 - [ ] Obtener la revisión cruzada: según el anillo indicado, el equipo 4 revisa el PR del equipo 5; verificar `CODEOWNERS`.
 - [ ] Verificar los criterios con el PO delegado y completar el flujo de aprobación del repositorio.

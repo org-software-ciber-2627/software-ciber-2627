@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "SIEM · Contrato de integración (SCRUM-6)",
+    "title": "SIEM · Contrato de integración (SEM-6)",
     "version": "0.1.0-draft",
     "description": "Propuesta basada en los ejemplos disponibles. Esquema compartido y autenticación siguen como placeholders. Este documento no implementa endpoints. Nombre y puerto confirmados en la copia local del repositorio. Confirmar respuestas, idempotencia y acuerdos intergrupo antes de aprobar."
   },
