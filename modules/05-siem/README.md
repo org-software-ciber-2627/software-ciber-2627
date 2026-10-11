@@ -11,5 +11,33 @@ Hub de correlación: ingiere eventos de IDS, Honeypot y Escáner, los correla y 
 ## Qué consume
 - `POST /events` de IDS, Honeypot y Escáner (formato común de evento).
 
-## Estado
-Contenedor placeholder (`nginx:alpine`) que responde `GET /health`. Sustituid el `Dockerfile` por vuestra implementación real cuando esté lista.
+## Estado actual
+
+Servidor base implementado con Spring Boot 4.1.1 y Java 21.
+
+Actualmente está disponible:
+- `GET /health`: comprueba que el servidor está funcionando.
+
+Los endpoints de eventos y alertas se implementarán en las siguientes tareas.
+
+## Ejecución local
+
+Desde `modules/05-siem/`:
+
+./mvnw spring-boot:run
+
+El servidor arranca por defecto en el puerto 8080.
+
+Para comprobar su funcionamiento:
+
+curl http://localhost:8080/health
+
+Respuesta esperada:
+
+{"module":"05-siem","status":"ok"}
+
+## Docker
+
+El Dockerfile compila la aplicación con Java 21 y la ejecuta en el puerto interno 80.
+
+En el monorepo, Docker Compose publica el módulo SIEM en el puerto 8005.
