@@ -1,4 +1,4 @@
-const SIEM_URL = "../mocks/alerts-SIEM.json";
+const SIEM_URL = "../mocks/alerts-SIEM.json"; //SIEM real: "http://localhost:8005/alerts
 
 export async function getAlerts() {
     const token = sessionStorage.getItem("token") || "token-de-prueba"; //de prueba porq  todavia no existe el login
