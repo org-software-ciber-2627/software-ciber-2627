@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   identidad:
     build: ./modules/01-identidad
@@ -5,12 +7,6 @@ services:
       - "8001:80"
     networks:
       - ciberurjc
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
 
   ids:
     build: ./modules/02-ids
@@ -18,12 +14,6 @@ services:
       - "8002:80"
     networks:
       - ciberurjc
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
 
   honeypot:
     build: ./modules/03-honeypot
@@ -31,12 +21,6 @@ services:
       - "8003:80"
     networks:
       - ciberurjc
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
 
   escaner:
     build: ./modules/04-escaner
@@ -44,12 +28,6 @@ services:
       - "8004:80"
     networks:
       - ciberurjc
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
 
   siem:
     build: ./modules/05-siem
@@ -57,12 +35,6 @@ services:
       - "8005:80"
     networks:
       - ciberurjc
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
 
   soar:
     build: ./modules/06-soar
@@ -70,12 +42,6 @@ services:
       - "8006:80"
     networks:
       - ciberurjc
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
 
   dashboard:
     build: ./modules/07-dashboard
@@ -83,12 +49,11 @@ services:
       - "8007:80"
     networks:
       - ciberurjc
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
+    depends_on:
+      - identidad
+      - escaner
+      - siem
+      - soar
 
   pentesting:
     build: ./modules/08-pentesting
@@ -96,12 +61,6 @@ services:
       - "8008:80"
     networks:
       - ciberurjc
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
 
 networks:
   ciberurjc:
