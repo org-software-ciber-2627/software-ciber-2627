@@ -1,0 +1,16 @@
+[
+    {
+        "id": "SIEM-001",
+        "fecha": "2023-10-14T10:00:00Z",
+        "severidad": "ALTA",
+        "descripcion": "Intento de inicio de sesión de fuerza bruta detectado",
+        "origen_ip": "192.168.1.45"
+    },
+    {
+        "id": "SIEM-002",
+        "fecha": "2023-10-14T10:05:00Z",
+        "severidad": "BAJA",
+        "descripcion": "Escaneo de puertos bloqueado",
+        "origen_ip": "10.0.0.22"
+    }
+]
