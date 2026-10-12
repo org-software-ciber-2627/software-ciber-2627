@@ -1,0 +1,24 @@
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+FINDINGS = [
+    {
+        "id": "", // cambiar cuando se sepa
+        "severity": "high", // cambiar cuando se sepa
+        "description": "Vulnerabilidad detectada" // cambiar cuando se sepa
+    },
+
+    {
+        "id": "", // cambiar cuando se sepa
+        "severity": "medium", // cambiar cuando se sepa
+        "description": "Configuración insegura detectada" // cambiar cuando se sepa
+    }
+]
+
+@app.route("/findings", methods=["GET"])
+def get_findings():
+    return jsonify(FINDINGS)
+
+if __name__ == "__main__":
+    app.run(host = "0.0.0.0", port = 8004)
