@@ -1,22 +1,3 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Alertas SIEM</title>
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
-<div class="contenedor">
-  <h1>Alertas</h1>
-  <div id="error">No se pudo conectar con el SIEM.</div>
-  <table id="tabla">
-    <thead><tr><th>Severidad</th><th>Título</th><th>Módulo</th><th>Hora</th></tr></thead>
-    <tbody></tbody>
-  </table>
-</div>
-
-<script type="module">
 import { getAlerts } from "./SIEM-client.js";
 
 const PESO = { critical: 4, high: 3, medium: 2, low: 1 };
@@ -55,6 +36,3 @@ async function cargar() {
   }
 }
 cargar();
-</script>
-</body>
-</html>
