@@ -1,0 +1,32 @@
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+INCIDENTS = [
+    {
+        "id": "", // cambiar cuando se sepa
+        "severity": "high", // cambiar cuando se sepa
+        "status": "", // cambiar cuando se sepa
+        "description": "Actividad sospechosa detectada", // cambiar cuando se sepa
+    },
+
+    {
+        "id": "", // cambiar cuando se sepa
+        "severity": "medium", // cambiar cuando se sepa "medium", // cambiar cuando se sepa
+        "status": "", // cambiar cuando se sepa
+        "description": "Múltiples intentos de acceso fallidos", // cambiar cuando se sepa
+    },
+    {
+        "id": "", // cambiar cuando se sepa
+        "severity": "low", // cambiar cuando se sepa
+        "status": "", // cambiar cuando se sepa
+        "description": "Actividad anómala en un equipo" // cambiar cuando se sepa
+    }
+]
+
+@app.route("/incidents", methods=["GET"])
+def get_incidents():
+    return jsonify(INCIDENTS)
+
+if __name__ == "__main__":
+    app.run(host = "0.0.0.0", port = 8006)
