@@ -1,11 +1,8 @@
-# Usa un servidor web ligero
-FROM nginx:alpine
+FROM nginx:1.27-alpine
 
-# Copiar el código fuente y los mocks
-COPY ./src /usr/share/nginx/html
-COPY ./mocks /usr/share/nginx/html/mocks
-
-# Copiar configuración de Nginx (si tienes un default.conf, si no, puedes omitir esta línea)
-# COPY ./default.conf /etc/nginx/conf.d/default.conf
+# /health para el CI y el healthcheck del docker-compose; el resto sirve la interfaz
+COPY default.conf /etc/nginx/conf.d/default.conf
+COPY src /usr/share/nginx/html
+COPY mocks /usr/share/nginx/html/mocks
 
 EXPOSE 80
