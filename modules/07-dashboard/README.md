@@ -33,7 +33,9 @@ docker compose up --build dashboard
 ```
 Abrid `http://localhost:8007` y comprobad `curl -f http://localhost:8007/health`.
 
-Para hacerlo todo de una vez (arranca, comprueba y limpia al terminar, sin tocar vuestro `.env`):
-```bash
-bash modules/07-dashboard/scripts/probar.sh
-```
+Para hacerlo todo de una vez (arranca, comprueba y limpia al terminar, sin tocar vuestro `.env`), con Docker en marcha:
+
+| Sistema | Comando (desde la raíz del clon) |
+|---|---|
+| Linux y macOS | `bash modules/07-dashboard/scripts/probar.sh` |
+| Windows (PowerShell) | `powershell -ExecutionPolicy Bypass -File modules\07-dashboard\scripts\probar.ps1` |
