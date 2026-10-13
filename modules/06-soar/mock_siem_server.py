@@ -9,7 +9,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-MOCK_FILE = Path(__file__).parent / "mocks" / "alerts_mock.json"
+MOCK_FILE = Path(__file__).parent / "mocks" / "alertas_mock.json"
 
 @app.get("/alerts")
 def get_alerts(simulate_error: bool = Query(False, description="Simula caída del SIEM (HTTP 500)")):

@@ -19,8 +19,9 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("soar")
 
 DATABASE_PATH = os.getenv("DATABASE_PATH", "/data/soar.db")
-SIEM_URL = os.getenv("SIEM_URL", "http://siem:80").rstrip("/")
-POLL_INTERVAL_SECONDS = float(os.getenv("POLL_INTERVAL_SECONDS", "0"))
+SIEM_URL = os.getenv("SIEM_URL") or os.getenv("SIEM_API_URL") or "http://siem:80"
+SIEM_URL = SIEM_URL.rstrip("/").removesuffix("/alerts")
+POLL_INTERVAL_SECONDS = float(os.getenv("POLL_INTERVAL_SECONDS", os.getenv("SOAR_POLLING_INTERVAL", "0")))
 
 
 def utc_now() -> str:

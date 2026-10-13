@@ -1,68 +1,53 @@
 # ---------------------------------------------------------
-# HU1: 
+# HU1:
 # ---------------------------------------------------------
 
-import time
 import logging
+import os
+import time
+
 import requests
 from requests.exceptions import RequestException
 
 # ---------------------------------------------------------
 # Configuración
 # ---------------------------------------------------------
-BASE_URL = "https://mock-siem.example.com"   # URL mock, CAMBIAR EN PRODUCCIÓN
+BASE_URL = (os.getenv("SIEM_URL") or os.getenv("SIEM_API_URL") or "http://localhost:8000").rstrip("/")
+if BASE_URL.endswith("/alerts"):
+    BASE_URL = BASE_URL[: -len("/alerts")]
 ENDPOINT = "/alerts"
-POLL_INTERVAL = 30                           # intervalo de sondeo (segundos)
-TIMEOUT = 5                                   # timeout HTTP
-MAX_RETRIES = 3                               # número máximo de reintentos
-BACKOFF_FACTOR = 2                            # backoff exponencial
+POLL_INTERVAL = float(os.getenv("SOAR_POLLING_INTERVAL", os.getenv("POLL_INTERVAL_SECONDS", "30")))
+TIMEOUT = 5
+MAX_RETRIES = 3
+BACKOFF_FACTOR = 2
+AUTH_TOKEN = os.getenv("SIEM_TOKEN")
 
-# TOKEN DE EJEMPLO, CAMBIAR EN PRODUCCIÓN
-AUTH_TOKEN = "mock-token-123"
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-# ---------------------------------------------------------
-# Logger
-# ---------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
 
-# ---------------------------------------------------------
-# Cliente HTTP
-# ---------------------------------------------------------
 def get_alertas():
     url = BASE_URL + ENDPOINT
-    headers = {
-        "Authorization": f"Bearer {AUTH_TOKEN}",
-        "Accept": "application/json"
-    }
+    headers = {"Accept": "application/json"}
+    if AUTH_TOKEN:
+        headers["Authorization"] = f"Bearer {AUTH_TOKEN}"
 
     for intento in range(1, MAX_RETRIES + 1):
         try:
             response = requests.get(url, headers=headers, timeout=TIMEOUT)
-
-            # Si el SIEM devuelve un error HTTP
             if response.status_code >= 400:
-                logging.error(f"Error HTTP {response.status_code}: {response.text}")
+                logging.error("Error HTTP %s: %s", response.status_code, response.text)
                 return None
-
             return response.json()
-
-        except RequestException as e:
-            logging.warning(f"Error de red (intento {intento}/{MAX_RETRIES}): {e}")
-
-            # Backoff exponencial simple
+        except RequestException as exc:
+            logging.warning("Error de red (intento %s/%s): %s", intento, MAX_RETRIES, exc)
             tiempo_espera = BACKOFF_FACTOR ** (intento - 1)
-            logging.info(f"Reintentando en {tiempo_espera}s...")
+            logging.info("Reintentando en %ss...", tiempo_espera)
             time.sleep(tiempo_espera)
 
     logging.error("Fallo definitivo tras varios intentos.")
     return None
 
-# ---------------------------------------------------------
-# Servicio de sondeo (polling)
-# ---------------------------------------------------------
+
 def servicio_polling():
     logging.info("Servicio de sondeo iniciado.")
 
@@ -71,14 +56,12 @@ def servicio_polling():
         alertas = get_alertas()
 
         if alertas is not None:
-            logging.info(f"Alertas recibidas: {alertas}")
+            logging.info("Alertas recibidas: %s", alertas)
         else:
             logging.info("No se recibieron alertas o hubo un error.")
 
         time.sleep(POLL_INTERVAL)
 
-# ---------------------------------------------------------
-# Punto de entrada principal
-# ---------------------------------------------------------
+
 if __name__ == "__main__":
     servicio_polling()
