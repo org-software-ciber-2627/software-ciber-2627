@@ -24,14 +24,16 @@ Sprint 1: página estática (nginx) que lista las alertas del SIEM ordenadas por
 | DASHG7-22 · Listado de alertas del SIEM | Tabla con severidad, título, módulo y hora, ordenada por severidad y fecha. Muestra un mensaje de error si no hay datos. | Lee el mock `mocks/siem-alerts.json`; el SIEM real aún no está conectado. |
 | DASHG7-25 · Refresco periódico de datos | Vuelve a pedir las alertas cada 30 s y muestra la hora de la última actualización. | Refresco simple (sin websockets), como indica el enunciado. |
 
-Pendiente para el Sprint 2: login contra Identidad (DASHG7-19; ahora se envía un token de prueba), cierre de sesión, detalle de alerta, hallazgos del escáner y aviso de datos no actualizados.
+Avance parcial (maqueta, **no** es la historia DASHG7-19 terminada): `login.html` con formulario de usuario y contraseña (DASHG7-46) y un botón «Cerrar Sesión» en la página principal. El login **no consulta a Identidad**: acepta cualquier usuario y contraseña y guarda un token de prueba en `sessionStorage`. Es solo una protección de interfaz, no autenticación real.
+
+Pendiente para el Sprint 2: login real contra Identidad (DASHG7-19 y DASHG7-47) con expiración del token (DASHG7-20), detalle de alerta, hallazgos del escáner y aviso de datos no actualizados. Los mocks de SOAR y Escáner (DASHG7-17) aún no están en esta rama.
 
 ## Cómo probarlo
 ```bash
 cp .env.example .env
 docker compose up --build dashboard
 ```
-Abrid `http://localhost:8007` y comprobad `curl -f http://localhost:8007/health`.
+Abrid `http://localhost:8007`: redirige a `login.html`; entrad con cualquier usuario y contraseña y se mostrarán las alertas. Comprobad también `curl -f http://localhost:8007/health`.
 
 Para hacerlo todo de una vez (arranca, comprueba y limpia al terminar, sin tocar vuestro `.env`), con Docker en marcha:
 
