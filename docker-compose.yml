@@ -76,10 +76,19 @@ services:
     build: ./modules/06-soar
     ports:
       - "8006:80"
+    environment:
+      SIEM_URL: ${SIEM_URL:-http://siem:80}
+      DATABASE_PATH: /data/soar.db
+      POLL_INTERVAL_SECONDS: ${SOAR_POLL_INTERVAL_SECONDS:-0}
+    volumes:
+      - soar-data:/data
+    depends_on:
+      siem:
+        condition: service_healthy
     networks:
       - ciberurjc
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1/health')"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -114,3 +123,6 @@ services:
 networks:
   ciberurjc:
     driver: bridge
+
+volumes:
+  soar-data:
