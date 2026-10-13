@@ -8,29 +8,33 @@
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
         th { background-color: #f2f2f2; }
-        .high { color: red; font-weight: bold; }
+        .sev { padding: 2px 10px; border-radius: 12px; font-weight: 600; }
+        .critical { background: #7f1d1d; color: #fff; }
+        .high { background: #fee2e2; color: #b91c1c; }
+        .medium { background: #fef3c7; color: #b45309; }
+        .low { background: #dcfce7; color: #15803d; }
     </style>
 </head>
 <body>
     <h1>Dashboard Principal de Seguridad</h1>
     <h2>Últimas Alertas (Consumidas desde SIEM)</h2>
+    <div id="error" style="display:none;color:#b91c1c">No se pudo conectar con el SIEM.</div>
 
     <p>Última actualización: <strong><span id="hora-actualizacion">Cargando...</span></strong></p>
 
-    <table id="alerts-table">
+    <table id="tabla">
         <thead>
             <tr>
-                <th>ID</th>
-                <th>Fecha</th>
                 <th>Severidad</th>
-                <th>Descripción</th>
-                <th>Origen</th>
+                <th>Título</th>
+                <th>Módulo</th>
+                <th>Hora</th>
             </tr>
         </thead>
         <tbody id="alerts-body">
         </tbody>
     </table>
 
-    <script src="app.js"></script>
+    <script type="module" src="SIEM-alert.js"></script>
 </body>
 </html>

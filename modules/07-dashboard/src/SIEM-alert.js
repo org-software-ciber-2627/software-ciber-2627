@@ -1,6 +1,7 @@
 import { getAlerts } from "./SIEM-client.js";
 
 const PESO = { critical: 4, high: 3, medium: 2, low: 1 };
+const TIEMPO_REFRESCO = 30000; // 30 segundos
 
 function esc(t) {
   const d = document.createElement("div");
@@ -30,9 +31,13 @@ function pintar(alertas) {
 async function cargar() {
   try {
     pintar(await getAlerts());
+    document.getElementById("error").style.display = "none";
+    document.getElementById("tabla").style.display = "";
   } catch (e) {
     document.getElementById("tabla").style.display = "none";
     document.getElementById("error").style.display = "block";
   }
 }
+
 cargar();
+setInterval(cargar, TIEMPO_REFRESCO);

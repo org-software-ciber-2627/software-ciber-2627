@@ -1,7 +1,7 @@
-const SIEM_URL = "../mocks/alerts-SIEM.json"; //SIEM real: "http://localhost:8005/alerts
+const SIEM_URL = "../mocks/siem-alerts.json"; //SIEM real: "http://localhost:8005/alerts
 
 export async function getAlerts() {
-    const token = sessionStorage.getItem("token") || "token-de-prueba"; //de prueba porq  todavia no existe el login
+    const token = sessionStorage.getItem("token") || "token-de-prueba"; //de prueba (se implementa cuando se junte con el grupo 1)
     const r = await fetch(SIEM_URL, {
         headers: { "Authorization": "Bearer " + token }
     });
