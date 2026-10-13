@@ -1,0 +1,70 @@
+{
+  "alerts": [
+    {
+      "alert_id": "SIEM-ALERT-EJEMPLO-001",
+      "event_id": "IDS-EJEMPLO-001",
+      "timestamp": "2026-09-22T18:30:15Z",
+      "source": "ids",
+      "event_type": "port_scan",
+      "severity": "medium",
+      "title": "Posible escaneo de puertos",
+      "description": "Una IP ha contactado con 20 puertos del mismo destino en 60 segundos.",
+      "source_ip": "192.168.1.50",
+      "target_ip": "192.168.1.10",
+      "details": {
+        "rule_id": "IDS-001",
+        "source_ip": "192.168.1.50",
+        "target_ip": "192.168.1.10",
+        "protocol": "tcp",
+        "distinct_ports_count": 20,
+        "window_seconds": 60
+      }
+    },
+    {
+      "alert_id": "SIEM-ALERT-EJEMPLO-002",
+      "event_id": "HP-981839239323",
+      "timestamp": "2026-09-22T18:30:15Z",
+      "source": "honeypot",
+      "event_type": "fuerza_bruta",
+      "severity": "medium",
+      "title": "Intento de fuerza bruta en el honeypot",
+      "description": "El honeypot ha registrado un evento clasificado como fuerza bruta sobre SSH.",
+      "source_ip": "192.168.1.50",
+      "target_ip": null,
+      "details": {
+        "source_ip": "192.168.1.50",
+        "service": "ssh",
+        "username": "root",
+        "credential": "123456",
+        "command": null
+      }
+    },
+    {
+      "alert_id": "SIEM-ALERT-EJEMPLO-003",
+      "event_id": "b52ee782-265f-4ec7-a719-484460628ef9",
+      "timestamp": "2026-09-29T10:30:00Z",
+      "source": "scanner",
+      "event_type": "vulnerability_detected",
+      "severity": "medium",
+      "title": "Cabecera de seguridad ausente",
+      "description": "El servicio HTTP no devuelve X-Content-Type-Options.",
+      "source_ip": null,
+      "target_ip": "192.168.56.10",
+      "details": {
+        "target": {
+          "ip": "192.168.56.10",
+          "port": 80,
+          "protocol": "tcp",
+          "service": "http"
+        },
+        "scan_id": "scan-001",
+        "tool": "nmap",
+        "profile": "web",
+        "script_id": "http-headers",
+        "evidence": "X-Content-Type-Options no aparece en las cabeceras recibidas.",
+        "cve": null,
+        "cvss": null
+      }
+    }
+  ]
+}
