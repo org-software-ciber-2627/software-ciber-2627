@@ -1,0 +1,8 @@
+{
+  "alerts": [
+    {"alert_id":"SIEM-ALERT-EJEMPLO-001","event_id":"IDS-EJEMPLO-001","timestamp":"2026-09-22T18:30:15Z","source":"ids","event_type":"port_scan","severity":"medium","title":"Posible escaneo de puertos","description":"20 puertos en 60 segundos.","source_ip":"192.168.1.50","target_ip":"192.168.1.10"},
+    {"alert_id":"SIEM-ALERT-EJEMPLO-002","event_id":"HP-981839239323","timestamp":"2026-09-22T18:30:15Z","source":"honeypot","event_type":"fuerza_bruta","severity":"high","title":"Fuerza bruta en el honeypot","description":"Intento sobre SSH.","source_ip":"192.168.1.50","target_ip":null},
+    {"alert_id":"SIEM-ALERT-EJEMPLO-003","event_id":"b52ee782","timestamp":"2026-09-29T10:30:00Z","source":"scanner","event_type":"vulnerability_detected","severity":"medium","title":"Cabecera de seguridad ausente","description":"Falta X-Content-Type-Options.","source_ip":null,"target_ip":"192.168.56.10"},
+    {"alert_id":"SIEM-ALERT-EJEMPLO-004","event_id":"IDS-EJEMPLO-002","timestamp":"2026-09-29T11:00:00Z","source":"ids","event_type":"port_scan","severity":"low","title":"Login fallido","description":"Intento aislado.","source_ip":"10.0.0.5","target_ip":"10.0.0.1"}
+  ]
+}
