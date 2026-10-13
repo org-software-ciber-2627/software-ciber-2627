@@ -1,14 +1,12 @@
-from dataclasses import dataclass
+from pydantic import BaseModel
 from typing import Optional
 
-
-@dataclass
-class Incident:
+class Incident(BaseModel):
     incident_id: str
     alert_id: str
     event_type: str
     severity: str
-    source_ip: Optional[str]
+    source_ip: Optional[str] = None
     status: str
     created_at: str
     resolved_at: Optional[str] = None
