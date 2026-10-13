@@ -18,6 +18,14 @@ Este equipo mantiene la infraestructura de integración compartida: el `docker-c
 ## Estado
 Sprint 1: página estática (nginx) que lista las alertas del SIEM ordenadas por severidad y las refresca cada 30 s. Lee el mock `mocks/siem-alerts.json`; el SIEM real se conectará cuando esté disponible. `GET /health` responde `200`.
 
+## Historias implementadas (Sprint 1)
+| Historia | Qué hace | Limitaciones |
+|---|---|---|
+| DASHG7-22 · Listado de alertas del SIEM | Tabla con severidad, título, módulo y hora, ordenada por severidad y fecha. Muestra un mensaje de error si no hay datos. | Lee el mock `mocks/siem-alerts.json`; el SIEM real aún no está conectado. |
+| DASHG7-25 · Refresco periódico de datos | Vuelve a pedir las alertas cada 30 s y muestra la hora de la última actualización. | Refresco simple (sin websockets), como indica el enunciado. |
+
+Pendiente para el Sprint 2: login contra Identidad (DASHG7-19; ahora se envía un token de prueba), cierre de sesión, detalle de alerta, hallazgos del escáner y aviso de datos no actualizados.
+
 ## Cómo probarlo
 ```bash
 cp .env.example .env
