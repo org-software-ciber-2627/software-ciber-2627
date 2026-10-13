@@ -11,9 +11,56 @@
 #
 # Garantías: no modifica tu .env, no cambia de rama y no sube nada a GitHub.
 #
-# Uso (desde cualquier carpeta del clon):  bash modules/07-dashboard/scripts/probar.sh
+# Uso (desde cualquier carpeta del clon):  bash modules/07-dashboard/scripts/probar.sh [opciones]
 # Equivalente en Windows: modules\07-dashboard\scripts\probar.ps1
+#
+# Opciones (ver "probar.sh -h"):
+#   -s  no reconstruir las imágenes (demo rápida)      -m  dejar todo levantado al terminar
+#   -c  solo comprobar lo que ya está corriendo        -p  parar lo que dejó -m
+#   -n  sin los mocks de SOAR y Escáner                -h  ayuda
 # =============================================================================
+
+# --- Ayuda ----------------------------------------------------------------------------------
+uso() {
+  cat <<'EOF'
+Uso: bash modules/07-dashboard/scripts/probar.sh [opciones]
+
+Sin opciones: construye (con la caché de Docker), arranca, comprueba y limpia al terminar.
+
+  -s, --sin-build       No reconstruye: usa las imágenes que ya existen (solo construye las que falten).
+                        Aviso: tras un "git pull" con cambios, ejecuta antes SIN opciones; si no, puedes
+                        probar una imagen antigua y obtener un OK que no corresponde.
+  -m, --mantener        Al terminar no para nada: deja todo levantado y no espera a Enter.
+  -c, --solo-comprobar  No arranca ni construye nada: solo ejecuta las comprobaciones sobre lo que ya
+                        esté corriendo (arráncalo antes con -m, o sin opciones en otra terminal).
+  -p, --parar           Para y borra lo que dejó -m (contenedores, red y mocks). No hace pruebas.
+  -n, --sin-mocks       No arranca ni comprueba los mocks de SOAR y Escáner.
+  -h, --ayuda           Muestra esta ayuda.
+
+Las opciones se escriben por separado (-s -m, no -sm).
+
+Flujo recomendado para la demo:
+  1) Un rato antes, una vez:   probar.sh            (construye y deja las imágenes guardadas)
+  2) En la demo:               probar.sh -s         (no reconstruye; arranca, comprueba y espera)
+  3) Si lo quieres ya levantado: probar.sh -s -m    y luego  probar.sh -c   y al final  probar.sh -p
+EOF
+}
+
+# --- Opciones ---------------------------------------------------------------------------------
+# Cada opción activa una variable (0 = desactivada, 1 = activada). Se interpretan antes de tocar
+# nada, para que "-h" o una opción errónea no arranquen Docker ni creen ficheros.
+SIN_BUILD=0; MANTENER=0; SOLO_COMPROBAR=0; PARAR=0; SIN_MOCKS=0
+for arg in "$@"; do
+  case "$arg" in
+    -s|--sin-build)       SIN_BUILD=1 ;;
+    -m|--mantener)        MANTENER=1 ;;
+    -c|--solo-comprobar)  SOLO_COMPROBAR=1 ;;
+    -p|--parar)           PARAR=1 ;;
+    -n|--sin-mocks)       SIN_MOCKS=1 ;;
+    -h|--ayuda|--help)    uso; exit 0 ;;
+    *) echo "Opción desconocida: $arg" >&2; echo >&2; uso >&2; exit 2 ;;
+  esac
+done
 
 # Sin "set -e" a propósito: si una comprobación falla queremos seguir y ver TODOS los fallos,
 # no abortar en el primero. "-u" avisa de variables sin definir y "pipefail" propaga errores de tuberías.
@@ -23,12 +70,18 @@ set -uo pipefail
 # RAIZ = raíz del clon, calculada a partir de la ubicación del script (sirve lance donde se lance).
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 MOD="$RAIZ/modules/07-dashboard"
-# Nombre del "proyecto" de compose: aísla esta prueba de cualquier otro docker compose del equipo.
+# Nombre del "proyecto" de compose: aísla esta prueba de cualquier otro docker compose del equipo
+# y hace que las imágenes se llamen siempre igual (dashprueba-*), de modo que -s las reutilice.
 PROJ=dashprueba
 # Copia temporal del .env.example para no tocar el .env real del usuario.
 ENVF="$(mktemp "${TMPDIR:-/tmp}/probar-dashboard.XXXXXX")"
 # FAIL pasa a 1 si cualquier comprobación falla; es el código de salida final del script.
 FAIL=0
+# ARRANCADO = 1 si ESTA ejecución ha levantado contenedores. LIMPIAR = 1 si hay que pararlos al salir.
+# Así nunca se tira abajo algo que otra ejecución (por ejemplo con -m) dejó levantado a propósito.
+ARRANCADO=0
+LIMPIAR=1
+{ [ "$MANTENER" = 1 ] || [ "$SOLO_COMPROBAR" = 1 ]; } && LIMPIAR=0
 
 # --- Funciones de salida con color ------------------------------------------------
 ok()   { printf '  \033[32mOK\033[0m    %s\n' "$1"; }
@@ -38,21 +91,36 @@ step() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
 # --- Limpieza -------------------------------------------------------------------
 # "trap ... EXIT" ejecuta cleanup SIEMPRE al salir (éxito, fallo o Ctrl+C), para no dejar
 # contenedores ni redes colgando que ocupen los puertos en la siguiente prueba.
-cleanup() {
-  step "Limpiando"
+# Solo para lo que arrancó esta ejecución y solo si no se pidió -m; con -m avisa de cómo pararlo.
+parar_todo() {
   docker rm -f mock-soar mock-scanner >/dev/null 2>&1 || true
   (cd "$RAIZ" && docker compose --env-file "$ENVF" -p "$PROJ" down >/dev/null 2>&1) || true
+}
+cleanup() {
+  if [ "$ARRANCADO" = 1 ] && [ "$LIMPIAR" = 1 ]; then
+    step "Limpiando"
+    parar_todo
+    echo "  hecho"
+  elif [ "$ARRANCADO" = 1 ]; then
+    echo
+    echo "Todo sigue levantado (-m). Para pararlo:  bash modules/07-dashboard/scripts/probar.sh -p"
+  fi
   rm -f "$ENVF"
-  echo "  hecho"
 }
 trap cleanup EXIT
 
 # --- 1. Requisitos --------------------------------------------------------------------
+# Con -c solo hace falta curl (no se toca Docker). En el resto de modos también Docker.
 step "Requisitos"
-for c in docker curl; do command -v "$c" >/dev/null || { echo "Falta $c"; exit 1; }; done
-docker compose version >/dev/null 2>&1 || { echo "Falta 'docker compose' (v2)"; exit 1; }
-docker info >/dev/null 2>&1 || { echo "Docker no responde (¿Docker Desktop/daemon parado o falta permiso/sudo?)"; exit 1; }
-ok "docker, compose y curl disponibles"
+command -v curl >/dev/null || { echo "Falta curl"; exit 1; }
+if [ "$SOLO_COMPROBAR" = 0 ]; then
+  command -v docker >/dev/null || { echo "Falta docker"; exit 1; }
+  docker compose version >/dev/null 2>&1 || { echo "Falta 'docker compose' (v2)"; exit 1; }
+  docker info >/dev/null 2>&1 || { echo "Docker no responde (¿Docker Desktop/daemon parado o falta permiso/sudo?)"; exit 1; }
+  ok "docker, compose y curl disponibles"
+else
+  ok "curl disponible (modo solo-comprobar: no se usa Docker)"
+fi
 
 # --- Utilidades de comprobación ---------------------------------------------------------------
 # cuenta URL CLAVE -> cuántas veces aparece "CLAVE": en el JSON que devuelve la URL.
@@ -70,35 +138,83 @@ codigo() { curl -s -o /dev/null -w '%{http_code}' "$1" 2>/dev/null; }
 # docker compose lee las URLs de los módulos de un fichero de variables. Partimos de .env.example.
 cp "$RAIZ/.env.example" "$ENVF"
 
-# --- 3. Arranque del Dashboard ----------------------------------------------------------------------
-# "up --build -d dashboard": construye la imagen y arranca el dashboard en segundo plano.
-# Por el depends_on del docker-compose también arranca identidad, escáner, siem y soar.
-step "Arrancando el Dashboard (docker compose)"
-(cd "$RAIZ" && docker compose --env-file "$ENVF" -p "$PROJ" up --build -d dashboard) \
-  || { echo "docker compose falló (¿puertos 8001-8007 ocupados?)"; exit 1; }
-
-# --- 4. Mocks de SOAR y Escáner (solo si ya están en la rama) ------------------------------------
-# Los mocks son servicios Flask con datos fijos. Cuando los ficheros existen se construyen y se
-# arrancan aparte, en los puertos 5001 (SOAR) y 5002 (Escáner). Si no existen se omiten sin error.
-HAY_MOCKS=0
-if [ -f "$MOD/mocks/mock_SOAR/app.py" ] && [ -f "$MOD/mocks/mock_scanner/app.py" ]; then
-  HAY_MOCKS=1
-  step "Arrancando los mocks de SOAR y Escáner"
-  docker build -q -t mock-soar "$MOD/mocks/mock_SOAR" >/dev/null && docker run -d --rm --name mock-soar -p 5001:5001 mock-soar >/dev/null || bad "el mock SOAR no arranca"
-  docker build -q -t mock-scanner "$MOD/mocks/mock_scanner" >/dev/null && docker run -d --rm --name mock-scanner -p 5002:5002 mock-scanner >/dev/null || bad "el mock Escáner no arranca"
+# --- Modo -p: parar lo que dejó -m y salir ---------------------------------------------------------
+if [ "$PARAR" = 1 ]; then
+  step "Parando lo que dejó -m"
+  parar_todo
+  echo "  hecho (contenedores, red y mocks eliminados; las imágenes se conservan)"
+  exit 0
 fi
 
-# --- 5. Espera activa ------------------------------------------------------------------------------
-# Que el contenedor esté "arrancado" no significa que ya responda. Se sondea /health cada 2 s
-# hasta 30 veces (60 s máximo) antes de empezar a comprobar.
-step "Esperando a que respondan (máx. 60 s)"
-URLS=(http://localhost:8007/health)
-[ "$HAY_MOCKS" = 1 ] && URLS+=(http://localhost:5001/health http://localhost:5002/health)
-for url in "${URLS[@]}"; do
-  for _ in $(seq 1 30); do curl -fs "$url" >/dev/null 2>&1 && break; sleep 2; done
-done
+# --- ¿Hay mocks que probar? ------------------------------------------------------------------------
+# Los mocks de SOAR y Escáner (servicios Flask con datos fijos) solo se prueban si sus ficheros están
+# en la rama y no se pidió -n.
+HAY_MOCKS=0
+if [ "$SIN_MOCKS" = 0 ] && [ -f "$MOD/mocks/mock_SOAR/app.py" ] && [ -f "$MOD/mocks/mock_scanner/app.py" ]; then
+  HAY_MOCKS=1
+fi
 
-# --- 6. Comprobaciones ---------------------------------------------------------------------------------
+# --- 3. Arranque (se salta con -c) -------------------------------------------------------------------
+if [ "$SOLO_COMPROBAR" = 0 ]; then
+  # Protección: si ya hay una prueba levantada (por ejemplo con -m), no se arranca otra encima
+  # porque los puertos chocarían; se indica qué hacer.
+  if [ -n "$(cd "$RAIZ" && docker compose --env-file "$ENVF" -p "$PROJ" ps -q dashboard 2>/dev/null)" ]; then
+    echo "Ya hay una prueba en marcha (proyecto $PROJ)."
+    echo "Usa -c para solo comprobar lo que hay, o -p para pararla antes de volver a arrancar."
+    exit 1
+  fi
+
+  # "up -d dashboard" arranca el dashboard en segundo plano; por su depends_on arrastra también
+  # identidad, escáner, siem y soar. Con --build reconstruye las imágenes (usando la caché de Docker);
+  # con -s se omite y solo se construyen las que no existan todavía.
+  BUILD=(--build); [ "$SIN_BUILD" = 1 ] && BUILD=()
+  step "Arrancando el Dashboard (docker compose$([ "$SIN_BUILD" = 1 ] && echo ', sin reconstruir'))"
+  ARRANCADO=1
+  # (${BUILD[@]+...} evita el error de "variable sin definir" con un array vacío en el bash antiguo de macOS)
+  if ! (cd "$RAIZ" && docker compose --env-file "$ENVF" -p "$PROJ" up ${BUILD[@]+"${BUILD[@]}"} -d dashboard); then
+    echo "docker compose falló (¿puertos 8001-8007 ocupados?)"
+    LIMPIAR=1   # aunque se pidiera -m, si el arranque falla no dejamos restos a medias
+    exit 1
+  fi
+
+  # Mocks: se construyen (salvo con -s y si la imagen ya existe) y se arrancan aparte, en los
+  # puertos 5001 (SOAR) y 5002 (Escáner). Si ya están corriendo, se reutilizan.
+  # arrancar_mock NOMBRE IMAGEN CARPETA PUERTO
+  arrancar_mock() {
+    local nombre="$1" imagen="$2" dir="$3" puerto="$4"
+    if docker ps --format '{{.Names}}' | grep -qx "$nombre"; then
+      echo "  $nombre ya está en marcha; se reutiliza"; return 0
+    fi
+    docker rm -f "$nombre" >/dev/null 2>&1 || true
+    if ! { [ "$SIN_BUILD" = 1 ] && docker image inspect "$imagen" >/dev/null 2>&1; }; then
+      docker build -q -t "$imagen" "$dir" >/dev/null || return 1
+    fi
+    docker run -d --rm --name "$nombre" -p "$puerto:$puerto" "$imagen" >/dev/null
+  }
+  if [ "$HAY_MOCKS" = 1 ]; then
+    step "Arrancando los mocks de SOAR y Escáner"
+    arrancar_mock mock-soar    mock-soar    "$MOD/mocks/mock_SOAR"    5001 || bad "el mock SOAR no arranca"
+    arrancar_mock mock-scanner mock-scanner "$MOD/mocks/mock_scanner" 5002 || bad "el mock Escáner no arranca"
+  fi
+
+  # --- 4. Espera activa ------------------------------------------------------------------------------
+  # Que el contenedor esté "arrancado" no significa que ya responda. Se sondea /health cada 2 s
+  # hasta 30 veces (60 s máximo) antes de empezar a comprobar.
+  step "Esperando a que respondan (máx. 60 s)"
+  URLS=(http://localhost:8007/health)
+  [ "$HAY_MOCKS" = 1 ] && URLS+=(http://localhost:5001/health http://localhost:5002/health)
+  for url in "${URLS[@]}"; do
+    for _ in $(seq 1 30); do curl -fs "$url" >/dev/null 2>&1 && break; sleep 2; done
+  done
+else
+  # Con -c no se arranca nada: si el Dashboard no responde, se avisa en lugar de dar fallos en cadena.
+  if ! curl -fs http://localhost:8007/health >/dev/null 2>&1; then
+    echo "El Dashboard no responde en localhost:8007. Arráncalo antes (sin -c, o con -m) y vuelve a probar."
+    exit 1
+  fi
+fi
+
+# --- 5. Comprobaciones ---------------------------------------------------------------------------------
 step "Comprobaciones"
 
 # Dashboard: salud y contenido servido por nginx.
@@ -122,7 +238,7 @@ contiene http://localhost:8007/SIEM-alert.js "hora-actualizacion" && ok "dashboa
   && ok "dashboard: el código de los mocks de Python no se publica en la web" \
   || bad "dashboard: /mocks/mock_SOAR/app.py es accesible desde la web (revisar el Dockerfile)"
 
-# Mocks de SOAR y Escáner (solo si están en la rama): salud y número de elementos.
+# Mocks de SOAR y Escáner (solo si están en la rama y no se pidió -n): salud y número de elementos.
 if [ "$HAY_MOCKS" = 1 ]; then
   contiene http://localhost:5001/health '"ok"' && ok "mock SOAR: /health responde" || bad "mock SOAR: /health"
   N=$(cuenta http://localhost:5001/incidents id)
@@ -130,18 +246,21 @@ if [ "$HAY_MOCKS" = 1 ]; then
   contiene http://localhost:5002/health '"ok"' && ok "mock Escáner: /health responde" || bad "mock Escáner: /health"
   N=$(cuenta http://localhost:5002/findings id)
   [ "$N" = "3" ] && ok "mock Escáner: GET /findings devuelve 3 hallazgos" || bad "mock Escáner: /findings devuelve $N (esperaba 3)"
+elif [ "$SIN_MOCKS" = 1 ]; then
+  echo "  (mocks de SOAR y Escáner: omitidos por -n)"
 else
-  echo "  (mocks de SOAR y Escáner: aún no están en esta rama; se omiten)"
+  echo "  (mocks de SOAR y Escáner: no están en esta rama; se omiten)"
 fi
 
-# --- 7. Resultado y prueba visual ---------------------------------------------------------------------
+# --- 6. Resultado y prueba visual ---------------------------------------------------------------------
 echo
 if [ "$FAIL" = 0 ]; then printf '\033[32mTODO CORRECTO\033[0m\n'; else printf '\033[31mHAY FALLOS (arriba)\033[0m\n'; fi
 echo
 echo "Prueba visual: abre http://localhost:8007. Te lleva al login: entra con cualquier usuario y contraseña."
 echo "Después deberías ver 4 alertas ordenadas por severidad, la hora real en 'Última actualización'"
 echo "(cambia sola cada 30 s) y el botón 'Cerrar Sesión', que te devuelve al login."
-# Si el script se lanza en una terminal interactiva, espera a que pulses Enter para dejarte mirar
-# el navegador antes de limpiar. Si no hay terminal (CI, redirecciones), limpia directamente.
-if [ -t 0 ]; then read -r -p "Pulsa Enter para parar todo y limpiar... " _; fi
+# Solo se pausa si el script arrancó él mismo los contenedores y los va a limpiar: así puedes mirar
+# el navegador antes de que se paren. Con -m o -c no hay nada que limpiar, así que no se espera.
+# Si no hay terminal interactiva (CI, redirecciones) tampoco se espera.
+if [ "$LIMPIAR" = 1 ] && [ "$ARRANCADO" = 1 ] && [ -t 0 ]; then read -r -p "Pulsa Enter para parar todo y limpiar... " _; fi
 exit "$FAIL"
