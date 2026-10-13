@@ -1,0 +1,17 @@
+{
+  "event_id": "IDS-EJEMPLO-001",
+  "timestamp": "2026-09-22T18:30:15Z",
+  "source": "ids",
+  "event_type": "port_scan",
+  "severity": "medium",
+  "title": "Posible escaneo de puertos",
+  "description": "Una IP ha contactado con 20 puertos del mismo destino en 60 segundos.",
+  "details": {
+    "rule_id": "IDS-001",
+    "source_ip": "192.168.1.50",
+    "target_ip": "192.168.1.10",
+    "protocol": "tcp",
+    "distinct_ports_count": 20,
+    "window_seconds": 60
+  }
+}
