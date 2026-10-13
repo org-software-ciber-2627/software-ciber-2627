@@ -33,6 +33,7 @@ async function cargar() {
     pintar(await getAlerts());
     document.getElementById("error").style.display = "none";
     document.getElementById("tabla").style.display = "";
+    document.getElementById("hora-actualizacion").textContent = new Date().toLocaleTimeString();
   } catch (e) {
     document.getElementById("tabla").style.display = "none";
     document.getElementById("error").style.display = "block";
