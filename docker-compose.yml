@@ -72,6 +72,28 @@ services:
       retries: 5
       start_period: 5s
 
+  siem-db:
+    image: postgres:17-alpine
+    profiles:
+      - siem-db
+    environment:
+      POSTGRES_DB: siem
+      POSTGRES_USER: siem
+      POSTGRES_PASSWORD: ${SIEM_DB_PASSWORD:?Set SIEM_DB_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${SIEM_DB_PORT:-5433}:5432"
+    volumes:
+      - siem-postgres-data:/var/lib/postgresql/data
+      - ./modules/05-siem/db/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - ciberurjc
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   soar:
     build: ./modules/06-soar
     ports:
@@ -114,3 +136,6 @@ services:
 networks:
   ciberurjc:
     driver: bridge
+
+volumes:
+  siem-postgres-data:

@@ -81,3 +81,31 @@ Validación del contrato local. Requiere `jsonschema>=4,<5` en un entorno Python
 ```bash
 python3 modules/05-siem/scripts/verify-contract.py
 ```
+
+## Base de datos de eventos (SEM-63)
+
+El Sprint 2 incorpora un servicio PostgreSQL para preparar el almacenamiento persistente de eventos. La API del SIEM aún no se conecta a esta base de datos; esa integración se desarrolla en SEM-64 y SEM-65.
+
+Desde la raíz del repositorio, copia `.env.example` a `.env` y define `SIEM_DB_PASSWORD` con una contraseña local. El archivo `.env` está excluido de Git. Después arranca la base de datos:
+
+```bash
+docker compose --profile siem-db up -d siem-db
+docker compose ps siem-db
+```
+
+El servicio se conecta a la red Docker `ciberurjc` y escucha en `siem-db:5432` dentro de ella. Desde el ordenador se publica solo en `127.0.0.1:5433`, configurable con `SIEM_DB_PORT`. La base de datos y el usuario son `siem`.
+
+El esquema inicial crea la tabla `events` a partir de `modules/05-siem/db/init/001-create-events.sql`. `event_id` es la clave primaria, `occurred_at` conserva el campo `timestamp` del contrato y `details` se almacena como JSONB, limitado a objetos JSON. Las restricciones también validan `source` y `severity`. El volumen nombrado `siem-postgres-data` conserva los datos al recrear el contenedor.
+
+Para comprobar el esquema y el estado del servicio:
+
+```bash
+docker compose exec siem-db psql -U siem -d siem -c '\d events'
+docker compose exec siem-db pg_isready -U siem -d siem
+```
+
+Para detener el contenedor sin borrar los datos:
+
+```bash
+docker compose stop siem-db
+```
