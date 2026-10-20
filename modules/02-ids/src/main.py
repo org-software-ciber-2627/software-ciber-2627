@@ -8,7 +8,7 @@ from util.parsers import parse_rules
 
 def main():
     # Start Flask application in separate process
-    app = Thread(target=util.health.app.run, kwargs={"port": 80})
+    app = Thread(target=util.health.app.run, kwargs={"port": 80, "host": "0.0.0.0"})
     app.start()
 
     rules = parse_rules("config/ids.rules")
