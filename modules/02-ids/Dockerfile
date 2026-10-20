@@ -1,3 +1,12 @@
-FROM nginx:1.27-alpine
+FROM docker.io/python:3.14-alpine
 
-COPY default.conf /etc/nginx/conf.d/default.conf
+WORKDIR /ids
+
+COPY logs logs
+COPY src src
+RUN python -m venv .venv && \
+    source .venv/bin/activate && \
+    python -m pip install -r src/requirements.txt && \
+    rm src/requirements.txt
+
+CMD source .venv/bin/activate && cd src && python main.py
