@@ -12,6 +12,11 @@ def main():
     app.start()
 
     rules = parse_rules("config/ids.rules")
+
+    for rule in rules:
+        if rule.pattern_id == "P002":
+            rule.disable()
+
     with open(config['LOGFILE']) as archivo:
         eventos = parse_log_lines(archivo)
 
@@ -22,7 +27,10 @@ def main():
         rule.print()
     print(f"[*] Eventos parseados: {len(eventos)}")
     for rule in rules:
-        rule.run()
+        if rule.enabled:
+            rule.run()
+        else:
+            print(f"---Regla {rule.pattern_id} desactivada---")
 
     # Wait for web application to finish
     app.join()
