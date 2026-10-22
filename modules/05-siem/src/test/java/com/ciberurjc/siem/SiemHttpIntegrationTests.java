@@ -44,15 +44,13 @@ class SiemHttpIntegrationTests {
     }
 
     @Test
-    void acceptsAllProducersWithoutChangingStaticAlerts() throws Exception {
+    void rejectsIngestionWithoutStorageWithoutChangingStaticAlerts() throws Exception {
         String before = request("/alerts", null, null).body();
         for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json")) {
             String event = Files.readString(Path.of("contract/examples", filename));
             var response = request("/events", event, "application/json");
-            assertEquals(200, response.statusCode(), response.body());
-            assertEquals("success", mapper.readTree(response.body()).get("status").asText());
-            assertEquals(mapper.readTree(event).get("event_id"), mapper.readTree(response.body()).get("event_id"));
-            assertEquals(200, request("/events", event, "application/json").statusCode());
+            assertEquals(503, response.statusCode(), response.body());
+            assertEquals("STORAGE_UNAVAILABLE", mapper.readTree(response.body()).get("error").get("code").asText());
         }
         assertEquals(mapper.readTree(before), mapper.readTree(request("/alerts", null, null).body()));
     }
@@ -124,14 +122,14 @@ class SiemHttpIntegrationTests {
     }
 
     @Test
-    void preservesEveryProducerFieldAndReturnsExactReceipt() throws Exception {
+    void preservesEveryProducerFieldAndDoesNotReportMockSuccess() throws Exception {
         for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json")) {
             String input = Files.readString(Path.of("contract/examples", filename));
             var model = mapper.readValue(input, com.ciberurjc.siem.models.Event.class);
             assertEquals(mapper.readTree(input), mapper.readTree(mapper.writeValueAsString(model)), filename);
             var response = request("/events", input, "application/json");
-            assertEquals(200, response.statusCode());
-            assertEquals(Map.of("status", "success", "message", "Event received successfully (mock)", "event_id", model.event_id()), mapper.readValue(response.body(), Map.class));
+            assertEquals(503, response.statusCode());
+            assertEquals(Map.of("error", Map.of("code", "STORAGE_UNAVAILABLE", "message", "Event storage is temporarily unavailable")), mapper.readValue(response.body(), Map.class));
         }
     }
 }

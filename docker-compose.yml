@@ -79,7 +79,7 @@ services:
     environment:
       POSTGRES_DB: siem
       POSTGRES_USER: siem
-      POSTGRES_PASSWORD: ${SIEM_DB_PASSWORD:?Set SIEM_DB_PASSWORD in .env}
+      POSTGRES_PASSWORD: ${SIEM_DB_PASSWORD:-}
     ports:
       - "127.0.0.1:${SIEM_DB_PORT:-5433}:5432"
     volumes:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the deployed SIEM mock using only the Python standard library."""
+"""Exercise persistent SIEM ingestion and static alerts using the Python standard library."""
 import json
 import sys
 from pathlib import Path
