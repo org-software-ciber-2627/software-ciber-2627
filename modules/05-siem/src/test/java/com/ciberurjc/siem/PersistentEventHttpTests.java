@@ -188,6 +188,19 @@ class PersistentEventHttpTests {
     }
 
     @Test
+    void preservesOriginalIdentifierWithLogSeparatorsAcrossHttpStorageAndReplay() throws Exception {
+        var input = event("grupo_3_honeypot.json");
+        input.put("event_id", prefix + "id\r\nFORGED\u0085\u2028\u2029");
+        var response = post(input);
+        assertEquals(200, response.statusCode());
+        assertEquals(input.get("event_id"), mapper.readTree(response.body()).get("event_id").asText());
+        assertEquals(input.get("event_id"), repository.findById((String) input.get("source"),
+            (String) input.get("event_id")).orElseThrow().event_id());
+        assertEquals(200, post(input).statusCode());
+        assertEquals(1, count());
+    }
+
+    @Test
     void rejectsInvalidEventsBeforePersisting() throws Exception {
         var input = event("grupo_3_honeypot.json");
         for (var invalid : Map.<String, Object>of("timestamp", "not-a-date", "severity", "urgent", "source", "identity", "title", " ").entrySet()) {

@@ -37,10 +37,23 @@ public class EventService {
             if (result == EventRepository.SaveResult.CONFLICT) {
                 throw new EventIdConflictException();
             }
-            logger.info("Event storage confirmed: id={}, source={}, result={}", event.event_id(), event.source(), result);
+            logger.info("Event storage confirmed: id={}, source={}, result={}", logValue(event.event_id()), event.source(), result);
         } catch (DataAccessException exception) {
-            logger.warn("Event storage failed: id={}, source={}", event.event_id(), event.source());
+            logger.warn("Event storage failed: id={}, source={}", logValue(event.event_id()), event.source());
             throw new EventStorageUnavailableException();
         }
+    }
+
+    private static String logValue(String value) {
+        var safe = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char character = value.charAt(i);
+            if (Character.isISOControl(character) || character == '\u2028' || character == '\u2029') {
+                safe.append("\\u").append(String.format("%04x", (int) character));
+            } else {
+                safe.append(character);
+            }
+        }
+        return safe.toString();
     }
 }

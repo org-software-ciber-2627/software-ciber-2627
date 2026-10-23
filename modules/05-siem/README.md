@@ -164,3 +164,13 @@ Este script añade una columna nullable, se puede repetir y conserva las filas e
 Si falta `SIEM_TEST_DB_URL`, los tests PostgreSQL se omiten explícitamente; el resultado no acredita la persistencia. Los tests de arranque, validación, alertas y error de almacenamiento siguen ejecutándose con el perfil por defecto. En él se comprueba que una ingesta válida responde 503.
 
 `PersistentEventHttpTests` comprueba la conexión HTTP de SEM-65 con PostgreSQL real, incluidos reenvíos simultáneos, conflictos, decimales precisos, fechas con nanosegundos y registros anteriores. Usa las mismas variables `SIEM_TEST_DB_*` y una base de pruebas. La API del histórico de Oliver y las reglas de validación de Darío quedan fuera de esta implementación. Consulta `docs/sem65-ingestion-review.md` para las evidencias y limitaciones.
+
+## Pruebas aisladas de almacenamiento (SEM-66)
+
+Desde la raíz del repositorio, con Docker y Java disponibles:
+
+```bash
+python3 modules/05-siem/scripts/test-storage.py
+```
+
+El ejecutor crea una base PostgreSQL de pruebas y comprueba las suites Java, caída y recuperación, y conservación completa del evento tras recrear el contenedor con el mismo volumen. No lee `.env` ni utiliza la base de datos de trabajo. Elimina solo sus recursos de prueba y exige cero pruebas omitidas. Puede usarse `--offline` si Maven ya tiene las dependencias. Consulta [el alcance, los resultados y la propuesta pendiente de CI](docs/sem66-storage-tests.md).
