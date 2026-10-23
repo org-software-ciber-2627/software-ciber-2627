@@ -322,7 +322,10 @@ class TestCuentasPrecargadas(BaseTest):
             self.assertIsNotNone(guardado)
             self.assertNotIn(valor, guardado.valor_encriptado)
             self.assertEqual(Secret.query.count(), 1)  # solo el definido por entorno
- 
+
+class TestCIFallaIntencionadamente(unittest.TestCase):
+    def test_fallo_a_proposito(self):
+        self.fail("Fallo intencionado para comprobar el CI")
  
 if __name__ == "__main__":
     unittest.main()
