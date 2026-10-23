@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   identidad:
     build: ./modules/01-identidad
@@ -91,6 +93,11 @@ services:
       - "8007:80"
     networks:
       - ciberurjc
+    depends_on:
+      - identidad
+      - escaner
+      - siem
+      - soar
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
       interval: 10s
