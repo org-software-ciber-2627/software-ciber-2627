@@ -1,9 +1,12 @@
 from util.pattern_loader import pattern
+from util.pattern_base import PatternBase
 
 
 @pattern("P002", "Patrón 2", "Medio")
-class Pattern2:
+class Pattern2(PatternBase):
     def __init__(self, threshold, window, *args, **kwargs):
+        super().__init__()
+
         self.threshold = threshold
         self.window = window
         self.args = args
