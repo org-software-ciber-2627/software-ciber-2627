@@ -1,0 +1,7 @@
+{
+  "prueba-001": {
+    "source": "identidad",
+    "raw_line": "Oct 22 10:30:00 servidor identidad: prueba de recepcion",
+    "received_at": "2026-10-25T15:20:26.292150+00:00"
+  }
+}
