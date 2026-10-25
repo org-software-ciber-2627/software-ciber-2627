@@ -4,6 +4,7 @@ from threading import Thread
 from util.log_parser import parse_log_lines
 from util.config_loader import config
 from util.parsers import parse_rules
+from util.log_storage import ParsedLogStorage
 
 
 def main():
@@ -19,6 +20,8 @@ def main():
 
     with open(config['LOGFILE']) as archivo:
         eventos = parse_log_lines(archivo)
+        storage = ParsedLogStorage()
+        storage.save_many(eventos)
 
     print(f"[*] Log a procesar: {config['LOGFILE']}")
     print(f"[*] Whitelist: {config['WHITELIST']}")
