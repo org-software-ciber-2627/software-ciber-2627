@@ -81,4 +81,4 @@ Resultado: 8 pruebas ejecutadas, 0 fallos, 0 errores y 0 omitidas.
 
 La prueba acredita el envío desde el Honeypot real y la recepción por el SIEM. La versión probada valida y registra los eventos en el log; no acredita almacenamiento en base de datos, deduplicación ni generación de alertas.
 
-La persistencia se coordina con HU8. Sigue pendiente ratificar con G3 la documentación de respuestas HTTP: esta versión devuelve 200 para eventos válidos y 400 para eventos
+La persistencia se coordina con HU8. Sigue pendiente ratificar con G3 la documentación de respuestas HTTP: esta versión devuelve 200 para eventos válidos y 400 para eventos inválidos.
