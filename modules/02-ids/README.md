@@ -40,3 +40,67 @@ se escriben en otro archivo ni se envían a las reglas todavía. Por ejemplo:
 ```json
 {"timestamp":"Apr 20 13:51:02","service":"sshd","event_type":"failed_login","username":"root","source_ip":"122.5.240.60","source_port":54874}
 ```
+
+## Patrón P001 · Fuerza bruta
+
+Implementado en `src/patterns/brute_force.py`. Detecta una IP que acumula
+demasiados intentos de autenticación fallidos en poco tiempo.
+
+### Configuración
+
+En `config/ids.rules`:
+```
+# P001,UMBRAL,VENTANA_SEGUNDOS[,usernames=N]
+P001,5,60
+```
+- `UMBRAL`: número mínimo de intentos fallidos para generar alerta.
+- `VENTANA_SEGUNDOS`: tamaño de la ventana deslizante.
+- `usernames` (opcional): número de usuarios distintos a partir del cual se
+  considera *password spraying*.
+
+### Criterio de detección
+
+1. **Eventos que cuentan como intento fallido** (campo `event_type` del parser):
+   `failed_login`, `invalid_user` y `authentication_limit_exceeded`.
+2. **Agrupación:** por `source_ip`. Se descartan los eventos sin `source_ip`.
+3. **Exclusiones:** se ignoran las IPs incluidas en `WHITELIST` de `ids.conf`
+   (admite IPs sueltas y rangos CIDR).
+4. **Condición:** se genera una alerta cuando una IP alcanza `UMBRAL` intentos
+   o más dentro de una ventana de `VENTANA_SEGUNDOS`.
+5. **Sin duplicados:** se emite una única alerta por IP y ráfaga de ataque, no
+   una por cada intento que supere el umbral.
+
+### Severidad
+
+| Situación | Severidad |
+|---|---|
+| Se supera el umbral | `medium` |
+| Se supera el umbral y se intentan `usernames` usuarios distintos o más | `high` |
+| `successful_login` desde la misma IP tras superar el umbral (posible acceso conseguido) | `critical` |
+
+### Evento generado
+
+Sigue el esquema común del SIEM (`modules/05-siem/contract/event-schema.json`):
+```json
+{
+  "event_id": "IDS-P001-122.5.240.60-20260420T135102Z",
+  "timestamp": "2026-04-20T13:51:02Z",
+  "source": "ids",
+  "event_type": "brute_force",
+  "severity": "medium",
+  "title": "Posible ataque de fuerza bruta",
+  "description": "La IP 122.5.240.60 ha realizado 12 intentos fallidos de login en 60 segundos.",
+  "details": {
+    "rule_id": "P001",
+    "source_ip": "122.5.240.60",
+    "service": "sshd",
+    "attempts": 12,
+    "usernames": ["root", "admin"],
+    "window_seconds": 60,
+    "first_attempt": "2026-04-20T13:50:10Z",
+    "last_attempt": "2026-04-20T13:51:02Z",
+    "login_success": false
+  }
+}
+```
+

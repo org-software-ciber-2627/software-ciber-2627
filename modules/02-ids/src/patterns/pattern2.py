@@ -12,7 +12,7 @@ class Pattern2(PatternBase):
         self.args = args
         self.kwargs = kwargs
 
-    def run(self):
+    def run(self, eventos):
         print(f"--- Ejecutando {self.name} (ID: {self.pattern_id}) ---")
         print(f"    Riesgo: {self.risk}")
         print(

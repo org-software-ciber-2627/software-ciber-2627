@@ -45,7 +45,7 @@ def main():
     print(f"[*] Eventos parseados: {len(eventos)}")
     for rule in rules:
         if rule.enabled:
-            rule.run()
+            rule.run(eventos)
         else:
             print(f"---Regla {rule.pattern_id} desactivada---")
 
