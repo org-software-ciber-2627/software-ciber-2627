@@ -18,10 +18,24 @@ def main():
         if rule.pattern_id == "P002":
             rule.disable()
 
-    with open(config['LOGFILE']) as archivo:
-        eventos = parse_log_lines(archivo)
-        storage = ParsedLogStorage()
-        storage.save_many(eventos)
+    # Intentamos leer el fichero de logs configurado.
+    # Si no existe o no se puede abrir, seguimos con una lista vacía
+    # para que el IDS no se caiga al arrancar.
+    try:
+        with open(config['LOGFILE'], encoding='utf-8') as archivo:
+            eventos = parse_log_lines(archivo)
+    except FileNotFoundError:
+        # Caso típico en despliegues iniciales o rutas mal configuradas.
+        print(f"[ERROR] No existe el fichero de logs: {config['LOGFILE']}")
+        eventos = []
+    except OSError as e:
+        # Cubre errores de sistema de archivos (permisos, I/O, etc.).
+        print(f"[ERROR] Error leyendo {config['LOGFILE']}: {e}")
+        eventos = []
+
+    # Guardamos los eventos parseados (si hay) en el almacenamiento JSON.
+    storage = ParsedLogStorage()
+    storage.save_many(eventos)
 
     print(f"[*] Log a procesar: {config['LOGFILE']}")
     print(f"[*] Whitelist: {config['WHITELIST']}")
@@ -37,5 +51,7 @@ def main():
 
     # Wait for web application to finish
     app.join()
+
+
 if __name__ == "__main__":
     main()
