@@ -41,7 +41,7 @@ se escriben en otro archivo ni se envían a las reglas todavía. Por ejemplo:
 {"timestamp":"Apr 20 13:51:02","service":"sshd","event_type":"failed_login","username":"root","source_ip":"122.5.240.60","source_port":54874}
 ```
 
-## Patrón P001 · Fuerza bruta
+## Patrón P004 · Fuerza bruta
 
 Implementado en `src/patterns/brute_force.py`. Detecta una IP que acumula
 demasiados intentos de autenticación fallidos en poco tiempo.
@@ -50,8 +50,8 @@ demasiados intentos de autenticación fallidos en poco tiempo.
 
 En `config/ids.rules`:
 ```
-# P001,UMBRAL,VENTANA_SEGUNDOS[,usernames=N]
-P001,5,60
+# P004,UMBRAL,VENTANA_SEGUNDOS[,usernames=N]
+P004,5,60
 ```
 - `UMBRAL`: número mínimo de intentos fallidos para generar alerta.
 - `VENTANA_SEGUNDOS`: tamaño de la ventana deslizante.
@@ -83,7 +83,7 @@ P001,5,60
 Sigue el esquema común del SIEM (`modules/05-siem/contract/event-schema.json`):
 ```json
 {
-  "event_id": "IDS-P001-122.5.240.60-20260420T135102Z",
+  "event_id": "IDS-P004-122.5.240.60-20260420T135102Z",
   "timestamp": "2026-04-20T13:51:02Z",
   "source": "ids",
   "event_type": "brute_force",
