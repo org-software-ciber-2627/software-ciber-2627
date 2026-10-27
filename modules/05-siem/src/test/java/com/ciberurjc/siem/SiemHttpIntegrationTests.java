@@ -134,4 +134,33 @@ class SiemHttpIntegrationTests {
             assertEquals(Map.of("status", "success", "message", "Event received successfully (mock)", "event_id", model.event_id()), mapper.readValue(response.body(), Map.class));
         }
     }
+    @Test
+    void acceptsCurrentHoneypotPayloadAndPreservesDetails() throws Exception {
+        String input = Files.readString(
+            Path.of("contract/examples/grupo_3_honeypot_actual.json")
+    );
+
+    var event = mapper.readValue(
+        input,
+        com.ciberurjc.siem.models.Event.class
+    );
+
+    assertEquals(
+        mapper.readTree(input),
+        mapper.readTree(mapper.writeValueAsString(event))
+    );
+
+    assertEquals("/login", event.details().get("ruta"));
+    assertTrue(event.details().containsKey("navegador"));
+    assertTrue(event.details().containsKey("command"));
+    assertNull(event.details().get("command"));
+
+    var response = request("/events", input, "application/json");
+
+    assertEquals(200, response.statusCode(), response.body());
+    assertEquals(
+        event.event_id(),
+        mapper.readTree(response.body()).get("event_id").asText()
+        );
+    }
 }
