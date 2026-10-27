@@ -11,6 +11,8 @@ No cambia el cuerpo de los productores ni los valores de `source`: `ids`, `honey
 | Mismo `(source, event_id)` con contenido distinto | 409 `EVENT_ID_CONFLICT`, conservando el original |
 | Perfil `persistence` desactivado o fallo del almacenamiento durante la petición | 503 `STORAGE_UNAVAILABLE` |
 
+La revisión local del 27/10 corrige la clasificación de datos que PostgreSQL no puede representar: con persistencia activa devuelve 400 `VALIDATION_ERROR`, sin guardar la petición, para caracteres nulos, Unicode incompleto y fechas o números fuera del rango de almacenamiento. El parser puede rechazar antes algunos valores con 400 `INVALID_JSON`. No se sustituyen caracteres silenciosamente. Esta precisión forma parte de la propuesta que debe revisar Andrei; no modifica el OpenAPI oficial ni añade fuentes o campos al contrato.
+
 El acuse es el mismo para una inserción y un reenvío idéntico:
 
 ```json

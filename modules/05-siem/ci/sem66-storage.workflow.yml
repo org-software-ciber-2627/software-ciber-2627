@@ -1,4 +1,4 @@
-# Proposal for G7 review. Activate under .github/workflows/ after coordination.
+# Reference copy. Active workflow: .github/workflows/siem-storage.yml.
 name: SIEM storage
 
 on:

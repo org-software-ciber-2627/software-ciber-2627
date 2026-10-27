@@ -30,7 +30,7 @@ import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "server.address=127.0.0.1")
 @ActiveProfiles("persistence")
 @EnabledIfEnvironmentVariable(named = "SIEM_TEST_DB_URL", matches = ".+")
 class PersistentEventHttpTests {
@@ -209,5 +209,74 @@ class PersistentEventHttpTests {
             assertEquals(400, post(changed).statusCode());
         }
         assertEquals(0, count());
+    }
+
+    @Test
+    void rejectsNullCharactersInTextWithoutReportingStorageOutage() throws Exception {
+        for (String field : List.of("event_id", "event_type", "title", "description")) {
+            var input = event("grupo_3_honeypot.json");
+            input.put(field, input.get(field) + "\u0000suffix");
+            var response = post(input);
+            assertEquals(400, response.statusCode(), field + ": " + response.body());
+            assertEquals("VALIDATION_ERROR", mapper.readTree(response.body()).get("error").get("code").asText());
+        }
+        assertEquals(0, count());
+    }
+
+    @Test
+    void rejectsUnpairedSurrogatesInsteadOfStoringReplacementCharacters() throws Exception {
+        for (String field : List.of("event_id", "event_type", "title", "description")) {
+            for (String escaped : List.of("\\uD800", "\\uDC00")) {
+                var input = event("grupo_3_honeypot.json");
+                input.put(field, input.get(field) + "UNICODE_MARKER");
+                String body = mapper.writeValueAsString(input).replace("UNICODE_MARKER", escaped);
+                var response = client.send(postRequest(body), HttpResponse.BodyHandlers.ofString());
+                assertEquals(400, response.statusCode(), field + ": " + response.body());
+            }
+        }
+        assertEquals(0, count());
+    }
+
+    @Test
+    void rejectsUnrepresentableNestedJsonInsteadOfReportingStorageOutage() throws Exception {
+        for (String details : List.of("{\"nested\":{\"value\":\"\\u0000\"}}",
+                "{\"nested\":{\"\\uD800\":\"value\"}}", "{\"n\":1e200000}", "{\"n\":1e-20000}")) {
+            var input = event("grupo_3_honeypot.json");
+            input.put("details", Map.of());
+            String body = mapper.writeValueAsString(input).replace("\"details\":{}", "\"details\":" + details);
+            var response = client.send(postRequest(body), HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, response.statusCode(), details + ": " + response.body());
+            String code = mapper.readTree(response.body()).get("error").get("code").asText();
+            assertTrue(List.of("VALIDATION_ERROR", "INVALID_JSON").contains(code), details + ": " + response.body());
+            if (details.equals("{\"n\":1e-20000}")) assertEquals("VALIDATION_ERROR", code);
+        }
+        assertEquals(0, count());
+        assertEquals(200, post(event("grupo_3_honeypot.json")).statusCode());
+    }
+
+    @Test
+    void rejectsTimestampsOutsideStorageRangeAsClientErrors() throws Exception {
+        for (String timestamp : List.of("+300000-01-01T00:00:00Z", "+1000000000-01-01T00:00:00Z",
+                "+999999999-12-31T23:59:59.999999999Z", "-999999999-01-01T00:00:00Z")) {
+            var input = event("grupo_3_honeypot.json");
+            input.put("timestamp", timestamp);
+            var response = post(input);
+            assertEquals(400, response.statusCode(), response.body());
+            assertEquals("VALIDATION_ERROR", mapper.readTree(response.body()).get("error").get("code").asText());
+        }
+        assertEquals(0, count());
+    }
+
+    @Test
+    void preservesSupplementaryUnicodeInTextAndNestedJson() throws Exception {
+        var input = event("grupo_3_honeypot.json");
+        input.put("title", "Sensor \uD83D\uDD12");
+        input.put("details", Map.of("\uD83D\uDD12", List.of(Map.of("text", "\uD83D\uDE80"))));
+        assertEquals(200, post(input).statusCode());
+        var stored = repository.findById((String) input.get("source"), (String) input.get("event_id")).orElseThrow();
+        assertEquals(input.get("title"), stored.title());
+        assertEquals(input.get("details"), stored.details());
+        assertEquals(200, post(input).statusCode());
+        assertEquals(1, count());
     }
 }

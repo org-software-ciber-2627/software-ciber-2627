@@ -1,6 +1,8 @@
-# Equipo 5 · SIEM · Sprint 2 (revisión local)
+# Equipo 5 · SIEM · Sprint 2
 
-Base del Sprint 1 ampliada localmente en SEM-63, SEM-64 y SEM-65. Requiere revisión de JC, revisión cruzada y aceptación del PO antes de publicar. Las respuestas nuevas de ingesta son una propuesta pendiente de ratificación del equipo.
+Entrega de HU8 en `equipo-05-siem/SEM-25-persistencia-eventos`: esquema PostgreSQL, repositorio, ingesta persistente, pruebas y documentación. Actualización del 27/10/2026. La publicación de rama no implica integración en main, CI correcto ni aceptación del PO. Las respuestas nuevas de ingesta siguen pendientes de ratificación del equipo.
+
+Consulta la [guía de arranque y verificación](docs/sem67-persistence-guide.md), las [pruebas de almacenamiento](docs/sem66-storage-tests.md) y el [guion de aceptación](docs/sem67-acceptance-check.md).
 
 ## Alcance
 
@@ -8,7 +10,9 @@ Servidor Java 21 y Spring Boot 4.1.1. Con el perfil `persistence`, recibe un eve
 
 Los reenvíos idénticos de `(source, event_id)` no crean otra fila; un contenido distinto con la misma clave produce 409. Sin el perfil `persistence`, la ingesta devuelve 503. No hay correlación ni autenticación real. Enviar eventos no cambia la lista de alertas. La integración externa sigue pendiente.
 
-## Arranque con Docker
+## Arranque con Docker sin persistencia
+
+Este arranque comprueba el servidor y las alertas estáticas. El Compose del servicio `siem` todavía no activa `persistence` ni proporciona la conexión PostgreSQL; un evento válido devuelve 503. Para almacenar eventos utiliza el arranque Java de la guía SEM-67.
 
 Desde la raíz del repositorio:
 
@@ -31,7 +35,7 @@ docker compose stop siem
 Requiere Java 21 o posterior. Desde `modules/05-siem`:
 
 ```bash
-./mvnw spring-boot:run
+./mvnw spring-boot:run -Dspring-boot.run.arguments=--server.address=127.0.0.1
 ```
 
 El puerto local por defecto es 8005. Puede configurarse con `SERVER_PORT`. El wrapper descarga Maven y las dependencias oficiales en el primer arranque.
@@ -46,6 +50,8 @@ El puerto local por defecto es 8005. Puede configurarse con `SERVER_PORT`. El wr
 | `GET /alerts/{id}` | 200 con una alerta; 404 con error JSON si no existe |
 
 Se conserva el 200/400 comunicado a G3 y se proponen 409/503 para SEM-65. Consulta `contract/sem65-ingestion-proposal.md`. El OpenAPI y el README dentro de `contract/` conservan el candidato del Sprint 1; su actualización debe revisarse con el responsable del contrato antes de integrar. No representan todavía esta propuesta de ingesta persistente.
+
+Con persistencia activa, los datos que no pueden conservarse en PostgreSQL producen 400, sin insertar: caracteres nulos, Unicode incompleto y fechas o números fuera de su rango admitido. Los fallos reales del almacenamiento mantienen 503. Los identificadores con separadores de log y el Unicode válido siguen preservándose.
 
 ```bash
 curl -i -H 'Content-Type: application/json' --data-binary @modules/05-siem/contract/examples/grupo_3_honeypot.json http://localhost:8005/events
@@ -69,7 +75,7 @@ Desde `modules/05-siem`:
 
 Las pruebas arrancan el servidor en un puerto aleatorio y comprueban los tres productores, los campos obligatorios, valores inválidos, JSON incorrecto, los tres detalles y el error 404. No certifican servicios de otros equipos.
 
-Consultar `docs/estado-integracion.md` para evidencias y acuerdos pendientes. La API no expone credenciales en los logs; los datos de `credential` de los ejemplos son datos ficticios de laboratorio.
+Consultar `docs/sem66-storage-tests.md` para resultados y `docs/sem67-acceptance-check.md` para las condiciones pendientes. `docs/estado-integracion.md` conserva únicamente el estado histórico del Sprint 1. Los logs de ingesta no imprimen `credential` ni `details`; los datos de los ejemplos son ficticios de laboratorio.
 
 Comprobación HTTP con el perfil `persistence` activo y ambos scripts SQL aplicados, desde la raíz del repositorio. Inserta los ejemplos de laboratorio y puede repetirse si esos identificadores conservan el mismo contenido:
 
@@ -139,10 +145,10 @@ Variables de configuración:
 | `SIEM_DB_PORT` | Puerto local, por defecto `5433`. |
 | `SIEM_DB_URL` | URL JDBC opcional. Por defecto `jdbc:postgresql://127.0.0.1:<SIEM_DB_PORT>/siem`; dentro de la red Docker debe apuntar a `jdbc:postgresql://siem-db:5432/siem`. |
 
-Con PostgreSQL arrancado y las variables configuradas en el entorno, desde `modules/05-siem`:
+Sigue la [receta completa con dos terminales](docs/sem67-persistence-guide.md). Con PostgreSQL arrancado y las variables configuradas en el entorno, desde `modules/05-siem`:
 
 ```bash
-./mvnw spring-boot:run -Dspring-boot.run.profiles=persistence
+./mvnw spring-boot:run -Dspring-boot.run.profiles=persistence -Dspring-boot.run.arguments=--server.address=127.0.0.1
 ```
 
 ### Actualización del esquema existente

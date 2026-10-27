@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "server.address=127.0.0.1")
 class SiemHttpIntegrationTests {
     @Autowired Environment environment;
     @Autowired ObjectMapper mapper;

@@ -19,7 +19,8 @@ def request(path, body=None, content_type="application/json"):
         return error.code, json.load(error)
 
 def check(name, condition):
-    assert condition, name
+    if not condition:
+        raise AssertionError(name)
     checks.append(name)
 
 status, body = request("/health")

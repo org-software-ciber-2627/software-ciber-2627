@@ -9,6 +9,7 @@ import secrets
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from urllib.request import Request, urlopen
@@ -17,6 +18,9 @@ import uuid
 
 MODULE = Path(__file__).resolve().parents[1]
 ROOT = MODULE.parents[1]
+REPORT = MODULE / 'target/sem66/report.json'
+# Invalidate old success evidence even when argument validation rejects this run.
+REPORT.unlink(missing_ok=True)
 parser = argparse.ArgumentParser(description="Run SIEM storage checks in an isolated PostgreSQL project.")
 parser.add_argument("--offline", action="store_true", help="Use Maven's local dependency cache.")
 args = parser.parse_args()
@@ -27,9 +31,6 @@ ENV = {name: value for name, value in os.environ.items()
        if not name.startswith(('COMPOSE_', 'SPRING_', 'SIEM_', 'SERVER_', 'PG'))
        and name not in ('JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'JDK_JAVA_OPTIONS', 'MAVEN_ARGS', 'MAVEN_OPTS')}
 ENV['SIEM_DB_PASSWORD'] = secrets.token_hex(24)
-REPORT = MODULE / 'target/sem66/report.json'
-# Never leave a previous success report behind after a failed run.
-REPORT.unlink(missing_ok=True)
 checks = []
 
 
@@ -48,6 +49,13 @@ def verify_java_reports():
               for key in ('tests', 'failures', 'errors', 'skipped')}
     assert reports and totals['tests'] > 0 and not any(totals[key] for key in ('failures', 'errors', 'skipped')), totals
     return totals
+
+script_tests = subprocess.run(
+    [sys.executable, '-m', 'unittest', 'discover', '-s', str(MODULE / 'scripts'), '-p', 'test_*.py', '-v'],
+    cwd=ROOT, env=ENV, capture_output=True, text=True, timeout=60)
+if script_tests.returncode:
+    raise RuntimeError('Verification script regressions failed:\n' + script_tests.stderr[-6000:])
+passed('verification script regressions reject false success and stale reports')
 
 with socket.socket() as probe:
     probe.bind(('127.0.0.1', 0))
