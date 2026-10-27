@@ -23,7 +23,7 @@
         "summary": "Salud del módulo",
         "responses": {
           "200": {
-            "description": "Respuesta de salud confirmada en la configuración del placeholder.",
+            "description": "Service health response.",
             "content": {
               "application/json": {
                 "schema": {
@@ -53,7 +53,7 @@
               },
               "examples": {
                 "ids": {
-                  "summary": "Example IDS alert",
+                  "summary": "Example IDS event",
                   "value": {
                     "event_id": "IDS-EJEMPLO-001",
                     "timestamp": "2026-09-22T18:30:15Z",
@@ -73,7 +73,7 @@
                   }
                 },
                 "honeypot": {
-                  "summary": "Ejemplo adaptado disponible",
+                  "summary": "Example honeypot event",
                   "value": {
                     "event_id": "HP-981839239323",
                     "timestamp": "2026-09-22T18:30:15Z",
@@ -92,7 +92,7 @@
                   }
                 },
                 "scanner": {
-                  "summary": "Ejemplo adaptado disponible",
+                  "summary": "Example scanner event",
                   "value": {
                     "event_id": "b52ee782-265f-4ec7-a719-484460628ef9",
                     "timestamp": "2026-09-29T10:30:00Z",
@@ -189,7 +189,7 @@
       "get": {
         "operationId": "listAlerts",
         "summary": "Consultar alertas",
-        "description": "Sin filtros, paginación ni orden garantizado en esta propuesta. Lista vacía: {\"alerts\": []}. El mock contiene una alerta por evento.",
+        "description": "Static alerts without filtering, pagination or guaranteed order. Empty result: {\"alerts\": []}.",
         "responses": {
           "200": {
             "description": "Lista de alertas.",

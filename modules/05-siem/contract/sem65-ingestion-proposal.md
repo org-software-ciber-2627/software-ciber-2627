@@ -4,7 +4,7 @@ Este documento describe el comportamiento de la implementación de persistencia.
 
 No cambia el cuerpo de los productores ni los valores de `source`: `ids`, `honeypot`, `scanner`. Se mantienen los errores de validación existentes (400/415) y las alertas estáticas.
 
-| Situación | Respuesta propuesta |
+| Situación | Respuesta implementada |
 | --- | --- |
 | Evento válido guardado por primera vez | 200 tras confirmar la inserción |
 | Mismo `(source, event_id)` y contenido idéntico | 200, sin insertar ni sobrescribir |
@@ -33,4 +33,4 @@ La igualdad incluye todos los campos de contenido. Los textos, incluido el forma
 
 La clave primaria y `INSERT ... ON CONFLICT DO NOTHING` resuelven las peticiones simultáneas. La confirmación de reenvío utiliza una lectura posterior al intento de inserción para ver la transacción ganadora. No se actualiza la fila existente.
 
-Sin el perfil, los endpoints de salud y alertas siguen arrancando; no se devuelve éxito aparente en ingesta. Con el perfil, PostgreSQL debe estar accesible al arrancar. El Compose del servicio SIEM no activa ni configura este perfil automáticamente: el arranque de ingesta se prueba localmente con Java y las variables de entorno del README. No se modifica el Dockerfile.
+Sin el perfil, los endpoints de salud y alertas siguen arrancando; no se devuelve éxito aparente en ingesta. Con el perfil, PostgreSQL debe estar accesible al arrancar. El Compose del servicio SIEM no activa ni configura este perfil automáticamente. Para arrancar la ingesta persistente, usa Java y las variables de entorno del README.

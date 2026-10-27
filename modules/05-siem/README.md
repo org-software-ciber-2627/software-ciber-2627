@@ -68,7 +68,7 @@ Desde `modules/05-siem`:
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=persistence -Dspring-boot.run.arguments=--server.address=127.0.0.1
 ```
 
-Variables: `SIEM_DB_PASSWORD` (obligatoria), `SIEM_DB_NAME` (por defecto `siem_bd`), `SIEM_DB_PORT` (por defecto `5433`) y `SIEM_DB_URL` (opcional). La aplicación escucha en `127.0.0.1` con puerto `SERVER_PORT` o `8005`.
+Variables: `SIEM_DB_PASSWORD` (obligatoria), `SIEM_DB_NAME` (por defecto `siem_bd`), `SIEM_DB_PORT` (por defecto `5433`) y `SIEM_DB_URL` (opcional). El comando anterior limita la escucha a `127.0.0.1`, con puerto `SERVER_PORT` o `8005`.
 
 ## Comprobaciones
 

@@ -27,13 +27,13 @@ La validación del mock comprueba la cabecera común y que `details` sea un obje
 
 ## Acuse y errores
 
-El 200/400 sigue lo comunicado a G3 y la historia SEM-10. El evento no se almacena ni genera una alerta. Los reintentos válidos también devuelven 200. El formato del acuse se ha conservado de la implementación de ingesta, con mensajes en inglés:
+El mock confirma los eventos válidos con 200, sin almacenarlos ni generar alertas. Los reintentos válidos también devuelven 200. El acuse utiliza mensajes en inglés:
 
 ```json
 {"status":"success","message":"Event received successfully (mock)","event_id":"HP-981839239323"}
 ```
 
-Los errores siguen el formato común del borrador:
+Los errores usan el siguiente formato:
 
 ```json
 {"error":{"code":"VALIDATION_ERROR","message":"The event does not match the required schema"}}
