@@ -309,17 +309,20 @@ def login():
 
 
 @app.post("/auth/logout")
-@jwt_required()
 def logout():
     """Revoca el token actual insertando su JTI en la blocklist."""
-    jti = get_jwt()["jti"]
+    claims, err = check_auth()
+    if err:
+        return jsonify(error=err[0]), err[1]
     
-    # Solo lo insertamos si no existe ya (evita errores de integridad)
+    jti = claims["jti"]
+    
     if not TokenBlocklist.query.filter_by(jti=jti).first():
         db.session.add(TokenBlocklist(jti=jti))
         db.session.commit()
         
-    return jsonify(message="Sesión cerrada exitosamente"), 200
+    return jsonify(message="Token revocado"), 200
+
 
 
 @app.get("/auth/validate")
