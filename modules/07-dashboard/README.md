@@ -26,7 +26,7 @@ Sprint 1: página estática (nginx) que lista las alertas del SIEM ordenadas por
 
 Avance parcial (maqueta, **no** es la historia DASHG7-19 terminada): `login.html` con formulario de usuario y contraseña (DASHG7-46) y un botón «Cerrar Sesión» en la página principal. El login **no consulta a Identidad**: acepta cualquier usuario y contraseña y guarda un token de prueba en `sessionStorage`. Es solo una protección de interfaz, no autenticación real.
 
-Pendiente para el Sprint 2: login real contra Identidad (DASHG7-19 y DASHG7-47) con expiración del token (DASHG7-20), detalle de alerta, hallazgos del escáner y aviso de datos no actualizados. Los mocks de SOAR y Escáner (DASHG7-17) aún no están en esta rama.
+Pendiente para el Sprint 2: login real contra Identidad (DASHG7-19 y DASHG7-47) con expiración del token (DASHG7-20), detalle de alerta, hallazgos del escáner y aviso de datos no actualizados.
 
 ## Cómo probarlo
 ```bash
