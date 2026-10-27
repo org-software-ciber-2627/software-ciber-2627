@@ -95,9 +95,9 @@ function Get-Text($url) {
 function Test-Url($url) {
     try { $null = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 3; return $true } catch { return $false }
 }
-# Get-Code URL -> codigo HTTP de la respuesta (200, 404...). 0 si no hay conexion.
-function Get-Code($url) {
-    try { return [int](Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 3).StatusCode }
+# Get-Code URL [METODO] -> codigo HTTP de la respuesta (200, 404...). 0 si no hay conexion.
+function Get-Code($url, $metodo = 'Get') {
+    try { return [int](Invoke-WebRequest -UseBasicParsing -Uri $url -Method $metodo -TimeoutSec 3).StatusCode }
     catch {
         if ($_.Exception.Response) { return [int]$_.Exception.Response.StatusCode }
         return 0
@@ -252,6 +252,21 @@ try {
     if ($n -eq 4) { Ok 'dashboard: el mock del SIEM tiene 4 alertas' } else { Bad "dashboard: el mock del SIEM devuelve $n alertas (esperaba 4)" }
     if ((Get-Text 'http://localhost:8007/SIEM-alert.js') -match 'hora-actualizacion') { Ok 'dashboard: el JS actualiza la hora de ultima actualizacion' } else { Bad 'dashboard: falta la actualizacion de la hora' }
 
+    # Proxy hacia el SIEM real (nginx reenvia /api/siem/ a siem:80 por la red de Docker). Es lo que usa la web
+    # (SIEM-client.js), asi que se comprueba que el JS apunta al proxy, que el proxy llega al SIEM y que solo
+    # deja pasar GET. No se cuenta el numero de alertas: depende de lo que tenga el SIEM en ese momento.
+    if ((Get-Text 'http://localhost:8007/SIEM-client.js') -match '/api/siem/alerts') { Ok 'dashboard: el JS pide las alertas al proxy /api/siem/alerts' } else { Bad 'dashboard: SIEM-client.js no apunta a /api/siem/alerts' }
+    if (((Get-Code 'http://localhost:8007/api/siem/alerts') -eq 200) -and ((Get-Text 'http://localhost:8007/api/siem/alerts') -match '"alerts"')) {
+        Ok 'dashboard: el proxy /api/siem/alerts llega al SIEM (200 con {"alerts": [...]})'
+    } else {
+        Bad 'dashboard: /api/siem/alerts no responde 200 con alertas (SIEM caido o proxy mal configurado? 502 = SIEM no alcanzable)'
+    }
+    if ((Get-Code 'http://localhost:8007/api/siem/alerts' 'Post') -eq 403) {
+        Ok 'dashboard: el proxy rechaza metodos distintos de GET (403)'
+    } else {
+        Bad 'dashboard: el proxy deja pasar metodos distintos de GET (revisar limit_except en default.conf)'
+    }
+
     # Higiene: el Dockerfile solo debe publicar el mock del SIEM, no el codigo de los mocks de Python.
     if ((Get-Code 'http://localhost:8007/mocks/mock_SOAR/app.py') -eq 404) {
         Ok 'dashboard: el codigo de los mocks de Python no se publica en la web'
@@ -278,8 +293,9 @@ try {
     if (-not $script:Fallo) { Write-Host 'TODO CORRECTO' -ForegroundColor Green } else { Write-Host 'HAY FALLOS (arriba)' -ForegroundColor Red }
     Write-Host ''
     Write-Host 'Prueba visual: abre http://localhost:8007. Te lleva al login: entra con cualquier usuario y contrasena.'
-    Write-Host "Despues deberias ver 4 alertas ordenadas por severidad, la hora real en 'Ultima actualizacion'"
-    Write-Host "(cambia sola cada 30 s) y el boton 'Cerrar Sesion', que te devuelve al login."
+    Write-Host 'Despues deberias ver las alertas reales del SIEM ordenadas por severidad (si el SIEM no tiene ninguna,'
+    Write-Host "la lista sale vacia), la hora real en 'Ultima actualizacion' (cambia sola cada 30 s) y el boton"
+    Write-Host "'Cerrar Sesion', que te devuelve al login."
     # Solo se pausa si el script arranco el mismo los contenedores y los va a limpiar: asi puedes mirar
     # el navegador antes de que se paren. Con -m o -c no hay nada que limpiar, asi que no se espera.
     # Si no hay terminal interactiva (CI, redirecciones) tampoco se espera.

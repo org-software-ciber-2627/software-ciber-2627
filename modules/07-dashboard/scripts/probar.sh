@@ -233,6 +233,17 @@ N=$(cuenta http://localhost:8007/mocks/siem-alerts.json alert_id)
 [ "$N" = "4" ] && ok "dashboard: el mock del SIEM tiene 4 alertas" || bad "dashboard: el mock del SIEM devuelve $N alertas (esperaba 4)"
 contiene http://localhost:8007/SIEM-alert.js "hora-actualizacion" && ok "dashboard: el JS actualiza la hora de última actualización" || bad "dashboard: falta la actualización de la hora"
 
+# Proxy hacia el SIEM real (nginx reenvía /api/siem/ a siem:80 por la red de Docker). Es lo que usa la web
+# (SIEM-client.js), así que se comprueba que el JS apunta al proxy, que el proxy llega al SIEM y que solo
+# deja pasar GET. No se cuenta el número de alertas: depende de lo que tenga el SIEM en ese momento.
+contiene http://localhost:8007/SIEM-client.js "/api/siem/alerts" && ok "dashboard: el JS pide las alertas al proxy /api/siem/alerts" || bad "dashboard: SIEM-client.js no apunta a /api/siem/alerts"
+[ "$(codigo http://localhost:8007/api/siem/alerts)" = "200" ] && contiene http://localhost:8007/api/siem/alerts '"alerts"' \
+  && ok "dashboard: el proxy /api/siem/alerts llega al SIEM (200 con {\"alerts\": [...]})" \
+  || bad "dashboard: /api/siem/alerts no responde 200 con alertas (¿SIEM caído o proxy mal configurado? 502 = SIEM no alcanzable)"
+[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:8007/api/siem/alerts 2>/dev/null)" = "403" ] \
+  && ok "dashboard: el proxy rechaza métodos distintos de GET (403)" \
+  || bad "dashboard: el proxy deja pasar métodos distintos de GET (revisar limit_except en default.conf)"
+
 # Higiene: el Dockerfile solo debe publicar el mock del SIEM, no el código de los mocks de Python.
 [ "$(codigo http://localhost:8007/mocks/mock_SOAR/app.py)" = "404" ] \
   && ok "dashboard: el código de los mocks de Python no se publica en la web" \
@@ -257,8 +268,9 @@ echo
 if [ "$FAIL" = 0 ]; then printf '\033[32mTODO CORRECTO\033[0m\n'; else printf '\033[31mHAY FALLOS (arriba)\033[0m\n'; fi
 echo
 echo "Prueba visual: abre http://localhost:8007. Te lleva al login: entra con cualquier usuario y contraseña."
-echo "Después deberías ver 4 alertas ordenadas por severidad, la hora real en 'Última actualización'"
-echo "(cambia sola cada 30 s) y el botón 'Cerrar Sesión', que te devuelve al login."
+echo "Después deberías ver las alertas reales del SIEM ordenadas por severidad (si el SIEM no tiene ninguna,"
+echo "la lista sale vacía), la hora real en 'Última actualización' (cambia sola cada 30 s) y el botón"
+echo "'Cerrar Sesión', que te devuelve al login."
 # Solo se pausa si el script arrancó él mismo los contenedores y los va a limpiar: así puedes mirar
 # el navegador antes de que se paren. Con -m o -c no hay nada que limpiar, así que no se espera.
 # Si no hay terminal interactiva (CI, redirecciones) tampoco se espera.
