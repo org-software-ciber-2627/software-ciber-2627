@@ -190,7 +190,77 @@ class TestLogin(BaseTest):  # AAA-3
         self.assertEqual(self.login(username=USUARIO["username"]).status_code, 400)
         self.assertEqual(self.login(password=USUARIO["password"]).status_code, 400)
         self.assertEqual(self.login().status_code, 400)
- 
+
+class TestLoginRateLimit(BaseTest):  # AAA-67
+    MAX_INTENTOS = 5
+    IP_A = "192.0.2.10"
+    IP_B = "192.0.2.11"
+
+    def setUp(self):
+        super().setUp()
+        self.assertEqual(self.registrar().status_code, 201)
+
+    def login_desde(self, username, password, ip):
+        return self.client.post(
+            "/auth/login",
+            json={"username": username, "password": password},
+            environ_base={"REMOTE_ADDR": ip},
+        )
+
+    def test_1_cuatro_fallos_devuelven_401(self):
+        for _ in range(4):
+            respuesta = self.login_desde(USUARIO["username"], "incorrecta", self.IP_A)
+            self.assertEqual(respuesta.status_code, 401)
+
+    def test_2_quinto_fallo_devuelve_429_con_retry_after(self):
+        for _ in range(self.MAX_INTENTOS):
+            respuesta = self.login_desde(USUARIO["username"], "incorrecta", self.IP_A)
+        self.assertEqual(respuesta.status_code, 429)
+        self.assertIn("Retry-After", respuesta.headers)
+        self.assertGreater(int(respuesta.headers["Retry-After"]), 0)
+
+    def test_3_usuario_inexistente_tambien_se_bloquea_en_el_quinto_fallo(self):
+        for _ in range(self.MAX_INTENTOS):
+            respuesta = self.login_desde("usuario.inexistente", "incorrecta", self.IP_A)
+        self.assertEqual(respuesta.status_code, 429)
+        self.assertIn("Retry-After", respuesta.headers)
+
+    def test_4_contrasena_correcta_no_funciona_durante_el_bloqueo(self):
+        for _ in range(self.MAX_INTENTOS):
+            self.login_desde(USUARIO["username"], "incorrecta", self.IP_A)
+        respuesta = self.login_desde(USUARIO["username"], USUARIO["password"], self.IP_A)
+        self.assertEqual(respuesta.status_code, 429)
+        self.assertNotIn("token", respuesta.get_json())
+
+    def test_5_otra_ip_no_hereda_el_bloqueo(self):
+        for _ in range(self.MAX_INTENTOS):
+            self.login_desde(USUARIO["username"], "incorrecta", self.IP_A)
+        respuesta = self.login_desde(USUARIO["username"], USUARIO["password"], self.IP_B)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertIn("token", respuesta.get_json())
+
+    def test_6_otro_usuario_no_hereda_el_bloqueo(self):
+        self.crear_usuario("otro.usuario", "analista")
+        for _ in range(self.MAX_INTENTOS):
+            self.login_desde(USUARIO["username"], "incorrecta", self.IP_A)
+        respuesta = self.login_desde("otro.usuario", USUARIO["password"], self.IP_A)
+        self.assertEqual(respuesta.status_code, 200)
+
+    def test_7_el_bloqueo_se_guarda_en_audit_log(self):
+        for _ in range(self.MAX_INTENTOS):
+            self.login_desde("usuario.inexistente", "incorrecta", self.IP_A)
+        with app.app_context():
+            evento = (
+                app_module.AuditLog.query
+                .filter_by(
+                    event_type="limit_exceeded",
+                    username="usuario.inexistente",
+                )
+                .first()
+            )
+            self.assertIsNotNone(evento)
+            self.assertEqual(evento.source_ip, self.IP_A)
+
  
 class TestValidate(BaseTest):  # adelanta AAA-20
     def token_manual(self, username, exp_delta):
