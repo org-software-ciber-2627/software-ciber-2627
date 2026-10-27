@@ -88,20 +88,14 @@ class SiemHttpIntegrationTests {
     }
 
     @Test
-    void servesAllFixtureFieldsAndEachAlertDetail() throws Exception {
+    void servesFixtureListAndDetailNeedsStorage() throws Exception {
         var expected = mapper.readTree(Files.readString(Path.of("mocks/alerts.json")));
         var response = request("/alerts", null, null);
         assertEquals(200, response.statusCode());
         assertEquals(expected, mapper.readTree(response.body()));
-        assertEquals(3, expected.get("alerts").size());
-        for (var alert : expected.get("alerts")) {
-            var detail = request("/alerts/" + alert.get("alert_id").asText(), null, null);
-            assertEquals(200, detail.statusCode());
-            assertEquals(alert, mapper.readTree(detail.body()));
-        }
-        var missing = request("/alerts/UNKNOWN", null, null);
-        assertEquals(404, missing.statusCode());
-        assertEquals("ALERT_NOT_FOUND", mapper.readTree(missing.body()).get("error").get("code").asText());
+        // HU17: sin almacenamiento el detalle ya no devuelve el mock.
+        var detail = request("/alerts/" + expected.get("alerts").get(0).get("alert_id").asText(), null, null);
+        assertEquals(503, detail.statusCode());
     }
 
     @Test
