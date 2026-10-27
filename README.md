@@ -29,8 +29,8 @@ Cada módulo responde en `http://localhost:80NN/health` con `{"status":"ok","mod
 1. Cada equipo trabaja en su propia rama (`equipo-NN-nombre`).
 2. Los cambios llegan a `main` solo mediante **Pull Request**.
 3. El CI (`build-and-health` y `event-schema`) debe estar en verde.
-4. La revisión es cruzada y rotatoria, en anillo: el equipo N revisa los PRs del equipo N+1, y el equipo 8 revisa los del equipo 1 (ver `.github/CODEOWNERS`).
-5. Con al menos una aprobación y CI verde, se fusiona a `main`.
+4. Solo aprueban los representantes de equipo (grupo `@org-software-ciber-2627/reps`, ver `.github/CODEOWNERS`). Un representante no puede aprobar su propio PR, así que pedid la revisión al representante de otro equipo.
+5. Con al menos una aprobación de un representante y CI verde, se fusiona a `main`.
 
 El equipo de Dashboard (`equipo-07-dashboard`) mantiene el CI y la infraestructura compartida (este `docker-compose.yml` y `.github/`), pero **no aprueba ni bloquea el trabajo de los demás equipos**.
 
