@@ -28,7 +28,7 @@ import math
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_jwt_extended import (JWTManager, create_access_token, decode_token,
-                                get_jwt, verify_jwt_in_request, jwt_required)
+                                get_jwt, verify_jwt_in_request)
 from flask_jwt_extended.exceptions import JWTExtendedException
 from flask_sqlalchemy import SQLAlchemy
 from jwt.exceptions import PyJWTError
@@ -56,7 +56,7 @@ def _load_aes_key():
     return key if len(key) == 32 else None
 
 
-app = Flask(__name__)
+app = Flask(_name_)
 app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY")  # sin valor por defecto
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = int(os.environ.get("JWT_EXPIRES_SECONDS", 1800))
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///identidad.db")
@@ -92,7 +92,7 @@ EVENTOS = ("login_ok", "login_failed", "invalid_user", "secret_read", "secret_de
 # ── Modelos ───────────────────────────────────────────────────────────────────
 
 class User(db.Model):
-    __tablename__ = "users"
+    _tablename_ = "users"
     id            = db.Column(db.Integer, primary_key=True)
     username      = db.Column(db.String(50),  unique=True, nullable=False)
     email         = db.Column(db.String(120), unique=True, nullable=False)
@@ -105,7 +105,7 @@ class User(db.Model):
 
 
 class Secret(db.Model):
-    __tablename__    = "secrets"
+    _tablename_    = "secrets"
     id               = db.Column(db.Integer, primary_key=True)
     clave            = db.Column(db.String(100), unique=True, nullable=False)
     valor_encriptado = db.Column(db.Text,        nullable=False)
@@ -114,7 +114,7 @@ class Secret(db.Model):
 
 
 class TokenBlocklist(db.Model):
-    __tablename__ = "token_blocklist"
+    _tablename_ = "token_blocklist"
     id         = db.Column(db.Integer, primary_key=True)
     jti        = db.Column(db.String(36), unique=True, nullable=False, index=True)
     revoked_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
@@ -122,7 +122,7 @@ class TokenBlocklist(db.Model):
 
 class AuditLog(db.Model):
     """Registro de auditoría de seguridad (AAA-57/58). NUNCA guarda contraseñas, tokens ni valores de secretos."""
-    __tablename__ = "audit_log"
+    _tablename_ = "audit_log"
     id          = db.Column(db.Integer, primary_key=True)
     timestamp   = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))  # UTC
     event_type  = db.Column(db.String(30), nullable=False, index=True)   # ver EVENTOS
@@ -381,15 +381,14 @@ def logout():
     claims, err = check_auth()
     if err:
         return jsonify(error=err[0]), err[1]
-    
+
     jti = claims["jti"]
-    
+    # Solo lo insertamos si no existe ya (evita errores de integridad)
     if not TokenBlocklist.query.filter_by(jti=jti).first():
         db.session.add(TokenBlocklist(jti=jti))
         db.session.commit()
-        
-    return jsonify(message="Token revocado"), 200
 
+    return jsonify(message="Token revocado"), 200
 
 
 @app.get("/auth/validate")
