@@ -15,6 +15,7 @@ services:
       SECRET_DB_PASSWORD: ${SECRET_DB_PASSWORD:-}
       SECRET_API_KEY: ${SECRET_API_KEY:-}
       SECRET_JWT_SECRET: ${SECRET_JWT_SECRET:-}
+      IDS_URL: "http://ids/logs"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
       interval: 10s
