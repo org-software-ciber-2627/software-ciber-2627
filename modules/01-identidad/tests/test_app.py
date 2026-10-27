@@ -325,3 +325,42 @@ class TestCuentasPrecargadas(BaseTest):
  
 if __name__ == "__main__":
     unittest.main()
+    
+class TestLogout(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+        with app.app_context():
+            user = User(username="testuser_logout", email="logout@test.com", role="servicio")
+            user.set_password("password123")
+            db.session.add(user)
+            db.session.commit()
+            
+            # Generamos dos tokens distintos para comprobar que no se cierran todas las sesiones (Punto 5)
+            resp1 = self.client.post("/auth/login", json={"username": "testuser_logout", "password": "password123"})
+            self.token1 = resp1.get_json()["token"]
+            self.headers1 = {"Authorization": f"Bearer {self.token1}"}
+
+            resp2 = self.client.post("/auth/login", json={"username": "testuser_logout", "password": "password123"})
+            self.token2 = resp2.get_json()["token"]
+            self.headers2 = {"Authorization": f"Bearer {self.token2}"}
+
+    def test_logout_sin_token(self):
+        resp = self.client.post("/auth/logout")
+        self.assertEqual(resp.status_code, 401)
+        self.assertIn("error", resp.get_json())
+        self.assertNotIn("msg", resp.get_json())  # Punto 4: Comprueba que no sale "msg"
+
+    def test_logout_flujo_completo(self):
+        # 1. Logout exitoso del primer token
+        resp1 = self.client.post("/auth/logout", headers=self.headers1)
+        self.assertEqual(resp1.status_code, 200)
+
+        # 2. Comprobar que el token 1 revocado da 401 estructurado
+        resp2 = self.client.get("/auth/validate", headers=self.headers1)
+        self.assertEqual(resp2.status_code, 401)
+        self.assertIn("error", resp2.get_json())
+        self.assertNotIn("msg", resp2.get_json())
+
+        # 3. Comprobar que el token 2 sigue funcionando (Punto 5)
+        resp3 = self.client.get("/auth/validate", headers=self.headers2)
+        self.assertEqual(resp3.status_code, 200)
