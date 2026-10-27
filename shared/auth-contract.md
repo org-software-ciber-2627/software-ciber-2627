@@ -2,12 +2,12 @@
 
 El equipo `equipo-01-identidad` publica aquí, en el Sprint 1, el contrato de los endpoints que expone.
 La fuente de verdad es [`modules/01-identidad/contract/openapi.yaml`](../modules/01-identidad/contract/openapi.yaml)
-(versión 1.1.0); si este resumen y el YAML difieren, manda el YAML. Los cambios se hacen por Pull Request
+(versión 1.2.0); si este resumen y el YAML difieren, manda el YAML. Los cambios se hacen por Pull Request
 y se avisan por Teams a los equipos que usen el endpoint.
 
 Servicio en local con `docker compose up`: `http://localhost:8001` (puerto interno `80` dentro del compose).
 
-**Historial.** 1.1.0: se añade `GET /audit` (registro de auditoría, solo `admin`). Es un cambio compatible: no modifica los endpoints existentes.
+**Historial.** 1.2.0: se añade `POST /auth/logout` (cierre de sesión). 1.1.0: se añade `GET /audit` (registro de auditoría, solo `admin`). Ambos son cambios compatibles: no modifican los endpoints existentes.
 
 ## Endpoints
 
@@ -23,13 +23,22 @@ Servicio en local con `docker compose up`: `http://localhost:8001` (puerto inter
 - **Errores:** `400` falta usuario o contraseña · `401` credenciales incorrectas · `500` error inesperado. Cuerpo: `{ "error": "<mensaje>" }`.
 - Cada intento de login queda en el registro de auditoría (ver `GET /audit`).
 
+### `POST /auth/logout` (novedad 1.2.0)
+- **Request:** cabecera `Authorization: Bearer <jwt>`. Sin cuerpo.
+- **Response `200`:**
+  ```json
+  { "message": "Token revocado" }
+  ```
+- **Errores:** `401` token inválido, expirado, revocado o ausente (también si ya se cerró la sesión con ese token) · `500` error inesperado. Cuerpo: `{ "error": "<mensaje>" }`.
+- Tras el logout, ese token deja de valer: `GET /auth/validate`, `GET /secrets/{clave}` y `GET /audit` responden `401` con él. Los demás módulos no tienen que hacer nada: siguen validando con `GET /auth/validate`.
+
 ### `GET /auth/validate`
 - **Request:** cabecera `Authorization: Bearer <jwt>`.
 - **Response `200`:**
   ```json
   { "valid": true, "user_id": 1, "username": "usuario.ejemplo", "role": "analista" }
   ```
-- **Errores:** `401` token inválido, expirado o ausente → `{ "valid": false, "error": "<mensaje>" }` · `500` error inesperado.
+- **Errores:** `401` token inválido, expirado, revocado (tras un logout) o ausente → `{ "valid": false, "error": "<mensaje>" }` · `500` error inesperado.
 - **Lo usan los 7 módulos restantes** para comprobar sesión y rol. No decodifiquéis el token por vuestra cuenta: llamad a este endpoint.
 
 ### `GET /secrets/{clave}`

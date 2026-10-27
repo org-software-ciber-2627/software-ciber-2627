@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Identidad y secretos
-  version: 1.1.0
+  version: 1.2.0
   description: |
     API de autenticación, gestión de usuarios, acceso a secretos y consulta del registro de auditoría.
 
@@ -22,12 +22,18 @@ info:
     `GET /audit` permite consultarlos y solo está permitido al rol `admin`. El registro nunca
     contiene contraseñas, tokens ni valores de secretos.
 
+    **Cierre de sesión (novedad 1.2.0).** `POST /auth/logout` invalida el token actual. Desde
+    ese momento, ese token se trata como inválido: `GET /auth/validate`, `GET /secrets/{clave}`
+    y `GET /audit` responden `401` con él. Los demás módulos no cambian nada: siguen validando
+    solo con `GET /auth/validate`.
+
     **Salud.** `GET /health` lo usan el CI y el docker-compose del monorepo.
 
     Resumen de formato de error: `{ "error": "<mensaje>" }` (y `{ "valid": false, "error": "<mensaje>" }`
     en `/auth/validate`).
 
-    **Historial.** 1.1.0: se añade `GET /audit` (cambio compatible, no modifica los endpoints existentes).
+    **Historial.** 1.2.0: se añade `POST /auth/logout` (cambio compatible, no modifica los endpoints existentes).
+    1.1.0: se añade `GET /audit` (cambio compatible).
   contact:
     name: CypherGate
 servers:
@@ -136,11 +142,40 @@ paths:
               schema:
                 $ref: '#/components/schemas/ValidateResponse'
         '401':
-          description: Token inválido, expirado o no autorizado
+          description: Token inválido, expirado, revocado o no autorizado
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ValidateError'
+        '500':
+          description: Error no esperado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /auth/logout:
+    post:
+      summary: Cerrar sesión
+      description: >
+        Invalida el token JWT con el que se hace la petición. No lleva cuerpo. Después, ese token
+        deja de ser válido en todos los endpoints. Si el token ya era inválido, estaba caducado o
+        ya se había cerrado la sesión con él, responde 401.
+      operationId: logout
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Token revocado. La sesión queda cerrada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutResponse'
+        '401':
+          description: Token inválido, expirado, revocado o ausente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '500':
           description: Error no esperado
           content:
@@ -185,7 +220,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
-          description: Token inválido, expirado o no autorizado
+          description: Token inválido, expirado, revocado o no autorizado
           content:
             application/json:
               schema:
@@ -286,7 +321,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
-          description: Token inválido, expirado o no autorizado
+          description: Token inválido, expirado, revocado o no autorizado
           content:
             application/json:
               schema:
@@ -419,6 +454,15 @@ components:
         - servicio
       description: Rol del usuario
       example: analista
+    LogoutResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Confirmación del cierre de sesión
+          example: Token revocado
     ValidateResponse:
       type: object
       required:
