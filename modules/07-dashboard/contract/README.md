@@ -55,7 +55,7 @@ Contrato de origen: `modules/05-siem/contract/openapi.json` (versión `0.2.0-spr
 - Campos de cada alerta, todos requeridos: `alert_id` (string), `event_id` (string), `timestamp` (UTC, ISO 8601), `source` (`ids` | `honeypot` | `scanner`), `event_type` (string), `severity` (`low` | `medium` | `high` | `critical`), `title` (string), `description` (string), `source_ip` (IPv4 o `null`), `target_ip` (IPv4 o `null`) y `details` (objeto con datos propios de cada módulo).
 - El Dashboard usa `severity`, `title`, `source` y `timestamp` en el listado.
 - Autenticación: su contrato la deja pendiente y hoy el SIEM no comprueba ningún token. El Dashboard envía `Authorization: Bearer <token>` igualmente.
-- CORS: el SIEM no lo tiene configurado. Pendiente de que Equipo 5 responda.
+- CORS: el SIEM no lo tiene configurado (comprobado el 27/10: no devuelve `Access-Control-Allow-Origin`). El Dashboard lo resuelve con un proxy en su nginx, así que no necesita nada de Equipo 5.
 
 ```json
 {
@@ -121,4 +121,4 @@ Mientras una dependencia no esté disponible, el Dashboard trabaja contra su pro
 
 - El mock del SIEM (`siem-alerts.json`) respeta el formato publicado por el SIEM.
 - Los mocks de SOAR (`GET /incidents`, puerto 5001) y Escáner (`GET /findings`, puerto 5002) son provisionales y **no coinciden** con la propuesta de arriba: devuelven `id`, `title`, `severity`, `status`, `description` y, el de SOAR, `source`; el del Escáner, `target`. Hay que alinearlos cuando esos equipos publiquen su contrato.
-- La URL del SIEM es una constante en `src/SIEM-client.js`; para apuntar al servicio real se cambia ahí.
+- La URL del SIEM es una constante en `src/SIEM-client.js`. Apunta a `/api/siem/alerts`, que el nginx del Dashboard (`default.conf`) reenvía al SIEM real; para usar el mock se cambia por `../mocks/siem-alerts.json`.
