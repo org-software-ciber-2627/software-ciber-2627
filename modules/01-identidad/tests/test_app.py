@@ -323,6 +323,5 @@ class TestCuentasPrecargadas(BaseTest):
             self.assertNotIn(valor, guardado.valor_encriptado)
             self.assertEqual(Secret.query.count(), 1)  # solo el definido por entorno
  
- 
 if __name__ == "__main__":
     unittest.main()
