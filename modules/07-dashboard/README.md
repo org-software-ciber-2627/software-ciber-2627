@@ -13,7 +13,7 @@ Nada: es el último eslabón de la cadena. Interfaz única que visualiza alertas
 - Escáner (histórico de hallazgos, si está disponible).
 
 ## Responsabilidad adicional
-Este equipo mantiene la infraestructura de integración compartida: el `docker-compose.yml` raíz y el pipeline de CI (`.github/workflows/ci.yml`). Los Pull Requests a `main` solo los aprueban los representantes de equipo (`@org-software-ciber-2627/reps`): este equipo garantiza que el CI y la infraestructura existen y funcionan, **no aprueba ni bloquea el trabajo ajeno**.
+Este equipo mantiene la infraestructura de integración compartida: el `docker-compose.yml` raíz y el pipeline de CI (`.github/workflows/ci.yml`). Los Pull Requests a `main` solo los aprueban los representantes (`@org-software-ciber-2627/reps`): este equipo garantiza que el CI y la infraestructura existen y funcionan, **no aprueba ni bloquea el trabajo ajeno**.
 
 ## Estado
 Sprint 1: página estática (nginx) que lista las alertas del SIEM ordenadas por severidad y las refresca cada 30 s. En el Sprint 1 leía el mock `mocks/siem-alerts.json`. Desde el Sprint 2 (DASHG7-103 y DASHG7-104) pide las alertas al propio Dashboard en `/api/siem/alerts`, y el nginx las reenvía al SIEM real (`http://siem:80/alerts`, solo GET). Se usa el proxy porque el SIEM no tiene CORS. Si el SIEM no está levantado, la web muestra su mensaje de error. `GET /health` responde `200`.
@@ -26,7 +26,7 @@ Sprint 1: página estática (nginx) que lista las alertas del SIEM ordenadas por
 
 Avance parcial (maqueta, **no** es la historia DASHG7-19 terminada): `login.html` con formulario de usuario y contraseña (DASHG7-46) y un botón «Cerrar Sesión» en la página principal. El login **no consulta a Identidad**: acepta cualquier usuario y contraseña y guarda un token de prueba en `sessionStorage`. Es solo una protección de interfaz, no autenticación real.
 
-Pendiente para el Sprint 2: login real contra Identidad (DASHG7-19 y DASHG7-47) con expiración del token (DASHG7-20), detalle de alerta, hallazgos del escáner y aviso de datos no actualizados. Los mocks de SOAR y Escáner (DASHG7-17) aún no están en esta rama.
+Pendiente para el Sprint 2: login real contra Identidad (DASHG7-19 y DASHG7-47) con expiración del token (DASHG7-20), detalle de alerta, hallazgos del escáner y aviso de datos no actualizados.
 
 ## Cómo probarlo
 ```bash
