@@ -1,6 +1,7 @@
 package com.ciberurjc.siem.services;
 
 import com.ciberurjc.siem.models.Event;
+import com.ciberurjc.siem.exceptions.EventValidationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -14,11 +15,11 @@ public class EventService {
     public void processIncomingEvent(Event event) {
         try {
             if (!event.timestamp().endsWith("Z")) {
-                throw new IllegalArgumentException("Timestamp must use UTC with a Z suffix");
+                throw new EventValidationException("timestamp", "must end with Z (UTC)");
             }
             Instant.parse(event.timestamp());
         } catch (DateTimeParseException exception) {
-            throw new IllegalArgumentException("Timestamp must be a valid UTC date-time", exception);
+            throw new EventValidationException("timestamp", "must represent a valid UTC date-time", exception);
         }
         logger.info("Mock event received: id={}, source={}", event.event_id(), event.source());
     }
