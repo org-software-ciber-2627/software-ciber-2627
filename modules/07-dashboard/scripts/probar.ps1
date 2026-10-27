@@ -262,11 +262,11 @@ try {
     # Mocks de SOAR y Escaner (solo si estan en la rama y no se pidio -n): salud y numero de elementos.
     if ($HayMocks) {
         if ((Get-Text 'http://localhost:5001/health') -match '"ok"') { Ok 'mock SOAR: /health responde' } else { Bad 'mock SOAR: /health' }
-        $n = Count-Key 'http://localhost:5001/incidents' 'id'
+        $n = Count-Key 'http://localhost:5001/incidents' 'incident_id'
         if ($n -eq 3) { Ok 'mock SOAR: GET /incidents devuelve 3 incidentes' } else { Bad "mock SOAR: /incidents devuelve $n (esperaba 3)" }
         if ((Get-Text 'http://localhost:5002/health') -match '"ok"') { Ok 'mock Escaner: /health responde' } else { Bad 'mock Escaner: /health' }
-        $n = Count-Key 'http://localhost:5002/findings' 'id'
-        if ($n -eq 3) { Ok 'mock Escaner: GET /findings devuelve 3 hallazgos' } else { Bad "mock Escaner: /findings devuelve $n (esperaba 3)" }
+        $n = Count-Key 'http://localhost:5002/events' 'scan_id'
+        if ($n -eq 2) { Ok 'mock Escaner: GET /events devuelve 2 escaneos' } else { Bad "mock Escaner: /events devuelve $n (esperaba 2)" }
     } elseif ($SinMocks) {
         Write-Host '  (mocks de SOAR y Escaner: omitidos por -n)'
     } else {

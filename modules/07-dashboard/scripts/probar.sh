@@ -241,11 +241,11 @@ contiene http://localhost:8007/SIEM-alert.js "hora-actualizacion" && ok "dashboa
 # Mocks de SOAR y Escáner (solo si están en la rama y no se pidió -n): salud y número de elementos.
 if [ "$HAY_MOCKS" = 1 ]; then
   contiene http://localhost:5001/health '"ok"' && ok "mock SOAR: /health responde" || bad "mock SOAR: /health"
-  N=$(cuenta http://localhost:5001/incidents id)
+  N=$(cuenta http://localhost:5001/incidents incident_id)
   [ "$N" = "3" ] && ok "mock SOAR: GET /incidents devuelve 3 incidentes" || bad "mock SOAR: /incidents devuelve $N (esperaba 3)"
   contiene http://localhost:5002/health '"ok"' && ok "mock Escáner: /health responde" || bad "mock Escáner: /health"
-  N=$(cuenta http://localhost:5002/findings id)
-  [ "$N" = "3" ] && ok "mock Escáner: GET /findings devuelve 3 hallazgos" || bad "mock Escáner: /findings devuelve $N (esperaba 3)"
+  N=$(cuenta http://localhost:5002/events scan_id)
+  [ "$N" = "2" ] && ok "mock Escáner: GET /events devuelve 2 escaneos" || bad "mock Escáner: /events devuelve $N (esperaba 2)"
 elif [ "$SIN_MOCKS" = 1 ]; then
   echo "  (mocks de SOAR y Escáner: omitidos por -n)"
 else

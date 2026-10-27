@@ -4,7 +4,8 @@ El Dashboard no expone ninguna API que otros módulos consuman: es el último es
 
 Cada endpoint indica su estado:
 - **Publicado**: el equipo proveedor lo ha publicado en `main`. Los campos son los de su contrato.
-- **Propuesta**: lo fija el Dashboard a partir de sus historias de usuario porque el proveedor aún no ha publicado su contrato. El proveedor debe confirmarlo o corregirlo en el PR que añade el suyo. Hasta entonces es la referencia para el mock del Dashboard.
+- **Borrador / deducido**: el proveedor no ha publicado su contrato en `main`, pero hay un borrador suyo en una rama o su código ya está en `main`. Los campos salen de ahí y no están confirmados por el equipo. Es la referencia para el mock del Dashboard.
+- **Propuesta**: lo fija el Dashboard a partir de sus historias de usuario porque el proveedor aún no ha publicado nada. El proveedor debe confirmarlo o corregirlo en el PR que añade su contrato.
 
 ## Expone
 
@@ -85,27 +86,68 @@ Contrato de origen: `modules/05-siem/contract/openapi.json` (versión `0.2.0-spr
 
 ### SOAR (`equipo-06-soar`)
 
-**`GET /incidents`** (propuesta)
+**`GET /incidents`** (borrador)
 
-Su `contract/README.md` sigue vacío en `main`, así que estos campos son nuestra propuesta y no están confirmados. Las fechas de detección y resolución se necesitan para calcular MTTD y MTTR.
+Su `contract/README.md` sigue vacío en `main`. Sí hay un borrador del modelo en su rama `equipo-06-soar/SB-13-listar-incidentes` (`contract/incidents.md`), sin PR. Su código todavía no tiene ninguna ruta: solo el modelo y una función interna que lista incidentes. Por eso la ruta y el formato de la respuesta son una suposición nuestra.
 
-- Respuesta 200: lista de incidentes con `id` (string, requerido), `alerta_origen` (id de alerta, requerido), `estado` (`abierto` | `resuelto`, requerido), `fecha_creacion` (ISO 8601, requerido), `playbook` (string, opcional).
+- Respuesta 200 (suposición): lista directa de incidentes. Sin incidentes: `[]`.
+- Campos de cada incidente: `incident_id` (string, requerido), `alert_id` (`alert_id` de la alerta del SIEM que lo originó, requerido), `event_type` (string, requerido), `severity` (`low` | `medium` | `high` | `critical`, requerido), `source_ip` (string o `null`), `status` (`open` | `in_progress` | `contained` | `resolved`, requerido), `created_at` (ISO 8601, requerido) y `resolved_at` (ISO 8601 o `null`).
+- No tiene `playbook`, que pide la historia del listado de incidentes (DASHG7-26). Hasta que Equipo 6 diga si lo añade, no se muestra.
+- MTTR: `resolved_at` − `created_at`. MTTD: `created_at` − `timestamp` de la alerta (se busca con `alert_id` en el SIEM), suponiendo que `created_at` es cuando se crea el incidente.
 
 ```json
 [
   {
-    "id": "inc-0007",
-    "alerta_origen": "alr-0042",
-    "estado": "abierto",
-    "fecha_creacion": "2026-10-06T14:40:00Z",
-    "playbook": "bloqueo-ip"
+    "incident_id": "INC-001",
+    "alert_id": "SIEM-ALERT-EJEMPLO-002",
+    "event_type": "fuerza_bruta",
+    "severity": "medium",
+    "source_ip": "192.168.1.50",
+    "status": "open",
+    "created_at": "2026-09-22T18:30:20Z",
+    "resolved_at": null
   }
 ]
 ```
 
 ### Escáner (`equipo-04-escaner`)
 
-Su `contract/README.md` sigue vacío en `main`. Sin contrato todavía: el Dashboard usa su mock hasta que el Escáner publique los campos de un hallazgo.
+Su `contract/README.md` sigue vacío en `main`. Lo que sigue se **deduce de su código** en `main` (`main.py`, `jobs.py`, `parser.py`) y no está confirmado por el equipo. Servicio en `http://localhost:8004`.
+
+**`GET /events`** (deducido)
+- Respuesta 200: lista de escaneos, sin sus eventos: `scan_id` (UUID), `target`, `profile` (`vuln` | `web` | `quick`) y `status` (`running` | `completed` | `failed`).
+- No hay fecha del escaneo: el más reciente es el último de la lista.
+
+**`GET /scan/{scan_id}`** (deducido)
+- Respuesta 200: los mismos campos que en la lista y `events`, la lista de hallazgos (vacía mientras corre).
+- Respuesta 404: `{"error": "scan no encontrado"}`.
+- Cada hallazgo tiene `event_id`, `timestamp`, `source`, `event_type`, `severity` (`low` | `medium` | `high` | `critical`, según el CVSS), `title` (el CVE o el script), `description`, `target` (`ip`, `port`, `protocol`, `service`) y `details` (`scan_id`, `tool`, `profile`, `script_id`, `evidence`, `cve`, `cvss`; los dos últimos pueden ser `null`).
+
+```json
+{
+  "scan_id": "5b0f1c6e-7a3d-4e21-9c58-0d1f2a3b4c01",
+  "target": "192.168.56.10",
+  "profile": "vuln",
+  "status": "completed",
+  "events": [
+    {
+      "event_id": "0c2d8a4e-1b3f-4a6c-8d9e-aa11bb22cc01",
+      "timestamp": "2026-10-20T10:15:00Z",
+      "source": "vulnerability_scanner",
+      "event_type": "vulnerability_detected",
+      "severity": "high",
+      "title": "CVE-2014-0160",
+      "description": "VULNERABLE:",
+      "target": { "ip": "192.168.56.10", "port": 443, "protocol": "tcp", "service": "https" },
+      "details": { "scan_id": "5b0f1c6e-7a3d-4e21-9c58-0d1f2a3b4c01", "tool": "nmap", "profile": "vuln", "script_id": "ssl-heartbleed", "evidence": "VULNERABLE: ...", "cve": "CVE-2014-0160", "cvss": 7.5 }
+    }
+  ]
+}
+```
+
+Limitaciones que se ven en el código y habría que confirmar con Equipo 4:
+- Los escaneos se guardan en memoria y se pierden al reiniciar el contenedor.
+- `source` es `vulnerability_scanner` y `target` va en la raíz, y el schema de eventos del SIEM exige `scanner` y no admite campos extra. Es un asunto entre Equipo 4 y Equipo 5, no del Dashboard.
 
 ## Salud de los módulos
 
@@ -120,5 +162,5 @@ Todos los módulos publican `GET /health`. Respuesta esperada: **200** con `{"st
 Mientras una dependencia no esté disponible, el Dashboard trabaja contra su propio mock en `modules/07-dashboard/mocks/`, con datos de ejemplo fijos.
 
 - El mock del SIEM (`siem-alerts.json`) respeta el formato publicado por el SIEM.
-- Los mocks de SOAR (`GET /incidents`, puerto 5001) y Escáner (`GET /findings`, puerto 5002) son provisionales y **no coinciden** con la propuesta de arriba: devuelven `id`, `title`, `severity`, `status`, `description` y, el de SOAR, `source`; el del Escáner, `target`. Hay que alinearlos cuando esos equipos publiquen su contrato.
+- El mock de SOAR (`GET /incidents`, puerto 5001) sigue el borrador de Equipo 6 y el del Escáner (`GET /events` y `GET /scan/{id}`, puerto 5002) sigue lo que se deduce de su código. Ninguno está confirmado por su equipo: hay que revisarlos cuando publiquen su contrato.
 - La URL del SIEM es una constante en `src/SIEM-client.js`. Apunta a `/api/siem/alerts`, que el nginx del Dashboard (`default.conf`) reenvía al SIEM real; para usar el mock se cambia por `../mocks/siem-alerts.json`.
