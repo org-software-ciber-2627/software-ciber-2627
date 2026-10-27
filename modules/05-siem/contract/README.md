@@ -1,6 +1,6 @@
 # Contrato del mock SIEM · Sprint 1 · SEM-6
 
-Versión `0.2.0-sprint1-review`. Candidato de integración pendiente de ratificación intergrupo, revisión cruzada y aceptación del PO.
+Especificación del mock SIEM del Sprint 1. Describe la respuesta simulada y las alertas estáticas; no especifica la persistencia implementada en Sprint 2.
 
 ## Interfaz
 
@@ -15,7 +15,7 @@ Acceso local `http://localhost:8005`; red Docker `http://siem:80`.
 
 ## Evento común
 
-Un objeto JSON por petición, con `event_id`, `timestamp`, `source`, `event_type`, `severity`, `title`, `description` y `details`. Los textos comunes no pueden ser vacíos; `event_id` no exige UUID. `timestamp` es una fecha válida UTC terminada en Z. `source` acepta `ids`, `honeypot` o `scanner`; `severity` acepta `low`, `medium`, `high` o `critical`. `details` es un objeto que conserva campos específicos y valores nulos. Las claves superiores desconocidas se rechazan en este candidato; ratificar esta política con los productores.
+Un objeto JSON por petición, con `event_id`, `timestamp`, `source`, `event_type`, `severity`, `title`, `description` y `details`. Los textos comunes no pueden ser vacíos; `event_id` no exige UUID. `timestamp` termina en Z. `source` acepta `ids`, `honeypot` o `scanner`; `severity` acepta `low`, `medium`, `high` o `critical`. `details` es un objeto que conserva campos específicos y valores nulos. Las claves superiores desconocidas se rechazan.
 
 | Grupo | Ejemplo de datos específicos |
 | --- | --- |
@@ -23,7 +23,7 @@ Un objeto JSON por petición, con `event_id`, `timestamp`, `source`, `event_type
 | G3 Honeypot | `source_ip`, `service`, `username`, `credential`, `command` |
 | G4 Escáner | `target`, `scan_id`, `tool`, `profile`, `script_id`, `evidence`, `cve`, `cvss` |
 
-La validación de Sprint 1 comprueba la cabecera y que `details` sea un objeto. Reglas internas por productor y catálogo de `event_type` requieren acuerdo antes del servicio real.
+La validación del mock comprueba la cabecera común y que `details` sea un objeto. La implementación de persistencia añade las reglas descritas en [SEM-65](sem65-ingestion-proposal.md).
 
 ## Acuse y errores
 
@@ -41,18 +41,10 @@ Los errores siguen el formato común del borrador:
 
 Códigos del mock: `INVALID_JSON`, `VALIDATION_ERROR`, `UNSUPPORTED_MEDIA_TYPE` y `ALERT_NOT_FOUND`. Los errores internos imprevistos no tienen un formato garantizado en esta versión.
 
-## Alertas para G6 y G7
+## Alertas
 
-Cada alerta conserva todos los campos del evento y añade `alert_id`, `source_ip` y `target_ip`. IDS toma las IP de `details`; Honeypot tiene destino null; Escáner tiene origen null y destino `details.target.ip`. No añadir `status`, `priority`, `risk_score`, `recommended_action` ni `related_events` sin acuerdo.
+Cada alerta conserva todos los campos del evento y añade `alert_id`, `source_ip` y `target_ip`. IDS toma las IP de `details`; Honeypot tiene destino null; Escáner tiene origen null y destino `details.target.ip`. El modelo de alerta no incluye `status`, `priority`, `risk_score`, `recommended_action` ni `related_events`.
 
 `GET /alerts` utiliza `mocks/alerts.json`, con tres ejemplos completos. `GET /alerts/{id}` usa el identificador exacto, sensible a mayúsculas y minúsculas. El JSON estático no cambia después de POST /events.
 
-## Acuerdos pendientes
-
-- Ratificar respuestas, formato del acuse, claves extra y catálogos con G2/G3/G4/G6/G7.
-- Confirmar que G6/G7 consultan mediante GET, y verificarlo contra sus servicios.
-- Negociar con G1 el formato de credenciales y los roles de cada endpoint.
-- Revisar el esquema local y coordinar su adopción en `shared/event-schema.json`, mantenido fuera de esta propuesta del módulo.
-- Definir persistencia, deduplicación y correlación en las historias posteriores. El borrador 0.1.0 propuso 201/422/409; no son respuestas del mock actual.
-
-Los ejemplos son simulados de laboratorio. Su presencia, las pruebas locales y el contrato no sustituyen el acuerdo entre equipos ni la aprobación del PR.
+Los ejemplos son datos simulados de laboratorio. `contract/openapi.json` conserva las respuestas del mock; consulta [SEM-65](sem65-ingestion-proposal.md) para el comportamiento de ingesta persistente.

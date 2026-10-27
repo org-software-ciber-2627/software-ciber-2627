@@ -26,11 +26,12 @@ parser.add_argument("--offline", action="store_true", help="Use Maven's local de
 args = parser.parse_args()
 if not __debug__:
     parser.error("Run without Python optimization; these checks require assertions.")
-PROJECT = 'siem-sem66-test-' + uuid.uuid4().hex[:12]
+PROJECT = 'grupo5-siem-test-' + uuid.uuid4().hex[:12]
 ENV = {name: value for name, value in os.environ.items()
        if not name.startswith(('COMPOSE_', 'SPRING_', 'SIEM_', 'SERVER_', 'PG'))
        and name not in ('JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'JDK_JAVA_OPTIONS', 'MAVEN_ARGS', 'MAVEN_OPTS')}
 ENV['SIEM_DB_PASSWORD'] = secrets.token_hex(24)
+ENV['SIEM_DB_NAME'] = 'siem_bd'
 checks = []
 
 
@@ -61,7 +62,7 @@ with socket.socket() as probe:
     probe.bind(('127.0.0.1', 0))
     ENV['SIEM_DB_PORT'] = str(probe.getsockname()[1])
 
-with tempfile.TemporaryDirectory(prefix='siem-sem66-') as directory:
+with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
     HERE = Path(directory)
     initial = HERE / 'init'
     initial.mkdir()
@@ -81,11 +82,13 @@ with tempfile.TemporaryDirectory(prefix='siem-sem66-') as directory:
         return result.stdout
 
     def sql(statement):
-        return compose('exec', '-T', 'siem-db', 'psql', '-X', '-U', 'siem', '-d', 'siem',
+        return compose('exec', '-T', 'siem-db', 'psql', '-X', '-U', 'siem', '-d', ENV['SIEM_DB_NAME'],
                        '-v', 'ON_ERROR_STOP=1', '-At', input=statement).strip()
 
     try:
         compose('up', '-d', '--wait', '--wait-timeout', '90', 'siem-db', timeout=180)
+        assert sql('SELECT current_database()') == ENV['SIEM_DB_NAME']
+        passed('configured database name is siem_bd')
         sql("INSERT INTO events VALUES ('sem65-migration-check', '2026-10-20T12:00:00Z', "
             "'ids', 'port_scan', 'medium', 'Migration check', 'Existing event', '{}')")
         migration = (MODULE / 'db/init/002-add-original-timestamp.sql').read_text()
@@ -97,7 +100,7 @@ with tempfile.TemporaryDirectory(prefix='siem-sem66-') as directory:
         assert result == '1', 'Migration changed the existing event'
         passed('additive migration preserves an existing event and can be reapplied')
         test_env = ENV.copy()
-        test_env['SIEM_TEST_DB_URL'] = 'jdbc:postgresql://127.0.0.1:' + ENV['SIEM_DB_PORT'] + '/siem'
+        test_env['SIEM_TEST_DB_URL'] = 'jdbc:postgresql://127.0.0.1:' + ENV['SIEM_DB_PORT'] + '/' + ENV['SIEM_DB_NAME']
         test_env['SIEM_TEST_DB_USER'] = 'siem'
         test_env['SIEM_TEST_DB_PASSWORD'] = ENV['SIEM_DB_PASSWORD']
         with (HERE / 'java-tests.log').open('w') as log:
@@ -116,7 +119,6 @@ with tempfile.TemporaryDirectory(prefix='siem-sem66-') as directory:
             http_port = probe.getsockname()[1]
         app_env = ENV.copy()
         app_env['SPRING_PROFILES_ACTIVE'] = 'persistence'
-        app_env['SIEM_DB_URL'] = 'jdbc:postgresql://127.0.0.1:' + ENV['SIEM_DB_PORT'] + '/siem'
         app_env['SERVER_PORT'] = str(http_port)
         base_url = 'http://127.0.0.1:' + str(http_port)
 

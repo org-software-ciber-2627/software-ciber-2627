@@ -79,7 +79,7 @@ services:
     profiles:
       - siem-db
     environment:
-      POSTGRES_DB: siem
+      POSTGRES_DB: ${SIEM_DB_NAME:-siem_bd}
       POSTGRES_USER: siem
       POSTGRES_PASSWORD: ${SIEM_DB_PASSWORD:-}
     ports:

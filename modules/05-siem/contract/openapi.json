@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "SIEM · Contrato de integración (SEM-6)",
-    "version": "0.2.0-sprint1-review",
-    "description": "Sprint 1 mock candidate aligned with the communicated 200/400 behavior. Intergroup ratification and PO acceptance are pending. No persistence, correlation or authentication is implemented."
+    "version": "0.2.0-sprint1",
+    "description": "Sprint 1 mock contract for health, event receipt and static alerts. It does not specify persistent storage, alert correlation or authentication."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -16,8 +16,6 @@
       "description": "Docker network ciberurjc"
     }
   ],
-  "x-status": "draft-pending-agreement",
-  "x-authentication-status": "Pending Identity contract: admin, analista, servicio roles exist; credential format and SIEM endpoint permissions unspecified. No public-access policy is established.",
   "paths": {
     "/health": {
       "get": {
@@ -55,7 +53,7 @@
               },
               "examples": {
                 "ids": {
-                  "summary": "Simulado, pendiente de grupo 2",
+                  "summary": "Example IDS alert",
                   "value": {
                     "event_id": "IDS-EJEMPLO-001",
                     "timestamp": "2026-09-22T18:30:15Z",
@@ -382,7 +380,7 @@
           "event_type": {
             "type": "string",
             "minLength": 1,
-            "description": "Shared catalog pending; existing examples retained.",
+            "description": "Event type reported by the producer.",
             "pattern": "\\S"
           },
           "severity": {
@@ -407,7 +405,7 @@
           "details": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Producer-specific data; internal validation pending agreement."
+            "description": "Producer-specific event attributes."
           }
         }
       },
@@ -450,7 +448,7 @@
           "event_type": {
             "type": "string",
             "minLength": 1,
-            "description": "Shared catalog pending; existing examples retained."
+            "description": "Event type reported by the producer."
           },
           "severity": {
             "type": "string",
@@ -472,7 +470,7 @@
           "details": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Producer-specific data; internal validation pending agreement."
+            "description": "Producer-specific event attributes."
           },
           "alert_id": {
             "type": "string",

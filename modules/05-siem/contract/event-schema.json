@@ -37,7 +37,7 @@
     "event_type": {
       "type": "string",
       "minLength": 1,
-      "description": "Shared catalog pending; existing examples retained.",
+      "description": "Event type reported by the producer.",
       "pattern": "\\S"
     },
     "severity": {
@@ -62,7 +62,7 @@
     "details": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Producer-specific data; internal validation pending agreement."
+      "description": "Producer-specific event attributes."
     }
   }
 }

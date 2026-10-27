@@ -1,6 +1,6 @@
-# SEM-65: propuesta local de ingesta persistente
+# Ingesta persistente de eventos
 
-22/10/2026. Aceptada por JC como propuesta de implementación; pendiente de ratificación del equipo, coordinación con HU9 y revisión del responsable del contrato. No es un acuerdo intergrupo nuevo. El OpenAPI y el README de esta carpeta conservan el candidato histórico del Sprint 1.
+Este documento describe el comportamiento de la implementación de persistencia. El OpenAPI y el README de esta carpeta conservan el contrato histórico del mock Sprint 1.
 
 No cambia el cuerpo de los productores ni los valores de `source`: `ids`, `honeypot`, `scanner`. Se mantienen los errores de validación existentes (400/415) y las alertas estáticas.
 
@@ -11,7 +11,7 @@ No cambia el cuerpo de los productores ni los valores de `source`: `ids`, `honey
 | Mismo `(source, event_id)` con contenido distinto | 409 `EVENT_ID_CONFLICT`, conservando el original |
 | Perfil `persistence` desactivado o fallo del almacenamiento durante la petición | 503 `STORAGE_UNAVAILABLE` |
 
-La revisión local del 27/10 corrige la clasificación de datos que PostgreSQL no puede representar: con persistencia activa devuelve 400 `VALIDATION_ERROR`, sin guardar la petición, para caracteres nulos, Unicode incompleto y fechas o números fuera del rango de almacenamiento. El parser puede rechazar antes algunos valores con 400 `INVALID_JSON`. No se sustituyen caracteres silenciosamente. Esta precisión forma parte de la propuesta que debe revisar Andrei; no modifica el OpenAPI oficial ni añade fuentes o campos al contrato.
+Los datos que PostgreSQL no puede representar reciben 400 `VALIDATION_ERROR` sin insertar la petición: caracteres nulos, Unicode incompleto y fechas o números fuera del rango de almacenamiento. El parser puede rechazar antes algunos valores con 400 `INVALID_JSON`. No se sustituyen caracteres silenciosamente. Este comportamiento no modifica el OpenAPI histórico ni añade fuentes o campos al contrato.
 
 El acuse es el mismo para una inserción y un reenvío idéntico:
 
