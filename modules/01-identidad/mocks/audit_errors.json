@@ -1,0 +1,6 @@
+{
+  "400": { "error": "Parámetro de consulta no válido: limit debe estar entre 1 y 200" },
+  "401": { "error": "Token inválido, expirado o ausente" },
+  "403": { "error": "El rol no tiene permiso para este recurso" },
+  "500": { "error": "Error no esperado" }
+}
