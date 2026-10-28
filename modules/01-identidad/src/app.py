@@ -24,6 +24,7 @@ import os
 import math
 import re
 import socket
+import threading
 from datetime import datetime, timedelta, timezone
 
 import requests as http_client
@@ -93,6 +94,14 @@ EVENTOS = ("login_ok", "login_failed", "invalid_user", "secret_read", "secret_de
 IDS_URL   = os.environ.get("IDS_URL", "http://ids/logs")
 _HOSTNAME = socket.gethostname()
 _PID      = os.getpid()
+
+# Caracteres que rompen el formato key=value en syslog: controles, espacio y '='
+_LOG_UNSAFE = re.compile(r'[\x00-\x1f\x7f =]')
+
+
+def _sanitize_log_field(value):
+    """Percent-encodes space, '=' y controles para evitar inyección de campos en syslog."""
+    return _LOG_UNSAFE.sub(lambda m: f"%{ord(m.group()):02X}", value)
 
 
 # ── Modelos ───────────────────────────────────────────────────────────────────
@@ -226,7 +235,7 @@ def _format_raw_line(log):
     prefix = ts.strftime("%b") + " " + str(ts.day).rjust(2) + ts.strftime(" %H:%M:%S")
     parts = [f"event={log.event_type}", f"result={log.result}"]
     if log.username:
-        parts.append(f"user={log.username}")
+        parts.append(f"user={_sanitize_log_field(log.username)}")
     parts.append(f"from={log.source_ip}")
     if log.clave:
         parts.append(f"clave={log.clave}")
@@ -234,18 +243,28 @@ def _format_raw_line(log):
 
 
 def _enviar_al_ids(log):
-    """POST /logs al IDS tras guardar en BD. Marca enviado=True si el IDS acepta. Fallo silencioso."""
-    try:
-        payload = {
-            "source": "01-identidad",
-            "logs": [{"id": log.log_id, "raw_line": _format_raw_line(log)}],
-        }
-        resp = http_client.post(IDS_URL, json=payload, timeout=2)
-        if resp.status_code in (200, 202):
-            log.enviado = True
-            db.session.commit()
-    except Exception:
-        pass
+    """Envía el evento al IDS en segundo plano. Fallo silencioso."""
+    log_id   = log.log_id
+    raw_line = _format_raw_line(log)
+    audit_id = log.id
+
+    def _send():
+        try:
+            payload = {
+                "source": "01-identidad",
+                "logs": [{"id": log_id, "raw_line": raw_line}],
+            }
+            resp = http_client.post(IDS_URL, json=payload, timeout=2)
+            if resp.status_code in (200, 202):
+                with app.app_context():
+                    entry = db.session.get(AuditLog, audit_id)
+                    if entry:
+                        entry.enviado = True
+                        db.session.commit()
+        except Exception:
+            pass
+
+    threading.Thread(target=_send, daemon=True).start()
 
 
 def registrar_evento(event_type, result, username=None, role=None, clave=None):
