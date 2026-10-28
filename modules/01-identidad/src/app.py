@@ -31,7 +31,7 @@ import requests as http_client
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_jwt_extended import (JWTManager, create_access_token, decode_token,
-                                get_jwt, verify_jwt_in_request, jwt_required)
+                                get_jwt, verify_jwt_in_request)
 from flask_jwt_extended.exceptions import JWTExtendedException
 from flask_sqlalchemy import SQLAlchemy
 from jwt.exceptions import PyJWTError
@@ -433,17 +433,19 @@ def login():
 
 
 @app.post("/auth/logout")
-@jwt_required()
 def logout():
     """Revoca el token actual insertando su JTI en la blocklist."""
-    jti = get_jwt()["jti"]
-    
+    claims, err = check_auth()
+    if err:
+        return jsonify(error=err[0]), err[1]
+
+    jti = claims["jti"]
     # Solo lo insertamos si no existe ya (evita errores de integridad)
     if not TokenBlocklist.query.filter_by(jti=jti).first():
         db.session.add(TokenBlocklist(jti=jti))
         db.session.commit()
-        
-    return jsonify(message="Sesión cerrada exitosamente"), 200
+
+    return jsonify(message="Token revocado"), 200
 
 
 @app.get("/auth/validate")
