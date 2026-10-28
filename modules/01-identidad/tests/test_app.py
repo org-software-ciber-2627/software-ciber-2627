@@ -392,6 +392,44 @@ class TestCuentasPrecargadas(BaseTest):
             self.assertIsNotNone(guardado)
             self.assertNotIn(valor, guardado.valor_encriptado)
             self.assertEqual(Secret.query.count(), 1)  # solo el definido por entorno
- 
+
+    
+class TestLogout(BaseTest):  # AAA-62
+    def setUp(self):
+        super().setUp()
+        self.crear_usuario("servicio.test", "servicio")
+        self.headers1 = self.con_token(self.token_de("servicio.test"))
+        self.headers2 = self.con_token(self.token_de("servicio.test"))  # segunda sesión
+
+    def test_1_sin_token_da_401_con_error_y_sin_msg(self):
+        r = self.client.post("/auth/logout")
+        self.assertEqual(r.status_code, 401)
+        self.assertIn("error", r.get_json())
+        self.assertNotIn("msg", r.get_json())
+
+    def test_2_logout_ok_con_el_mensaje_del_contrato(self):
+        r = self.client.post("/auth/logout", headers=self.headers1)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.get_json()["message"], "Token revocado")
+
+    def test_3_token_revocado_da_401_en_validate_secrets_y_logout(self):
+        self.client.post("/auth/logout", headers=self.headers1)
+        respuestas = (
+            self.client.get("/auth/validate", headers=self.headers1),
+            self.client.get("/secrets/api_key", headers=self.headers1),
+            self.client.post("/auth/logout", headers=self.headers1),
+        )
+        for r in respuestas:
+            with self.subTest(url=r.request.path):
+                self.assertEqual(r.status_code, 401)
+                self.assertIn("error", r.get_json())
+                self.assertNotIn("msg", r.get_json())
+
+    def test_4_el_logout_solo_revoca_ese_token(self):
+        self.client.post("/auth/logout", headers=self.headers1)
+        r = self.client.get("/auth/validate", headers=self.headers2)
+        self.assertEqual(r.status_code, 200)
+        self.assertIs(r.get_json()["valid"], True)
+         
 if __name__ == "__main__":
     unittest.main()
