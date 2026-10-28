@@ -20,7 +20,7 @@ Servicio en local con `docker compose up`: `http://localhost:8001` (puerto inter
   ```json
   { "token": "<jwt>", "user": { "id": 1, "username": "usuario.ejemplo", "email": "usuario.ejemplo@ciberurjc.local", "role": "analista" } }
   ```
-- **Errores:** `400` falta usuario o contraseña · `401` credenciales incorrectas · `500` error inesperado. Cuerpo: `{ "error": "<mensaje>" }`.
+- **Errores:** `400` falta usuario o contraseña · `401` credenciales incorrectas · `429` demasiados intentos; bloqueo temporal por combinación de usuario e IP, con cabecera `Retry-After` indicando los segundos restantes · `500` error inesperado. Cuerpo: `{ "error": "<mensaje>" }`.
 - Cada intento de login queda en el registro de auditoría (ver `GET /audit`).
 
 ### `POST /auth/logout` (novedad 1.2.0)

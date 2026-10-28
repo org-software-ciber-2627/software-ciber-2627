@@ -21,10 +21,13 @@ Variables de entorno:
 """
 import base64
 import os
-import re
-from datetime import datetime, timezone, timedelta
 import math
+import re
+import socket
+import threading
+from datetime import datetime, timedelta, timezone
 
+import requests as http_client
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_jwt_extended import (JWTManager, create_access_token, decode_token,
@@ -87,6 +90,18 @@ DEFAULT_ROLE = "analista"
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 CLAVE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
 EVENTOS = ("login_ok", "login_failed", "invalid_user", "secret_read", "secret_denied", "limit_exceeded")
+
+IDS_URL   = os.environ.get("IDS_URL", "http://ids/logs")
+_HOSTNAME = socket.gethostname()
+_PID      = os.getpid()
+
+# Caracteres que rompen el formato key=value en syslog: controles, espacio y '='
+_LOG_UNSAFE = re.compile(r'[\x00-\x1f\x7f =]')
+
+
+def _sanitize_log_field(value):
+    """Percent-encodes space, '=' y controles para evitar inyección de campos en syslog."""
+    return _LOG_UNSAFE.sub(lambda m: f"%{ord(m.group()):02X}", value)
 
 
 # ── Modelos ───────────────────────────────────────────────────────────────────
@@ -214,11 +229,49 @@ def get_aes_key():
     return key
 
 
+def _format_raw_line(log):
+    """Línea syslog: MMM d HH:mm:ss host identidad[pid]: campos del evento."""
+    ts = log.timestamp
+    prefix = ts.strftime("%b") + " " + str(ts.day).rjust(2) + ts.strftime(" %H:%M:%S")
+    parts = [f"event={log.event_type}", f"result={log.result}"]
+    if log.username:
+        parts.append(f"user={_sanitize_log_field(log.username)}")
+    parts.append(f"from={log.source_ip}")
+    if log.clave:
+        parts.append(f"clave={log.clave}")
+    return f"{prefix} {_HOSTNAME} identidad[{_PID}]: {' '.join(parts)}"
+
+
+def _enviar_al_ids(log):
+    """Envía el evento al IDS en segundo plano. Fallo silencioso."""
+    log_id   = log.log_id
+    raw_line = _format_raw_line(log)
+    audit_id = log.id
+
+    def _send():
+        try:
+            payload = {
+                "source": "01-identidad",
+                "logs": [{"id": log_id, "raw_line": raw_line}],
+            }
+            resp = http_client.post(IDS_URL, json=payload, timeout=2)
+            if resp.status_code in (200, 202):
+                with app.app_context():
+                    entry = db.session.get(AuditLog, audit_id)
+                    if entry:
+                        entry.enviado = True
+                        db.session.commit()
+        except Exception:
+            pass
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
 def registrar_evento(event_type, result, username=None, role=None, clave=None):
-    """Guarda un evento de auditoría. Un fallo aquí nunca debe tumbar el endpoint."""
+    """Guarda un evento de auditoría y lo reenvía al IDS. Un fallo aquí nunca debe tumbar el endpoint."""
     try:
         puerto = request.environ.get("REMOTE_PORT")
-        db.session.add(AuditLog(
+        log = AuditLog(
             event_type=event_type, result=result,
             username=username[:50] if username else None, role=role, clave=clave,
             # Con TRUSTED_PROXY_HOPS>0, ProxyFix ya resolvió request.remote_addr a la IP
@@ -226,15 +279,17 @@ def registrar_evento(event_type, result, username=None, role=None, clave=None):
             # IP de la conexión TCP directa y X-Forwarded-For se ignora (no es falsificable).
             source_ip=request.remote_addr or "unknown",
             source_port=int(puerto) if puerto and str(puerto).isdigit() and not TRUSTED_PROXY_HOPS else None,
-        ))
+        )
+        db.session.add(log)
         db.session.commit()
+        _enviar_al_ids(log)
     except Exception:
         db.session.rollback()
 
 def registrar_evento_login(event_type, result, username=None, role=None, ip=None):
     """Registra un evento de login; propaga los errores de persistencia."""
     puerto = request.environ.get("REMOTE_PORT")
-    db.session.add(AuditLog(
+    log = AuditLog(
         event_type=event_type,
         result=result,
         username=username[:50] if username else None,
@@ -245,10 +300,12 @@ def registrar_evento_login(event_type, result, username=None, role=None, ip=None
             if puerto and str(puerto).isdigit() and not TRUSTED_PROXY_HOPS
             else None
         ),
-    ))
-    # Si falla, la excepción llega al endpoint, 
+    )
+    db.session.add(log)
+    # Si falla, la excepción llega al endpoint,
     # se evita que puedas autenticarte sin registrar los fallos
     db.session.commit()
+    _enviar_al_ids(log)
 
 def crear_token(user):
     """JWT HS256 con sub (nombre de usuario), role, user_id, iat y exp (30 min por defecto)."""
@@ -296,7 +353,7 @@ def obtener_bloqueo_login(username, ip):
     fallos = (
         AuditLog.query
         .filter(
-            AuditLog.username == username,
+            AuditLog.username == username[:50],
             AuditLog.source_ip == ip,
             AuditLog.result == "fail",
             AuditLog.event_type.in_(("login_failed", "invalid_user")),
@@ -347,7 +404,7 @@ def login():
         # Consultar el bloqueo ANTES de verificar la contraseña.
         espera = obtener_bloqueo_login(username, ip)
         if espera > 0:
-            registrar_evento_login("limit_exceeded", "fail", username=username,ip=ip)
+            # El bloqueo ya está activo: no registrar otro limit_exceeded.
             respuesta = jsonify(error="Demasiados intentos. Inténtalo más tarde.")
             respuesta.headers["Retry-After"] = str(espera)
             return respuesta, 429

@@ -261,6 +261,27 @@ class TestLoginRateLimit(BaseTest):  # AAA-67
             self.assertIsNotNone(evento)
             self.assertEqual(evento.source_ip, self.IP_A)
 
+    def test_8_limit_exceeded_se_registra_una_sola_vez(self):
+        for _ in range(self.MAX_INTENTOS + 3):
+            respuesta = self.login_desde("usuario.inexistente","incorrecta",self.IP_A)
+        self.assertEqual(respuesta.status_code, 429)
+        with app.app_context():
+            eventos = (app_module.AuditLog.query.filter_by(
+                event_type="limit_exceeded",
+                username="usuario.inexistente",
+                source_ip=self.IP_A,
+            )
+            .count()
+            )
+            self.assertEqual(eventos, 1)
+
+    def test_9_usuario_largo_tambien_se_bloquea(self):
+        username = "u" * 60
+        for _ in range(self.MAX_INTENTOS):
+            respuesta = self.login_desde(username,"incorrecta",self.IP_A)
+        self.assertEqual(respuesta.status_code, 429)
+        self.assertIn("Retry-After", respuesta.headers)
+
  
 class TestValidate(BaseTest):  # adelanta AAA-20
     def token_manual(self, username, exp_delta):
@@ -430,6 +451,44 @@ class TestLogout(BaseTest):  # AAA-62
         r = self.client.get("/auth/validate", headers=self.headers2)
         self.assertEqual(r.status_code, 200)
         self.assertIs(r.get_json()["valid"], True)
+
+class TestCors(BaseTest):
+    ORIGEN_PERMITIDO = "http://localhost:8007"
+    ORIGEN_NO_PERMITIDO = "http://localhost:9999"
+
+    def comprobar_preflight(self, ruta, origen):
+        return self.client.options(
+            ruta,
+            headers={
+                "Origin": origen,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "Content-Type",
+            },
+        )
+
+    def test_1_login_permite_origen_configurado(self):
+        response = self.comprobar_preflight("/auth/login",self.ORIGEN_PERMITIDO)
+        self.assertEqual(response.headers.get("Access-Control-Allow-Origin"),self.ORIGEN_PERMITIDO)
+
+    def test_2_register_permite_origen_configurado(self):
+        response = self.comprobar_preflight("/auth/register",self.ORIGEN_PERMITIDO)
+        self.assertEqual(response.headers.get("Access-Control-Allow-Origin"),self.ORIGEN_PERMITIDO)
+
+    def test_3_login_rechaza_origen_no_configurado(self):
+        response = self.comprobar_preflight("/auth/login",self.ORIGEN_NO_PERMITIDO)
+        self.assertIsNone(response.headers.get("Access-Control-Allow-Origin"))
+
+    def test_4_register_rechaza_origen_no_configurado(self):
+        response = self.comprobar_preflight("/auth/register",self.ORIGEN_NO_PERMITIDO)
+        self.assertIsNone(response.headers.get("Access-Control-Allow-Origin"))
+
+    def test_5_health_no_expone_cabecera_cors(self):
+        response = self.client.get("/health",headers={"Origin": self.ORIGEN_PERMITIDO})
+        self.assertIsNone(response.headers.get("Access-Control-Allow-Origin"))
+
+    def test_6_secrets_no_expone_cabecera_cors(self):
+        response = self.client.get("/secrets/api_key",headers={"Origin": self.ORIGEN_PERMITIDO})
+        self.assertIsNone(response.headers.get("Access-Control-Allow-Origin"))
          
 if __name__ == "__main__":
     unittest.main()

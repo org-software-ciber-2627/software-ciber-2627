@@ -5,3 +5,4 @@ flask-cors>=5.0,<6
 pycryptodome>=3.21,<4
 werkzeug>=3.1,<4
 gunicorn>=22,<24
+requests>=2.31,<3
