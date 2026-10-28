@@ -4,6 +4,7 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime, timedelta, timezone
  
 import jwt
  
@@ -451,7 +452,8 @@ class TestLogout(BaseTest):  # AAA-62
         r = self.client.get("/auth/validate", headers=self.headers2)
         self.assertEqual(r.status_code, 200)
         self.assertIs(r.get_json()["valid"], True)
-         def token_manual(self, exp_delta=600, clave=None):
+
+    def token_manual(self, exp_delta=600, clave=None):
         ahora = int(time.time())
         claims = {
             "sub": "servicio.test", "role": "servicio", "user_id": 1, "iat": ahora, "nbf": ahora,
@@ -539,5 +541,98 @@ class TestCors(BaseTest):
         response = self.client.get("/secrets/api_key",headers={"Origin": self.ORIGEN_PERMITIDO})
         self.assertIsNone(response.headers.get("Access-Control-Allow-Origin"))
          
+class TestLogs(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.crear_usuario("cuenta.admin", "admin")
+        self.crear_usuario("cuenta.servicio", "servicio")
+        self.crear_usuario("cuenta.analista", "analista")
+        # Tokens pre-obtenidos para no contaminar el AuditLog durante los tests
+        self.token_admin    = self.token_de("cuenta.admin")
+        self.token_servicio = self.token_de("cuenta.servicio")
+        self.token_analista = self.token_de("cuenta.analista")
+        with app.app_context():
+            app_module.AuditLog.query.delete()
+            db.session.commit()
+
+    def get_logs(self, token=None):
+        cabeceras = self.con_token(token) if token else {}
+        return self.client.get("/logs", headers=cabeceras)
+
+    def _insertar_eventos(self, n, event_type="login_ok", result="ok"):
+        with app.app_context():
+            for _ in range(n):
+                db.session.add(app_module.AuditLog(
+                    event_type=event_type, result=result,
+                    username="cuenta.admin", source_ip="127.0.0.1",
+                ))
+            db.session.commit()
+
+    def test_1_admin_obtiene_200_con_logs_y_total(self):
+        r = self.get_logs(token=self.token_admin)
+        self.assertEqual(r.status_code, 200)
+        cuerpo = r.get_json()
+        self.assertIn("logs", cuerpo)
+        self.assertIn("total", cuerpo)
+        self.assertIsInstance(cuerpo["logs"], list)
+        self.assertIsInstance(cuerpo["total"], int)
+
+    def test_2_servicio_obtiene_200(self):
+        r = self.get_logs(token=self.token_servicio)
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("logs", r.get_json())
+
+    def test_3_analista_obtiene_403(self):
+        r = self.get_logs(token=self.token_analista)
+        self.assertEqual(r.status_code, 403)
+        self.assertIn("error", r.get_json())
+
+    def test_4_sin_token_401(self):
+        r = self.get_logs()
+        self.assertEqual(r.status_code, 401)
+        self.assertIn("error", r.get_json())
+
+    def test_5_token_manipulado_401(self):
+        r = self.get_logs(token=self.token_admin[:-3] + "abc")
+        self.assertEqual(r.status_code, 401)
+
+    def test_6_estructura_de_cada_entrada(self):
+        self._insertar_eventos(1)
+        logs = self.get_logs(token=self.token_admin).get_json()["logs"]
+        self.assertEqual(len(logs), 1)
+        for campo in ("id", "timestamp", "event_type", "result", "username",
+                      "role", "source_ip", "source_port", "clave", "enviado"):
+            with self.subTest(campo=campo):
+                self.assertIn(campo, logs[0])
+
+    def test_7_sin_logs_devuelve_lista_vacia_con_total_cero(self):
+        cuerpo = self.get_logs(token=self.token_admin).get_json()
+        self.assertEqual(cuerpo["logs"], [])
+        self.assertEqual(cuerpo["total"], 0)
+
+    def test_8_total_coincide_con_longitud_de_logs(self):
+        self._insertar_eventos(5)
+        cuerpo = self.get_logs(token=self.token_admin).get_json()
+        self.assertEqual(cuerpo["total"], len(cuerpo["logs"]))
+
+    def test_9_maximo_50_entradas(self):
+        self._insertar_eventos(60)
+        r = self.get_logs(token=self.token_admin)
+        self.assertLessEqual(len(r.get_json()["logs"]), 50)
+
+    def test_10_orden_descendente_por_timestamp(self):
+        ahora = datetime.now(timezone.utc).replace(tzinfo=None)
+        with app.app_context():
+            for delta in (120, 60, 0):
+                db.session.add(app_module.AuditLog(
+                    event_type="login_ok", result="ok",
+                    username="cuenta.admin", source_ip="127.0.0.1",
+                    timestamp=ahora - timedelta(seconds=delta),
+                ))
+            db.session.commit()
+        timestamps = [l["timestamp"] for l in self.get_logs(token=self.token_admin).get_json()["logs"]]
+        self.assertEqual(timestamps, sorted(timestamps, reverse=True))
+
+
 if __name__ == "__main__":
     unittest.main()
