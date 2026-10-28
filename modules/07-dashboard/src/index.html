@@ -46,11 +46,18 @@
                 <th>Título</th>
                 <th>Módulo</th>
                 <th>Hora</th>
+                <th>Acciones</th>
             </tr>
         </thead>
         <tbody id="alerts-body">
         </tbody>
     </table>
+
+    <section id="detalle-alerta" style="display:none; margin-top:24px;">
+        <h2>Detalle de la alerta</h2>
+        <button id="volver-alertas" type="button">Volver a las alertas</button>
+        <div id="contenido-detalle"></div>
+    </section>
 
     <script>
         function logout() {
