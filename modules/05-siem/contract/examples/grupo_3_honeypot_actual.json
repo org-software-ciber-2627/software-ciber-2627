@@ -1,0 +1,18 @@
+{
+  "event_id": "HP-101",
+  "timestamp": "2026-10-12T14:30:00Z",
+  "source": "honeypot",
+  "event_type": "fuerza_bruta",
+  "severity": "medium",
+  "title": "Intento de acceso en el login falso",
+  "description": "Intento desde 192.168.1.45 con el usuario admin",
+  "details": {
+    "source_ip": "192.168.1.45",
+    "service": "honeypot-web",
+    "username": "admin",
+    "credential": "Password123",
+    "command": null,
+    "ruta": "/login",
+    "navegador": "Mozilla/5.0"
+  }
+}

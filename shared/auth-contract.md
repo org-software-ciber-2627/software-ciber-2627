@@ -7,7 +7,7 @@ y se avisan por Teams a los equipos que usen el endpoint.
 
 Servicio en local con `docker compose up`: `http://localhost:8001` (puerto interno `80` dentro del compose).
 
-**Historial.** 1.2.0: se añade `POST /auth/logout` (cierre de sesión). 1.1.0: se añade `GET /audit` (registro de auditoría, solo `admin`). Ambos son cambios compatibles: no modifican los endpoints existentes.
+**Historial.** 1.2.0: se añade `POST /auth/logout` (cierre de sesión). 1.1.0: se añade `GET /audit` (registro de auditoría, solo `admin`). Ambos son cambios compatibles: no modifican los endpoints existentes. 27/10: se documenta CORS para el Dashboard (sin cambios en los endpoints).
 
 ## Endpoints
 
@@ -78,6 +78,7 @@ Servicio en local con `docker compose up`: `http://localhost:8001` (puerto inter
 - `source_ip` es la IP de la conexión (no se lee `X-Forwarded-For`). En `details`, las claves siempre están presentes y valen `null` cuando no aplican.
 - El registro **nunca** contiene contraseñas, tokens ni valores de secretos (en `clave` solo va el nombre del secreto).
 - Mocks de las respuestas en `modules/01-identidad/mocks/`: `audit_response.json`, `audit_empty.json` y `audit_errors.json`.
+- **Estado de implementación (27/10):** el contrato está publicado, pero el endpoint aún no está en `main`. Mientras tanto, usad los mocks.
 
 ### Endpoints adicionales
 
@@ -107,6 +108,18 @@ Ejemplo (en Windows PowerShell usad `curl.exe`):
 ```
 curl http://localhost:8001/auth/validate -H "Authorization: Bearer <jwt>"
 ```
+
+## CORS (llamadas desde el navegador)
+
+Si vuestro módulo es una web que llama a esta API desde el navegador (como el Dashboard), la API tiene que aceptar su origen.
+
+- **Origen permitido:** solo `http://localhost:8007` (el Dashboard en el compose). `http://127.0.0.1:8007` es otro origen distinto y no está permitido.
+- **Endpoints con CORS:** `POST /auth/login` y `POST /auth/register`. Las respuestas de error (400, 401…) también llevan las cabeceras CORS, para que el navegador pueda leerlas.
+- El navegador envía antes una petición `OPTIONS` (preflight); el servicio la responde.
+- Se autentica con el token en la cabecera `Authorization`, sin cookies.
+- Está fijado en el código del módulo; no se configura por variable de entorno.
+- **¿Necesitáis otro origen u otro endpoint?** Pedidlo por Teams al equipo 01 o por Pull Request.
+- Solo afecta a las llamadas hechas desde un navegador; las llamadas entre servicios (por ejemplo, otro módulo llamando a `/auth/validate` desde su backend) no lo necesitan.
 
 ## Token
 
