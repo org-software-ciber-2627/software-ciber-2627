@@ -353,7 +353,7 @@ def obtener_bloqueo_login(username, ip):
     fallos = (
         AuditLog.query
         .filter(
-            AuditLog.username == username,
+            AuditLog.username == username[:50],
             AuditLog.source_ip == ip,
             AuditLog.result == "fail",
             AuditLog.event_type.in_(("login_failed", "invalid_user")),
@@ -404,7 +404,7 @@ def login():
         # Consultar el bloqueo ANTES de verificar la contraseña.
         espera = obtener_bloqueo_login(username, ip)
         if espera > 0:
-            registrar_evento_login("limit_exceeded", "fail", username=username,ip=ip)
+            # El bloqueo ya está activo: no registrar otro limit_exceeded.
             respuesta = jsonify(error="Demasiados intentos. Inténtalo más tarde.")
             respuesta.headers["Retry-After"] = str(espera)
             return respuesta, 429
