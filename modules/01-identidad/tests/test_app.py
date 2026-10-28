@@ -451,6 +451,55 @@ class TestLogout(BaseTest):  # AAA-62
         r = self.client.get("/auth/validate", headers=self.headers2)
         self.assertEqual(r.status_code, 200)
         self.assertIs(r.get_json()["valid"], True)
+         def token_manual(self, exp_delta=600, clave=None):
+        ahora = int(time.time())
+        claims = {
+            "sub": "servicio.test", "role": "servicio", "user_id": 1, "iat": ahora, "nbf": ahora,
+            "exp": ahora + exp_delta, "jti": secrets.token_hex(8), "type": "access", "fresh": False,
+        }
+        return jwt.encode(claims, clave or self.jwt_secret, algorithm="HS256")
+
+    def test_5_token_manipulado_da_401(self):
+        token = self.headers1["Authorization"].split(" ", 1)[1]
+        r = self.client.post("/auth/logout", headers=self.con_token(token[:-3] + "abc"))
+        self.assertEqual(r.status_code, 401)
+        self.assertIn("error", r.get_json())
+
+    def test_6_token_caducado_da_401(self):
+        r = self.client.post("/auth/logout", headers=self.con_token(self.token_manual(exp_delta=-60)))
+        self.assertEqual(r.status_code, 401)
+
+    def test_7_token_firmado_con_otra_clave_da_401(self):
+        r = self.client.post("/auth/logout", headers=self.con_token(self.token_manual(clave=secrets.token_hex(32))))
+        self.assertEqual(r.status_code, 401)
+
+    def test_8_cabecera_sin_bearer_da_401(self):
+        token = self.headers1["Authorization"].split(" ", 1)[1]
+        r = self.client.post("/auth/logout", headers={"Authorization": token})
+        self.assertEqual(r.status_code, 401)
+
+    def test_9_tras_el_logout_se_puede_iniciar_sesion_de_nuevo(self):
+        self.client.post("/auth/logout", headers=self.headers1)
+        nuevo = self.con_token(self.token_de("servicio.test"))
+        self.assertEqual(self.client.get("/auth/validate", headers=nuevo).status_code, 200)
+
+    def test_10_el_jti_se_guarda_una_sola_vez_en_la_lista_de_revocados(self):
+        token = self.headers1["Authorization"].split(" ", 1)[1]
+        jti = self.decodificar(token)["jti"]
+        with app.app_context():
+            self.assertEqual(app_module.TokenBlocklist.query.count(), 0)
+        self.client.post("/auth/logout", headers=self.headers1)
+        self.client.post("/auth/logout", headers=self.headers1)  # segundo intento
+        with app.app_context():
+            self.assertEqual(app_module.TokenBlocklist.query.filter_by(jti=jti).count(), 1)
+            self.assertEqual(app_module.TokenBlocklist.query.count(), 1)
+
+    def test_11_el_logout_funciona_con_cualquier_rol(self):
+        for rol in ("analista", "admin"):
+            with self.subTest(rol=rol):
+                self.crear_usuario(f"cuenta.{rol}", rol)
+                r = self.client.post("/auth/logout", headers=self.con_token(self.token_de(f"cuenta.{rol}")))
+                self.assertEqual(r.status_code, 200)
 
 class TestCors(BaseTest):
     ORIGEN_PERMITIDO = "http://localhost:8007"
