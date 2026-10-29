@@ -633,6 +633,75 @@ class TestLogs(BaseTest):
         timestamps = [l["timestamp"] for l in self.get_logs(token=self.token_admin).get_json()["logs"]]
         self.assertEqual(timestamps, sorted(timestamps, reverse=True))
 
+class TestMinimoPrivilegio(BaseTest):  # AAA-25
+    VALOR = "valor-de-prueba-del-secreto"
+
+    def setUp(self):
+        super().setUp()
+        enc, iv, tag = encrypt(self.VALOR, self.aes_key)
+        with app.app_context():
+            db.session.add(Secret(clave="api_key", valor_encriptado=enc, iv=iv, tag=tag))
+            db.session.commit()
+        for nombre, rol in (("cuenta.servicio", "servicio"), ("cuenta.admin", "admin"), ("cuenta.analista", "analista")):
+            self.crear_usuario(nombre, rol)
+
+    def get(self, ruta, usuario=None):
+        cabeceras = self.con_token(self.token_de(usuario)) if usuario else {}
+        return self.client.get(ruta, headers=cabeceras)
+
+    def test_1_el_admin_no_lee_secretos(self):
+        r = self.get("/secrets/api_key", "cuenta.admin")
+        self.assertEqual(r.status_code, 403)
+        self.assertNotIn("valor", r.get_json())
+        self.assertNotIn(self.VALOR, r.get_data(as_text=True))
+
+    def test_2_el_analista_no_lee_secretos(self):
+        r = self.get("/secrets/api_key", "cuenta.analista")
+        self.assertEqual(r.status_code, 403)
+        self.assertNotIn(self.VALOR, r.get_data(as_text=True))
+
+    def test_3_solo_el_servicio_lee_secretos(self):
+        r = self.get("/secrets/api_key", "cuenta.servicio")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.get_json()["valor"], self.VALOR)
+
+    def test_4_el_acceso_denegado_queda_auditado_sin_el_valor(self):
+        self.get("/secrets/api_key", "cuenta.admin")
+        with app.app_context():
+            evento = app_module.AuditLog.query.filter_by(event_type="secret_denied").first()
+            self.assertIsNotNone(evento)
+            self.assertEqual(evento.username, "cuenta.admin")
+            self.assertEqual(evento.role, "admin")
+            self.assertEqual(evento.clave, "api_key")
+            self.assertNotIn(self.VALOR, str(evento.to_dict()))
+
+    def test_5_el_registro_de_auditoria_solo_lo_leen_admin_y_servicio(self):
+        self.assertEqual(self.get("/logs", "cuenta.admin").status_code, 200)
+        self.assertEqual(self.get("/logs", "cuenta.servicio").status_code, 200)
+        self.assertEqual(self.get("/logs", "cuenta.analista").status_code, 403)
+        self.assertEqual(self.get("/logs").status_code, 401)
+
+    def test_6_el_registro_no_permite_elegirse_el_rol(self):
+        r = self.registrar(role="admin")
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.get_json()["user"]["role"], "analista")
+        token = r.get_json()["token"]
+        self.assertEqual(self.decodificar(token)["role"], "analista")
+        self.assertEqual(self.client.get("/logs", headers=self.con_token(token)).status_code, 403)
+
+    def test_7_el_admin_ve_el_nombre_del_secreto_pero_nunca_su_valor(self):
+        self.assertEqual(self.get("/secrets/api_key", "cuenta.servicio").status_code, 200)
+        r = self.get("/logs", "cuenta.admin")
+        self.assertEqual(r.status_code, 200)
+        texto = r.get_data(as_text=True)
+        self.assertIn("api_key", texto)
+        self.assertNotIn(self.VALOR, texto)
+
+    def test_8_el_servicio_tampoco_ve_el_valor_de_los_secretos_en_los_logs(self):
+        self.assertEqual(self.get("/secrets/api_key", "cuenta.servicio").status_code, 200)
+        r = self.get("/logs", "cuenta.servicio")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn(self.VALOR, r.get_data(as_text=True))
 
 if __name__ == "__main__":
     unittest.main()
