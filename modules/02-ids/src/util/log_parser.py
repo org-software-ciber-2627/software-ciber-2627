@@ -25,6 +25,25 @@ SOURCE_CONNECTION = re.compile(
     r"(?:from|by) (?P<source_ip>\d{1,3}(?:\.\d{1,3}){3})"
     r"(?: port (?P<source_port>\d+))?"
 )
+# Conexiones registradas por el cortafuegos (formato iptables), por ejemplo:
+# Oct 27 15:10:00 fw kernel: IN=eth0 SRC=192.168.1.50 DST=192.168.1.11 PROTO=TCP SPT=51234 DPT=445
+FIREWALL_CONNECTION = re.compile(
+    r"SRC=(?P<source_ip>\d{1,3}(?:\.\d{1,3}){3}) "
+    r"DST=(?P<destination_ip>\d{1,3}(?:\.\d{1,3}){3})"
+    r".*?PROTO=(?P<protocol>\w+)"
+    r"(?:.*?SPT=(?P<source_port>\d+))?"
+    r"(?:.*?DPT=(?P<destination_port>\d+))?"
+)
+
+PORT_FIELDS = ("source_port", "destination_port")
+DETAIL_FIELDS = (
+    "username",
+    "source_ip",
+    "source_port",
+    "destination_ip",
+    "destination_port",
+    "protocol",
+)
 
 
 def parse_log_line(line):
@@ -65,6 +84,11 @@ def parse_log_line(line):
         details = SOURCE_CONNECTION.search(message)
         if details:
             _add_details(event, details)
+    elif "SRC=" in message and "DST=" in message:
+        event["event_type"] = "connection"
+        details = FIREWALL_CONNECTION.search(message)
+        if details:
+            _add_details(event, details)
 
     return event
 
@@ -79,7 +103,8 @@ def parse_log_lines(lines):
 
 
 def _add_details(event, details):
-    for field in ("username", "source_ip", "source_port"):
-        value = details.groupdict().get(field)
+    groups = details.groupdict()
+    for field in DETAIL_FIELDS:
+        value = groups.get(field)
         if value:
-            event[field] = int(value) if field == "source_port" else value
+            event[field] = int(value) if field in PORT_FIELDS else value
