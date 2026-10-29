@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "SIEM · Contrato de integración (SEM-6)",
-    "version": "0.2.0-sprint1",
-    "description": "Sprint 1 mock contract for health, event receipt and static alerts. It does not specify persistent storage, alert correlation or authentication."
+    "title": "SIEM · Event ingestion, history and static alerts",
+    "version": "0.3.0-sprint2",
+    "description": "Sprint 2 branch contract: PostgreSQL event ingestion and paginated event history require the persistence profile. Alerts remain static fixtures. Authentication and authorization are not implemented. This file documents existing ingestion behavior; HU10 does not change POST behavior."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -42,8 +42,8 @@
     "/events": {
       "post": {
         "operationId": "receiveEvent",
-        "summary": "Receive a mock security event",
-        "description": "One event per request. Returns 200 without persistence, deduplication or alert generation. Invalid event bodies return 400.",
+        "summary": "Store a security event",
+        "description": "One event per request. With the persistence profile, returns 200 only after storage or an identical replay. Identity is (source, event_id); changed content returns 409. Without the profile, valid events return 503. PostgreSQL must be available at application startup with persistence enabled. Invalid or unrepresentable event data returns 400. Does not generate alerts.",
         "requestBody": {
           "required": true,
           "content": {
@@ -124,7 +124,7 @@
         },
         "responses": {
           "200": {
-            "description": "Mock event received; nothing is stored.",
+            "description": "Event stored or identical replay acknowledged; no duplicate row is inserted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -132,7 +132,7 @@
                 },
                 "example": {
                   "status": "success",
-                  "message": "Event received successfully (mock)",
+                  "message": "Event stored successfully",
                   "event_id": "HP-981839239323"
                 }
               }
@@ -177,6 +177,273 @@
                   "error": {
                     "code": "UNSUPPORTED_MEDIA_TYPE",
                     "message": "Content-Type must be application/json"
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Same source and event_id with different content; the original row is preserved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "EVENT_ID_CONFLICT",
+                    "message": "The event identifier already belongs to different content"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Persistence profile disabled or storage unavailable during the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "STORAGE_UNAVAILABLE",
+                    "message": "Event storage is temporarily unavailable"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listEventHistory",
+        "summary": "List stored security events",
+        "description": "Requires persistence. Fixed order: occurred_at DESC, source ASC, event_id ASC; timestamp retains original_timestamp when available, otherwise UTC occurred_at. limit+1 rows detect continuation without counting the table. Only limit and offset are accepted, each at most once, as 1 to 19 ASCII decimal digits without signs or whitespace. Values must fit a Java long and offset <= 9223372036854775807 - limit. Blank, duplicate and unknown parameters return 400. OFFSET is not a snapshot: concurrent inserts can repeat or skip rows, and large offsets can be costly. The row limit does not bound response bytes. History reads configure a 5-second JDBC statement timeout, not a request deadline. No filters or IAM protection are implemented. next includes the Servlet context; an extra public proxy prefix requires deployment configuration.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum returned events. Integer value represented using 1 to 19 ASCII digits.",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            },
+            "example": 100
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Rows skipped in fixed order. Integer value represented using 1 to 19 ASCII digits. Must also satisfy offset <= 9223372036854775807 - limit.",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0,
+              "maximum": 9223372036854775806,
+              "default": 0
+            },
+            "example": 0
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Persisted events in fixed order; empty collections return 200. No total count.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Prevents caching event data and handled history errors.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventHistoryResponse"
+                },
+                "examples": {
+                  "empty": {
+                    "value": {
+                      "events": [],
+                      "next_offset": null,
+                      "next": null
+                    }
+                  },
+                  "lastPage": {
+                    "value": {
+                      "events": [
+                        {
+                          "event_id": "HISTORY-EXAMPLE-001",
+                          "timestamp": "2026-10-29T12:00:00.123456789Z",
+                          "source": "scanner",
+                          "event_type": "vulnerability_detected",
+                          "severity": "low",
+                          "title": "History example",
+                          "description": "Synthetic history contract fixture",
+                          "details": {
+                            "nested": [
+                              null,
+                              true,
+                              42
+                            ],
+                            "decimal": 1.25
+                          }
+                        }
+                      ],
+                      "next_offset": null,
+                      "next": null
+                    }
+                  },
+                  "continuation": {
+                    "value": {
+                      "events": [
+                        {
+                          "event_id": "HISTORY-EXAMPLE-001",
+                          "timestamp": "2026-10-29T12:00:00.123456789Z",
+                          "source": "scanner",
+                          "event_type": "vulnerability_detected",
+                          "severity": "low",
+                          "title": "History example",
+                          "description": "Synthetic history contract fixture",
+                          "details": {
+                            "nested": [
+                              null,
+                              true,
+                              42
+                            ],
+                            "decimal": 1.25
+                          }
+                        }
+                      ],
+                      "next_offset": 1,
+                      "next": "/events?limit=1&offset=1"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid, duplicate, unknown or unsafe query parameters.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Prevents caching event data and handled history errors.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "properties": {
+                            "code": {
+                              "const": "VALIDATION_ERROR"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Invalid history query parameters"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Persistence disabled, unavailable storage or query timeout.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Prevents caching event data and handled history errors.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "properties": {
+                            "code": {
+                              "const": "STORAGE_UNAVAILABLE"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                "example": {
+                  "error": {
+                    "code": "STORAGE_UNAVAILABLE",
+                    "message": "Event storage is temporarily unavailable"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected history execution error; internal details are not exposed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Prevents caching event data and handled history errors.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "properties": {
+                            "code": {
+                              "const": "INTERNAL_ERROR"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Event history could not be retrieved"
                   }
                 }
               }
@@ -540,7 +807,9 @@
                   "UNSUPPORTED_MEDIA_TYPE",
                   "VALIDATION_ERROR",
                   "ALERT_NOT_FOUND",
-                  "INTERNAL_ERROR"
+                  "INTERNAL_ERROR",
+                  "EVENT_ID_CONFLICT",
+                  "STORAGE_UNAVAILABLE"
                 ]
               },
               "message": {
@@ -583,6 +852,68 @@
             }
           }
         }
+      },
+      "EventHistoryResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "events",
+          "next_offset",
+          "next"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/SecurityEvent"
+            }
+          },
+          "next_offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 9223372036854775807
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri-reference",
+            "pattern": "^/(?:[^/?#\\\\]+/)*events\\?limit=[0-9]+&offset=[0-9]+$",
+            "description": "Origin-relative continuation reference preserving the Servlet context and requested limit. Resolve against the API origin; no scheme or host is included."
+          }
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "next_offset": {
+                "type": "null"
+              },
+              "next": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "next_offset": {
+                "type": "integer"
+              },
+              "next": {
+                "type": "string"
+              },
+              "events": {
+                "minItems": 1
+              }
+            }
+          }
+        ],
+        "description": "At most the requested limit events; next and next_offset are both null at the end. Continuation observes the extra row at query time and does not provide a snapshot."
       }
     }
   }

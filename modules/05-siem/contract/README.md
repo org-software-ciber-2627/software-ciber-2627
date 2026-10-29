@@ -1,13 +1,14 @@
-# Contrato del mock SIEM · Sprint 1 · SEM-6
+# Contrato SIEM · Sprint 2
 
-Especificación del mock SIEM del Sprint 1. Describe la respuesta simulada y las alertas estáticas; no especifica la persistencia implementada en Sprint 2.
+Especificación de la rama actual: ingesta persistente de HU8, histórico de HU10 y alertas estáticas. [openapi.json](openapi.json) es el contrato de referencia; [history-events.md](history-events.md) detalla navegación, errores y límites del histórico. No implementa autenticación ni autorización.
 
 ## Interfaz
 
 | Método | Ruta | Respuesta |
 | --- | --- | --- |
 | GET | `/health` | 200 con `status: ok` y `module: 05-siem` |
-| POST | `/events` | 200 para eventos válidos, 400 para cuerpos/eventos inválidos, 415 para un Content-Type incorrecto |
+| POST | `/events` | 200 al guardar/reconocer reenvío; 400 inválido; 409 conflicto; 415 tipo incorrecto; 503 sin almacenamiento |
+| GET | `/events` | 200 con `events`, `next_offset`, `next`; 400 consulta inválida; 503 indisponibilidad/timeout; 500 error inesperado |
 | GET | `/alerts` | 200 con `{"alerts": [...]}` |
 | GET | `/alerts/{id}` | 200 con una alerta o 404 con `error.code: ALERT_NOT_FOUND` |
 
@@ -23,14 +24,14 @@ Un objeto JSON por petición, con `event_id`, `timestamp`, `source`, `event_type
 | G3 Honeypot | `source_ip`, `service`, `username`, `credential`, `command` |
 | G4 Escáner | `target`, `scan_id`, `tool`, `profile`, `script_id`, `evidence`, `cve`, `cvss` |
 
-La validación del mock comprueba la cabecera común y que `details` sea un objeto. La implementación de persistencia añade las reglas descritas en [SEM-65](sem65-ingestion-proposal.md).
+La validación común comprueba la cabecera común y que `details` sea un objeto. La implementación de persistencia añade las reglas descritas en [SEM-65](sem65-ingestion-proposal.md).
 
 ## Acuse y errores
 
-El mock confirma los eventos válidos con 200, sin almacenarlos ni generar alertas. Los reintentos válidos también devuelven 200. El acuse utiliza mensajes en inglés:
+Con el perfil `persistence`, POST confirma 200 después de almacenar o reconocer un reenvío idéntico. Misma clave `(source, event_id)` con otro contenido produce 409. Sin perfil o con almacenamiento inaccesible durante la petición responde 503. Con persistencia activa, PostgreSQL debe estar disponible al arrancar. No genera alertas. El acuse utiliza mensajes en inglés:
 
 ```json
-{"status":"success","message":"Event received successfully (mock)","event_id":"HP-981839239323"}
+{"status":"success","message":"Event stored successfully","event_id":"HP-981839239323"}
 ```
 
 Los errores usan el siguiente formato:
@@ -39,7 +40,7 @@ Los errores usan el siguiente formato:
 {"error":{"code":"VALIDATION_ERROR","message":"The event does not match the required schema"}}
 ```
 
-Códigos del mock: `INVALID_JSON`, `VALIDATION_ERROR`, `UNSUPPORTED_MEDIA_TYPE` y `ALERT_NOT_FOUND`. Los errores internos imprevistos no tienen un formato garantizado en esta versión.
+Códigos de ingesta: `INVALID_JSON`, `VALIDATION_ERROR`, `UNSUPPORTED_MEDIA_TYPE`, `EVENT_ID_CONFLICT` y `STORAGE_UNAVAILABLE`. El histórico usa `VALIDATION_ERROR`, `STORAGE_UNAVAILABLE` e `INTERNAL_ERROR` y devuelve `Cache-Control: no-store` en éxito y errores gestionados. Las alertas conservan `ALERT_NOT_FOUND`.
 
 ## Alertas
 
@@ -47,4 +48,4 @@ Cada alerta conserva todos los campos del evento y añade `alert_id`, `source_ip
 
 `GET /alerts` utiliza `mocks/alerts.json`, con tres ejemplos completos. `GET /alerts/{id}` usa el identificador exacto, sensible a mayúsculas y minúsculas. El JSON estático no cambia después de POST /events.
 
-Los ejemplos son datos simulados de laboratorio. `contract/openapi.json` conserva las respuestas del mock; consulta [SEM-65](sem65-ingestion-proposal.md) para el comportamiento de ingesta persistente.
+Los ejemplos son datos simulados de laboratorio. El comportamiento de ingesta se detalla en [SEM-65](sem65-ingestion-proposal.md); HU10 solo actualiza su descripción en OpenAPI, sin cambiar POST. La [matriz de pruebas del histórico](../docs/history-events-tests.md) identifica ejecución y límites. Las versiones históricas del contrato permanecen en Git.

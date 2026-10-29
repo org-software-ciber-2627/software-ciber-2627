@@ -22,7 +22,7 @@ La petición no necesita cuerpo. La respuesta utiliza `Content-Type: application
 | `limit` | Entero | `100` | Entre `1` y `500`, ambos incluidos |
 | `offset` | Entero | `0` | Entre `0` y `9223372036854775807 - limit`; número de eventos que se omiten al inicio del resultado ordenado |
 
-Omitir ambos parámetros equivale a `GET /events?limit=100&offset=0`. Un parámetro presente pero vacío, no entero o fuera de su rango válido produce 400; no se sustituye silenciosamente por el valor predeterminado. Los valores que no puedan representarse de forma segura en la implementación se rechazan con 400, sin truncamiento ni desbordamiento aritmético. Se aceptan únicamente entre 1 y 19 dígitos ASCII, sin signos, espacios, decimales ni exponentes. El valor debe caber en un entero Java `long`; además, `offset + limit` no puede superar `9223372036854775807`. Los parámetros duplicados o desconocidos producen 400. La sincronización de estos límites con OpenAPI corresponde a SEM-100.
+Omitir ambos parámetros equivale a `GET /events?limit=100&offset=0`. Un parámetro presente pero vacío, no entero o fuera de su rango válido produce 400; no se sustituye silenciosamente por el valor predeterminado. Los valores que no puedan representarse de forma segura en la implementación se rechazan con 400, sin truncamiento ni desbordamiento aritmético. Se aceptan únicamente entre 1 y 19 dígitos ASCII, sin signos, espacios, decimales ni exponentes. El valor debe caber en un entero Java `long`; además, `offset + limit` no puede superar `9223372036854775807`. Los parámetros duplicados o desconocidos producen 400. Estos límites también están documentados en OpenAPI; la restricción cruzada entre offset y limit se expresa en su descripción.
 
 No se incorporan filtros por origen, severidad, tipo de evento o fechas en HU10.
 
@@ -167,9 +167,9 @@ La consulta devuelve los atributos persistidos, que pueden contener información
 
 Los desacuerdos de formato de otros módulos se coordinan con sus responsables. HU10 no modifica productores ni añade adaptadores específicos para ellos.
 
-## Criterios de aceptación y verificación prevista
+## Criterios de aceptación y verificación local
 
-Los siguientes casos guían SEM-99. La verificación local del 29/10/2026 combina PostgreSQL real, HTTP y repositorios de prueba; el detalle de la evidencia se recoge al final. No todos los casos tienen una prueba específica sobre PostgreSQL real.
+Los casos de SEM-99 se han verificado localmente. La [matriz de pruebas](../docs/history-events-tests.md) identifica qué casos usan PostgreSQL real, qué casos usan repositorios de prueba y sus límites. No se atribuye ejecución CI a las pruebas locales.
 
 | Caso | Resultado exigido |
 | --- | --- |
@@ -188,36 +188,33 @@ Los siguientes casos guían SEM-99. La verificación local del 29/10/2026 combin
 | Persistencia desactivada o caída durante la consulta | 503, sin éxito aparente ni datos internos |
 | Reinicio conservando almacenamiento | Los eventos siguen disponibles al consultar |
 
-Las pruebas de integración utilizarán almacenamiento desechable y no borrarán volúmenes ni datos de trabajo. Se distinguirán pruebas propias, resultados declarados por JC y comprobaciones de CI. El comportamiento ante peticiones simultáneas respetará la limitación de navegación documentada.
+Las pruebas de integración utilizan almacenamiento desechable y no borran volúmenes ni datos de trabajo. Las evidencias propias se distinguen de los resultados de HU8 y de una futura comprobación CI. La navegación simultánea conserva la limitación de OFFSET documentada.
 
-## Implementación, seguridad y condiciones de cierre
+## Implementación y seguridad
 
-- **SEM-97:** contrato preparado y actualizado con el diseño autorizado por Oliver. Pendiente de revisión del equipo/JC y aceptación del PO cuando corresponda; no se atribuyen acuerdos de terceros.
-- **SEM-98:** implementación local completa de repositorio, servicio y controlador, verificada con PostgreSQL real. Cambios propios limitados a `modules/05-siem`; no se modifica el formato de ingesta ni se añade otra persistencia.
-- **SEM-99:** se ha ejecutado la suite disponible y el recorrido de caída/recuperación. La matriz de aceptación y su evidencia deben revisarse como subtarea propia; no se declara cerrada automáticamente.
-- **SEM-100:** pendiente sincronizar OpenAPI, documentación general y revisión/aceptación final de la historia.
+El histórico reutiliza la tabla, el pool de conexiones y el mapeo de persistencia de HU8. El controlador valida los parámetros y el servicio obtiene una página acotada del repositorio JDBC. El contrato público y el procedimiento de pruebas están descritos en OpenAPI y en la [matriz de verificación](../docs/history-events-tests.md).
 
 `PostgresEventRepository.findPage` usa SQL fijo y enlaza `fetchLimit` y `offset` como parámetros JDBC; no concatena valores del cliente ni acepta ordenación arbitraria. El controlador rechaza entradas malformadas antes de consultar el repositorio. Las respuestas correctas y los errores gestionados por el histórico incluyen `Cache-Control: no-store`; sus errores no exponen SQL, credenciales ni cuerpos de eventos.
 
-La lectura del histórico tiene un timeout JDBC de cinco segundos y comparte el pool de HU8. Se ha verificado que se configura en el statement mediante una prueba JDBC; no se ha provocado un bloqueo real para medir su cancelación en PostgreSQL. No constituye un límite global de duración de la petición. La limitación por filas no limita el tamaño en bytes de los eventos ni elimina el coste de desplazamientos grandes.
+La lectura del histórico tiene un timeout JDBC de cinco segundos y comparte el pool de HU8. Se ha verificado su configuración en el statement y un bloqueo real de tabla en PostgreSQL: la consulta devuelve 503 y se recupera al liberar el bloqueo. No constituye un límite global de duración de la petición. La limitación por filas no limita el tamaño en bytes de los eventos ni elimina el coste de desplazamientos grandes.
 
 El enlace `next` conserva `limit` y el contexto Servlet, y es nulo junto con `next_offset` al terminar. No modifica SQL ni almacenamiento. La API sigue sin IAM; esta implementación no acredita integración real con los productores.
 
-Este contrato no actualiza por sí mismo `contract/openapi.json`. La ingesta persistente se describe en [sem65-ingestion-proposal.md](sem65-ingestion-proposal.md). La ejecución utiliza el perfil y las variables de la [guía de persistencia](../docs/sem67-persistence-guide.md).
+El [OpenAPI de esta rama](openapi.json) incluye el histórico y documenta la ingesta persistente existente sin modificar su código. La ingesta persistente se describe en [sem65-ingestion-proposal.md](sem65-ingestion-proposal.md). La ejecución utiliza el perfil y las variables de la [guía de persistencia](../docs/sem67-persistence-guide.md).
 
 ## Verificación local · 29/10/2026
 
-Comando ejecutado desde `modules/05-siem`, con Java 21, Docker Desktop y PostgreSQL `17-alpine`:
+Comando ejecutado desde `modules/05-siem`, con Java 21, Docker Desktop, PostgreSQL `17-alpine` y las dependencias de `scripts/requirements.txt` en un entorno temporal externo:
 
 ```zsh
-python3 -B scripts/test-storage.py --offline
+python3 -B scripts/test-storage.py --offline --verify-contract
 ```
 
 Resultados propios observados:
 
-- **56 pruebas Java ejecutadas**, cero fallos, errores u omisiones; `BUILD SUCCESS`. Incluyen 17 casos de `PersistentEventHttpTests` y 10 de `PostgresEventRepositoryTests` con PostgreSQL habilitado.
-- **3 regresiones Python correctas** y **15 comprobaciones HTTP de humo correctas** sobre la aplicación empaquetada.
-- HTTP y PostgreSQL reales: eventos de tres fuentes con identificador compartido, orden entre fuentes empatadas, página con continuación, fidelidad del evento, rechazo de parámetros con forma de inyección y reenvío sin filas duplicadas.
+- **62 pruebas Java ejecutadas**, cero fallos, errores u omisiones; `BUILD SUCCESS`. Incluyen 6 casos de `EventHistoryPostgresHttpTests`, 17 de `PersistentEventHttpTests` y 10 de `PostgresEventRepositoryTests` con PostgreSQL habilitado.
+- **3 regresiones Python correctas** y **15 comprobaciones HTTP de humo correctas** sobre la aplicación empaquetada. Respuestas reales del histórico 200/400/503 y cabeceras validadas contra OpenAPI con `--verify-contract`.
+- HTTP y PostgreSQL reales: base vacía, eventos de tres fuentes, identidad compuesta, orden por fecha/fuente/identificador, recorrido completo de next, página de 500 más fila adicional, offset seguro máximo, fila antigua, fidelidad del evento, parámetros inválidos y reenvío sin duplicados. Timeout de lectura comprobado mediante bloqueo de tabla, con recuperación posterior.
 - Aplicación empaquetada y PostgreSQL reales: POST seguido de GET con evento completo, 503 durante caída de la base de datos y recuperación del histórico con datos idénticos después de recrear el contenedor conservando su volumen.
 - HTTP con repositorio de prueba: seguimiento completo de `next`, valores predeterminados/ explícitos, colección vacía, desplazamiento posterior al final, contexto `/siem`, cabeceras de host reenviado, errores genéricos y validación de parámetros.
 - Pruebas JDBC con objetos de registro: SQL parametrizado, valores enlazados, timeout configurado, cierre de recursos y mapeo compartido. No se presentan como ejecución contra PostgreSQL.

@@ -23,6 +23,7 @@ REPORT = MODULE / 'target/sem66/report.json'
 REPORT.unlink(missing_ok=True)
 parser = argparse.ArgumentParser(description="Run SIEM storage checks in an isolated PostgreSQL project.")
 parser.add_argument("--offline", action="store_true", help="Use Maven's local dependency cache.")
+parser.add_argument("--verify-contract", action="store_true", help="Validate observed history responses with jsonschema; install scripts/requirements.txt first.")
 args = parser.parse_args()
 if not __debug__:
     parser.error("Run without Python optimization; these checks require assertions.")
@@ -43,7 +44,7 @@ def passed(name):
 def verify_java_reports():
     reports = list((MODULE / 'target/surefire-reports').glob('TEST-*.xml'))
     suites = {ET.parse(path).getroot().attrib['name']: ET.parse(path).getroot().attrib for path in reports}
-    for required in ('PostgresEventRepositoryTests', 'PersistentEventHttpTests', 'EventServiceLoggingTests'):
+    for required in ('PostgresEventRepositoryTests', 'PersistentEventHttpTests', 'EventHistoryPostgresHttpTests', 'EventServiceLoggingTests'):
         assert any(name.endswith('.' + required) and int(attributes['tests']) > 0
                    for name, attributes in suites.items()), 'Missing test suite: ' + required
     totals = {key: sum(int(attributes.get(key, 0)) for attributes in suites.values())
@@ -99,6 +100,7 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                      "AND details='{}'::jsonb AND original_timestamp IS NULL")
         assert result == '1', 'Migration changed the existing event'
         passed('additive migration preserves an existing event and can be reapplied')
+        sql("DELETE FROM events WHERE source='ids' AND event_id='sem65-migration-check'")
         test_env = ENV.copy()
         test_env['SIEM_TEST_DB_URL'] = 'jdbc:postgresql://127.0.0.1:' + ENV['SIEM_DB_PORT'] + '/' + ENV['SIEM_DB_NAME']
         test_env['SIEM_TEST_DB_USER'] = 'siem'
@@ -122,15 +124,24 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
         app_env['SERVER_PORT'] = str(http_port)
         base_url = 'http://127.0.0.1:' + str(http_port)
 
+        history_responses = []
+
         def request(path, event=None):
             data = json.dumps(event).encode() if event else None
             req = Request(base_url + path, data=data,
                           headers={'Content-Type': 'application/json'} if data else {})
             try:
                 with urlopen(req, timeout=10) as response:
-                    return response.status, json.load(response)
+                    result = response.status, json.load(response)
+                    response_headers = response.headers
             except HTTPError as error:
-                return error.code, json.load(error)
+                result = error.code, json.load(error)
+                response_headers = error.headers
+            if event is None and path.startswith('/events'):
+                history_responses.append({'status': result[0], 'body': result[1], 'headers': {
+                    'Cache-Control': response_headers.get('Cache-Control'),
+                    'Content-Type': response_headers.get('Content-Type')}})
+            return result
 
         with (HERE / 'application.log').open('w') as app_log:
             app = subprocess.Popen(['java', '-jar', str(MODULE / 'target/siem-0.0.1-SNAPSHOT.jar'), '--server.address=127.0.0.1'],
@@ -146,6 +157,8 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                         time.sleep(0.2)
                 else:
                     raise RuntimeError('Packaged application did not become available')
+                assert request('/events') == (200, {'events': [], 'next_offset': None, 'next': None})
+                assert request('/events?limit=0')[0] == 400
                 event = json.loads((MODULE / 'contract/examples/grupo_3_honeypot.json').read_text())
                 event['event_id'] = PROJECT + '-http-recovery'
                 event['timestamp'] = '2026-10-23T12:00:00.123456789Z'
@@ -181,6 +194,14 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                 assert smoke.returncode == 0, smoke.stderr
                 smoke_count = json.loads(smoke.stdout)['count']
                 passed('packaged application HTTP smoke checks: ' + str(smoke_count))
+                if args.verify_contract:
+                    observed = HERE / 'history-responses.json'
+                    observed.write_text(json.dumps(history_responses))
+                    verified = subprocess.run([sys.executable, str(MODULE / 'scripts/verify-contract.py'),
+                        '--history-responses', str(observed)], cwd=ROOT, env=ENV,
+                        capture_output=True, text=True, timeout=30)
+                    assert verified.returncode == 0, verified.stderr
+                    passed('OpenAPI validates packaged history success and error responses')
             finally:
                 app.terminate()
                 try:
@@ -195,5 +216,6 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
 
 REPORT.parent.mkdir(parents=True, exist_ok=True)
 REPORT.write_text(json.dumps({'status': 'passed', 'java': totals, 'http_smoke_checks': smoke_count,
-                              'checks': checks}, indent=2) + '\n')
+                              'checks': checks, 'history_contract_validation': 'passed' if args.verify_contract else 'not_requested',
+                              'history_responses_checked': len(history_responses) if args.verify_contract else 0}, indent=2) + '\n')
 print('Report: ' + str(REPORT), flush=True)

@@ -119,7 +119,7 @@ Los ocho campos del contrato son `event_id`, `timestamp`, `source`, `event_type`
 
 Con persistencia activa se rechazan con 400 los textos con caracteres nulos o Unicode incompleto, también dentro de `details`, y las fechas o números fuera del rango de almacenamiento. Se conserva el error genérico: no se devuelven SQL ni datos de conexión. Los fallos reales de PostgreSQL continúan produciendo 503. El Unicode válido, incluidos caracteres suplementarios, se guarda y reenvía sin sustituciones.
 
-Si PostgreSQL no está disponible al arrancar con `persistence`, la creación del pool puede impedir el arranque; no debe confundirse con un servidor arrancado que responde 503. El [comportamiento de ingesta](../contract/sem65-ingestion-proposal.md) describe 409 y 503; el OpenAPI histórico conserva las respuestas del mock anterior.
+Si PostgreSQL no está disponible al arrancar con `persistence`, la creación del pool puede impedir el arranque; no debe confundirse con un servidor arrancado que responde 503. El [comportamiento de ingesta](../contract/sem65-ingestion-proposal.md) describe 409 y 503; el [OpenAPI vigente](../contract/openapi.json) refleja estas respuestas y el histórico de HU10.
 
 La clave incluye `source`: el mismo ID de dos productores ocupa dos filas. Los reenvíos se comparan sin sobrescribir el evento. Los logs escapan controles y separadores solo al mostrarlos; el identificador original se conserva en almacenamiento y recibo.
 
