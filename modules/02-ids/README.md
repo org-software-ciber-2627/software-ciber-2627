@@ -19,10 +19,7 @@ Para la configuración del IDS se dispone de un fichero `config/ids.conf` con la
 # KEY,VALUE1,VALUE2,...
 LOG_FILE,../../../logs/1.log
 WHITELIST,127.0.0.1,192.168.1.0/24
-SIEM_URL,http://siem:80/events
 ```
-- `SIEM_URL`: dirección de `POST /events` del SIEM. La variable de entorno
-  `SIEM_URL` tiene prioridad sobre este valor.
 Además, para configurar las reglas se dispone de un fichero `config/ids.rules`, que tiene la siguiente estructura:
 ```
 # PATTERN_ID,THRESHOLD,TIME_WINDOW,ARGS...
@@ -41,24 +38,6 @@ en un objeto JSON. Por ejemplo:
 ```json
 {"timestamp":"Apr 20 13:51:02","service":"sshd","event_type":"failed_login","username":"root","source_ip":"122.5.240.60","source_port":54874}
 ```
-
-## Envío de eventos al SIEM
-
-`util/siem_client.py` envía a `POST /events` del SIEM los eventos que generan
-las reglas, uno por petición y con `Content-Type: application/json`
-(`SiemClient().send_many(eventos)`). Solo envía los que tienen el formato común
-del SIEM (`modules/05-siem/contract/event-schema.json`).
-
-El SIEM no elimina duplicados, así que `output/sent_events.json` guarda los
-`event_id` ya tratados y no se vuelven a enviar:
-
-| Respuesta del SIEM | Qué hace el IDS |
-|---|---|
-| `200` | Marca el evento como `sent` |
-| `400` / `415` | Lo marca como `rejected` y registra el error; no se reintenta |
-| Sin conexión, timeout u otro código | Registra el error; se reintentará en el siguiente envío |
-
-`main.py` todavía no llama a este cliente.
 
 ## Patrón P004 · Fuerza bruta
 
