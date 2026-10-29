@@ -132,4 +132,13 @@ class SiemHttpIntegrationTests {
             assertEquals(Map.of("error", Map.of("code", "STORAGE_UNAVAILABLE", "message", "Event storage is temporarily unavailable")), mapper.readValue(response.body(), Map.class));
         }
     }
+
+    @Test
+    void historyWithoutPersistenceReturnsUnavailableRatherThanEmpty() throws Exception {
+        var response = request("/events", null, null);
+        assertEquals(503, response.statusCode());
+        assertEquals("STORAGE_UNAVAILABLE", mapper.readTree(response.body()).get("error").get("code").asText());
+        assertEquals("no-store", response.headers().firstValue("Cache-Control").orElseThrow());
+    }
+
 }

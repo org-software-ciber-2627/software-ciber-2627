@@ -44,6 +44,7 @@ class EventServiceLoggingTests {
             "Private title marker", "Private description marker", Map.of("credential", "private-payload-marker"));
         var received = new ArrayList<Event>();
         EventRepository storage = new EventRepository() {
+                public java.util.List<Event> findPage(int limit, long offset) { throw new UnsupportedOperationException(); }
             public void save(Event event) { throw new UnsupportedOperationException(); }
             public Optional<Event> findById(String source, String eventId) { throw new UnsupportedOperationException(); }
             public SaveResult saveIfAbsent(Event event) {

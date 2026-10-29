@@ -4,6 +4,8 @@ import com.ciberurjc.siem.models.Event;
 import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.core.JdbcTemplate;
+import javax.sql.DataSource;
 import org.springframework.stereotype.Repository;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.DeserializationFeature;
@@ -11,6 +13,8 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.ObjectReader;
 
 import java.sql.SQLException;
+import java.sql.ResultSet;
+import java.util.List;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -24,11 +28,15 @@ public class PostgresEventRepository implements EventRepository {
     private static final Instant MIN_TIMESTAMP = Instant.parse("-4712-01-01T00:00:00Z");
     private static final Instant MAX_TIMESTAMP_EXCLUSIVE = Instant.parse("+294277-01-01T00:00:00Z");
     private final JdbcClient jdbc;
+    private final JdbcClient historyJdbc;
     private final ObjectMapper mapper;
     private final ObjectReader detailsReader;
 
-    public PostgresEventRepository(JdbcClient jdbc, ObjectMapper mapper) {
+    public PostgresEventRepository(JdbcClient jdbc, ObjectMapper mapper, DataSource dataSource) {
         this.jdbc = jdbc;
+        JdbcTemplate historyTemplate = new JdbcTemplate(dataSource);
+        historyTemplate.setQueryTimeout(5);
+        this.historyJdbc = JdbcClient.create(historyTemplate);
         this.mapper = mapper;
         this.detailsReader = mapper.readerFor(new TypeReference<Map<String, Object>>() {})
             .with(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
@@ -144,16 +152,36 @@ public class PostgresEventRepository implements EventRepository {
             """)
             .param("source", source)
             .param("eventId", eventId)
-            .query((result, rowNumber) -> {
-                String timestamp = result.getString("original_timestamp");
-                if (timestamp == null) {
-                    timestamp = result.getObject("occurred_at", OffsetDateTime.class).toInstant().toString();
-                }
-                Map<String, Object> details = detailsReader.readValue(result.getString("details"));
-                return new Event(result.getString("event_id"), timestamp, result.getString("source"),
-                    result.getString("event_type"), result.getString("severity"), result.getString("title"),
-                    result.getString("description"), details);
-            })
+            .query(this::mapEvent)
             .optional();
     }
+
+    @Override
+    public List<Event> findPage(int fetchLimit, long offset) {
+        if (fetchLimit < 1 || fetchLimit > 501 || offset < 0) {
+            throw new IllegalArgumentException("Invalid repository pagination parameters");
+        }
+        return historyJdbc.sql("""
+            SELECT event_id, occurred_at, source, event_type, severity, title, description, details, original_timestamp
+            FROM events
+            ORDER BY occurred_at DESC, source ASC, event_id ASC
+            LIMIT :fetchLimit OFFSET :offset
+            """)
+            .param("fetchLimit", fetchLimit)
+            .param("offset", offset)
+            .query(this::mapEvent)
+            .list();
+    }
+
+    private Event mapEvent(ResultSet result, int rowNumber) throws SQLException {
+        String timestamp = result.getString("original_timestamp");
+        if (timestamp == null) {
+            timestamp = result.getObject("occurred_at", OffsetDateTime.class).toInstant().toString();
+        }
+        Map<String, Object> details = detailsReader.readValue(result.getString("details"));
+        return new Event(result.getString("event_id"), timestamp, result.getString("source"),
+            result.getString("event_type"), result.getString("severity"), result.getString("title"),
+            result.getString("description"), details);
+    }
+
 }

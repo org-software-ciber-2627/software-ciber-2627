@@ -151,16 +151,25 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                 event['timestamp'] = '2026-10-23T12:00:00.123456789Z'
                 event['details'] = {'nested': [None, True, {'text': 'ñ'}]}
                 assert request('/events', event)[0] == 200
+                history_status, history = request('/events?limit=1&offset=0')
+                assert history_status == 200 and history['events'] == [event], (history_status, history)
+                passed('packaged history returns the complete persisted event')
                 assert sql("SELECT count(*) FROM events WHERE event_id='" + event['event_id'] + "'") == '1'
                 before = sql("SELECT row_to_json(events)::text FROM events WHERE event_id='" + event['event_id'] + "'")
                 compose('stop', 'siem-db')
                 status, body = request('/events', event)
                 assert status == 503 and body['error']['code'] == 'STORAGE_UNAVAILABLE', (status, body)
                 passed('packaged HTTP application returns 503 during a real PostgreSQL outage')
+                history_status, history = request('/events')
+                assert history_status == 503 and history['error']['code'] == 'STORAGE_UNAVAILABLE', (history_status, history)
+                passed('history reports storage outage instead of empty success')
                 compose('rm', '-f', 'siem-db')
                 compose('up', '-d', '--wait', '--wait-timeout', '90', 'siem-db', timeout=180)
                 assert sql("SELECT row_to_json(events)::text FROM events WHERE event_id='" + event['event_id'] + "'") == before, 'Container recreation changed stored data'
                 passed('container recreation preserves all stored columns on the same isolated volume')
+                history_status, history = request('/events?limit=1&offset=0')
+                assert history_status == 200 and history['events'] == [event], (history_status, history)
+                passed('history remains available with identical data after storage recovery')
                 assert request('/events', event)[0] == 200
                 assert sql("SELECT count(*) FROM events WHERE event_id='" + event['event_id'] + "'") == '1'
                 event['title'] = 'Changed after database restart'

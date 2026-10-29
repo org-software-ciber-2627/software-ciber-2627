@@ -279,4 +279,53 @@ class PersistentEventHttpTests {
         assertEquals(200, post(input).statusCode());
         assertEquals(1, count());
     }
+
+    @Test
+    void historyListsPersistentProducersWithStableTiesAndNoReplayRows() throws Exception {
+        String sharedId = prefix + "history-shared";
+        for (String source : List.of("scanner", "ids", "honeypot")) {
+            var input = event("grupo_3_honeypot.json");
+            input.put("event_id", sharedId);
+            input.put("timestamp", "2099-10-29T12:00:00.123456789Z");
+            input.put("source", source);
+            var details = new LinkedHashMap<String, Object>();
+            details.put("nullable", null);
+            details.put("nested", java.util.Arrays.asList(true, null, 42));
+            details.put("decimal", new BigDecimal("1234567890.12345678901234567890"));
+            input.put("details", details);
+            assertEquals(200, post(input).statusCode());
+            assertEquals(200, post(input).statusCode());
+        }
+        assertEquals(3, count());
+        var request = HttpRequest.newBuilder(URI.create(baseUrl + "/events?limit=2&offset=0")).GET().build();
+        var response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode());
+        assertEquals("no-store", response.headers().firstValue("Cache-Control").orElseThrow());
+        var page = mapper.readTree(response.body());
+        assertEquals(2, page.get("events").size());
+        assertEquals(2, page.get("next_offset").asInt());
+        assertEquals("/events?limit=2&offset=2", page.get("next").asText());
+        for (int i = 0; i < 2; i++) {
+            String source = List.of("honeypot", "ids").get(i);
+            var actual = page.get("events").get(i);
+            assertEquals(mapper.readTree(mapper.writeValueAsString(repository.findById(source, sharedId).orElseThrow())), actual);
+        }
+        var nextRequest = HttpRequest.newBuilder(URI.create(baseUrl + "/events?limit=1&offset=2")).GET().build();
+        var next = mapper.readTree(client.send(nextRequest, HttpResponse.BodyHandlers.ofString()).body());
+        assertEquals("scanner", next.get("events").get(0).get("source").asText());
+        assertEquals(sharedId, next.get("events").get(0).get("event_id").asText());
+    }
+
+    @Test
+    void historyInjectionParametersAreRejectedWithoutChangingStoredRows() throws Exception {
+        var input = event("grupo_3_honeypot.json");
+        assertEquals(200, post(input).statusCode());
+        var request = HttpRequest.newBuilder(URI.create(baseUrl + "/events?offset=0%3BDROP%20TABLE%20events")).GET().build();
+        var response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(400, response.statusCode());
+        assertEquals("VALIDATION_ERROR", mapper.readTree(response.body()).get("error").get("code").asText());
+        assertEquals(1, count());
+        assertTrue(repository.findById((String) input.get("source"), (String) input.get("event_id")).isPresent());
+    }
+
 }
