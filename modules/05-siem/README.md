@@ -4,9 +4,11 @@ Candidato de integración de SEM-5, SEM-6, SEM-10 y SEM-20. Conserva el trabajo 
 
 ## Alcance
 
-Servidor Java 21 y Spring Boot 4.1.1. Recibe un evento JSON por petición, valida la cabecera común y devuelve un acuse. Publica tres alertas estáticas, una por productor, conservando todos sus campos y valores nulos.
+Servidor Java 21 y Spring Boot 4.1.1. Recibe un evento JSON por petición, valida la cabecera común y devuelve un acuse. Publica tres alertas estáticas de IDS, Honeypot y Escáner, conservando todos sus campos y valores nulos.
 
 No hay persistencia, deduplicación, correlación ni autenticación real en este mock. Enviar eventos no cambia la lista de alertas. El contrato de G1 y la integración externa siguen pendientes.
+
+`POST /events` admite `source` con los valores `ids`, `honeypot`, `scanner` e `identity`. Identidad (G1) puede enviar eventos de `event_type: fuerza_bruta` con `severity: high` y los campos `username`, `source_ip`, `failed_attempts`, `window_seconds` y `endpoint` dentro de `details`. Un evento válido recibe HTTP 200 con el acuse habitual; un origen desconocido sigue recibiendo HTTP 400.
 
 ## Arranque con Docker
 
@@ -66,7 +68,7 @@ Desde `modules/05-siem`:
 ./mvnw clean verify
 ```
 
-Las pruebas arrancan el servidor en un puerto aleatorio y comprueban los tres productores, los campos obligatorios, valores inválidos, JSON incorrecto, los tres detalles y el error 404. No certifican servicios de otros equipos.
+Las pruebas arrancan el servidor en un puerto aleatorio y comprueban los cuatro orígenes admitidos, incluido un evento de fuerza bruta de Identidad con su acuse exacto, los campos obligatorios, valores inválidos, JSON incorrecto, los tres detalles de alerta y el error 404. No certifican servicios de otros equipos.
 
 Consultar `docs/estado-integracion.md` para evidencias y acuerdos pendientes. La API no expone credenciales en los logs; los datos de `credential` de los ejemplos son datos ficticios de laboratorio.
 

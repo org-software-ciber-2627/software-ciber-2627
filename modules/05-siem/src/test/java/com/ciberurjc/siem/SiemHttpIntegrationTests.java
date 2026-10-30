@@ -58,6 +58,32 @@ class SiemHttpIntegrationTests {
     }
 
     @Test
+    void acceptsIdentityBruteForceEventWithExactReceipt() throws Exception {
+        String event = """
+            {
+              "event_id": "IDENTITY-BRUTE-FORCE-001",
+              "timestamp": "2026-10-27T10:15:00Z",
+              "source": "identity",
+              "event_type": "fuerza_bruta",
+              "severity": "high",
+              "title": "Intentos de acceso fallidos en Identidad",
+              "description": "Se han detectado 8 intentos de acceso fallidos en 60 segundos.",
+              "details": {
+                "username": "usuario_prueba",
+                "source_ip": "192.0.2.10",
+                "failed_attempts": 8,
+                "window_seconds": 60,
+                "endpoint": "/auth/login"
+              }
+            }
+            """;
+        var response = request("/events", event, "application/json");
+        assertEquals(200, response.statusCode(), response.body());
+        assertEquals(Map.of("status", "success", "message", "Event received successfully (mock)",
+                "event_id", "IDENTITY-BRUTE-FORCE-001"), mapper.readValue(response.body(), Map.class));
+    }
+
+    @Test
     void rejectsMissingFieldsAndInvalidValues() throws Exception {
         Map<String, Object> valid = mapper.readValue(Files.readString(Path.of("contract/examples/grupo_3_honeypot.json")), Map.class);
         for (String field : valid.keySet()) {
