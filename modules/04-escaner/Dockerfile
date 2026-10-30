@@ -1,3 +1,18 @@
-FROM nginx:1.27-alpine
+FROM python:3.12-slim
 
-COPY default.conf /etc/nginx/conf.d/default.conf
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+    RUN apt-get update \
+    && apt-get install -y --no-install-recommends nmap \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY src/ ./
+
+EXPOSE 80
+
+CMD ["python", "main.py"]

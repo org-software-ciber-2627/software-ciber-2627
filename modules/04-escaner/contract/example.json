@@ -1,0 +1,104 @@
+{
+  "events": [
+    {
+      "description": "Puerto 3000/tcp abierto.",
+      "details": {
+        "cve": null,
+        "cvss": null,
+        "evidence": null,
+        "profile": "vuln",
+        "scan_id": "32eee598-cc3a-4dd1-a858-2bc1b99f929d",
+        "script_id": null,
+        "target": {
+          "ip": "127.0.0.1",
+          "port": 3000,
+          "protocol": "tcp",
+          "service": "ppp"
+        },
+        "tool": "nmap"
+      },
+      "event_id": "cf66b792-8463-419f-8248-e059f545abb1",
+      "event_type": "port_open",
+      "severity": "info",
+      "source": "scanner",
+      "timestamp": "2026-10-27T15:11:04Z",
+      "title": "Puerto abierto: 3000"
+    },
+    {
+      "description": "Servicio ppp detectado en el puerto 3000.",
+      "details": {
+        "cve": null,
+        "cvss": null,
+        "evidence": null,
+        "profile": "vuln",
+        "scan_id": "32eee598-cc3a-4dd1-a858-2bc1b99f929d",
+        "script_id": null,
+        "target": {
+          "ip": "127.0.0.1",
+          "port": 3000,
+          "protocol": "tcp",
+          "service": "ppp"
+        },
+        "tool": "nmap"
+      },
+      "event_id": "9529f792-281b-460d-8b76-f8624294f373",
+      "event_type": "service_detected",
+      "severity": "info",
+      "source": "scanner",
+      "timestamp": "2026-10-27T15:11:04Z",
+      "title": "Servicio detectado: ppp"
+    },
+    {
+      "description": "Puerto 8000/tcp abierto.",
+      "details": {
+        "cve": null,
+        "cvss": null,
+        "evidence": null,
+        "profile": "vuln",
+        "scan_id": "32eee598-cc3a-4dd1-a858-2bc1b99f929d",
+        "script_id": null,
+        "target": {
+          "ip": "127.0.0.1",
+          "port": 8000,
+          "protocol": "tcp",
+          "service": "tcpwrapped"
+        },
+        "tool": "nmap"
+      },
+      "event_id": "117ef94b-0a23-4f80-9292-8046a7c7f707",
+      "event_type": "port_open",
+      "severity": "info",
+      "source": "scanner",
+      "timestamp": "2026-10-27T15:11:04Z",
+      "title": "Puerto abierto: 8000"
+    },
+    {
+      "description": "Servicio tcpwrapped detectado en el puerto 8000.",
+      "details": {
+        "cve": null,
+        "cvss": null,
+        "evidence": null,
+        "profile": "vuln",
+        "scan_id": "32eee598-cc3a-4dd1-a858-2bc1b99f929d",
+        "script_id": null,
+        "target": {
+          "ip": "127.0.0.1",
+          "port": 8000,
+          "protocol": "tcp",
+          "service": "tcpwrapped"
+        },
+        "tool": "nmap"
+      },
+      "event_id": "429a4276-3a47-4749-89d5-c841dfe4f02a",
+      "event_type": "service_detected",
+      "severity": "info",
+      "source": "scanner",
+      "timestamp": "2026-10-27T15:11:04Z",
+      "title": "Servicio detectado: tcpwrapped"
+    }
+  ],
+  "profile": "vuln",
+  "scan_id": "32eee598-cc3a-4dd1-a858-2bc1b99f929d",
+  "status": "completed",
+  "target": "127.0.0.1"
+}
