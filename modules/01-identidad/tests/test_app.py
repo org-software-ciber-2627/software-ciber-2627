@@ -331,6 +331,20 @@ class TestValidate(BaseTest):  # adelanta AAA-20
             secrets.token_hex(32), algorithm="HS256",
         )
         self.assertEqual(self.validar(otro).status_code, 401)
+    
+    def test_6_cabecera_mal_formada_sin_bearer_retorna_401(self):
+        token = self.registrar().get_json()["token"]
+        r = self.client.get("/auth/validate", headers={"Authorization": token})
+        self.assertEqual(r.status_code, 401)
+        self.assertIs(r.get_json()["valid"], False)
+
+    def test_7_token_revocado_via_logout_retorna_401(self):
+        token = self.registrar().get_json()["token"]
+        self.client.post("/auth/logout", headers=self.con_token(token))
+        r = self.client.get("/auth/validate", headers=self.con_token(token))
+        self.assertEqual(r.status_code, 401)
+        self.assertIs(r.get_json()["valid"], False)
+
  
  
 class TestSecretos(BaseTest):  # adelanta AAA-15/16
