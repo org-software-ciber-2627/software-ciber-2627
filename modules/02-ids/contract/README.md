@@ -62,7 +62,7 @@ El parser actual espera una línea con esta estructura:
 MMM d HH:mm:ss host service[pid]: message
 ```
 
-Ejemplo real de los logs:
+Ejemplo real de los logs de prueba:
 
 ```text
 Mar 27 13:08:09 ip-10-77-20-248 sshd[1361]: Accepted publickey for ubuntu from 85.245.107.41 port 54259 ssh2
