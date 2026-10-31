@@ -1,0 +1,9 @@
+# ==========================================
+# REGLAS DEL MOTOR
+# Formato: ID,UMBRAL,VENTANA_SEGUNDOS,ARGUMENTOS_EXTRA
+# ==========================================
+P001,5,60
+P002,20,10
+P003,10,120
+P004,5,60,usernames=3
+P005,10,60
