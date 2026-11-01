@@ -46,7 +46,7 @@ class SiemHttpIntegrationTests {
     @Test
     void rejectsIngestionWithoutStorageWithoutChangingStaticAlerts() throws Exception {
         String before = request("/alerts", null, null).body();
-        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json")) {
+        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json", "grupo_4_scanner_info.json")) {
             String event = Files.readString(Path.of("contract/examples", filename));
             var response = request("/events", event, "application/json");
             assertEquals(503, response.statusCode(), response.body());
@@ -123,7 +123,7 @@ class SiemHttpIntegrationTests {
 
     @Test
     void preservesEveryProducerFieldAndDoesNotReportMockSuccess() throws Exception {
-        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json")) {
+        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json", "grupo_4_scanner_info.json")) {
             String input = Files.readString(Path.of("contract/examples", filename));
             var model = mapper.readValue(input, com.ciberurjc.siem.models.Event.class);
             assertEquals(mapper.readTree(input), mapper.readTree(mapper.writeValueAsString(model)), filename);

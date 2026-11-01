@@ -155,4 +155,16 @@ class PostgresEventRepositoryTests {
         assertEquals(Instant.parse("2026-10-20T12:00:00Z"), Instant.parse(actual.timestamp()));
         assertEquals(id, actual.event_id());
     }
+    @Test
+    void databaseAcceptsInfoAndStillRejectsUnknownSeverityWhenHttpValidationIsBypassed() {
+        Event info = new Event(prefix + "info", "2026-11-01T12:00:00Z", "scanner", "service_detected", "info",
+                "Service observed", "Informational storage fixture", new LinkedHashMap<>());
+        repository.save(info);
+        assertEquals(info, repository.findById(info.source(), info.event_id()).orElseThrow());
+        Event invalid = new Event(prefix + "invalid-severity", info.timestamp(), info.source(), info.event_type(), "urgent",
+                info.title(), info.description(), info.details());
+        assertThrows(DataAccessException.class, () -> repository.save(invalid));
+        assertTrue(repository.findById(invalid.source(), invalid.event_id()).isEmpty());
+    }
+
 }

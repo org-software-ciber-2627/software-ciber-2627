@@ -8,6 +8,8 @@ Consulta la [guía de configuración y persistencia](docs/sem67-persistence-guid
 
 Con el perfil Spring `persistence`, `POST /events` valida y almacena el evento antes de confirmar la recepción. La clave primaria `(source, event_id)` evita duplicar eventos: el reenvío con el mismo contenido recibe 200 y el mismo identificador con otro contenido recibe 409. Sin almacenamiento disponible, la ingesta responde 503. La validación existente conserva 400 y 415.
 
+La [especificación Escáner → SIEM](contract/scanner-events.md) define el formato de publicación. El catálogo común de eventos admite `info`, `low`, `medium`, `high` y `critical`. Para bases existentes, aplica la migración `003-allow-info-severity.sql` antes de enviar eventos informativos. Las [pruebas de compatibilidad](docs/scanner-events-tests.md) distinguen la ingesta probada del recorrido real del productor.
+
 `GET /alerts` y `GET /alerts/{id}` usan tres alertas estáticas. Ingerir un evento no modifica esa lista ni genera correlaciones. La API no autentica productores.
 
 ## Arranque sin persistencia
@@ -33,7 +35,7 @@ Acceso local: `http://localhost:8005`. La red Docker compartida usa `http://siem
 | `GET /alerts` | 200 con tres alertas de ejemplo |
 | `GET /alerts/{id}` | 200 con una alerta o 404 si no existe |
 
-El contrato histórico del mock está en `contract/openapi.json`. El comportamiento de persistencia se describe en [SEM-65](contract/sem65-ingestion-proposal.md); no se debe interpretar el OpenAPI histórico como especificación de las respuestas de persistencia.
+El [OpenAPI](contract/openapi.json) documenta la ingesta persistente y el catálogo de eventos de esta rama. La semántica de reenvíos y errores se detalla en [SEM-65](contract/sem65-ingestion-proposal.md). Las consultas de alertas conservan sus datos estáticos y su catálogo de severidades anterior.
 
 Los datos que PostgreSQL no puede representar, como caracteres nulos, Unicode incompleto o valores fuera de su rango admitido, se rechazan con 400 sin insertar. Los fallos del almacenamiento responden con un error genérico y 503.
 
@@ -54,7 +56,7 @@ docker compose ps siem-db
 
 La base de datos es `siem_bd` y el usuario es `siem`. El perfil `siem-db` es opcional. PostgreSQL se publica solo en `127.0.0.1:5433`; `SIEM_DB_PORT` permite cambiar el puerto local. Dentro de la red Docker, el host y puerto son `siem-db:5432`.
 
-El esquema crea `events` desde `db/init/001-create-events.sql`. Su clave primaria es `(source, event_id)`, `occurred_at` conserva el instante UTC y `details` se almacena como JSONB. El segundo script añade `original_timestamp` para conservar el texto completo del timestamp recibido. Los scripts de inicialización se aplican automáticamente solo a un volumen vacío; en una base ya inicializada hay que aplicar la migración 002.
+El esquema crea `events` desde `db/init/001-create-events.sql`. Su clave primaria es `(source, event_id)`, `occurred_at` conserva el instante UTC y `details` se almacena como JSONB. El segundo script añade `original_timestamp` para conservar el texto completo del timestamp recibido. El tercero permite la severidad `info` sin alterar los eventos existentes. Los scripts de inicialización se aplican automáticamente solo a un volumen vacío; en una base ya inicializada hay que aplicar las migraciones que falten (002 para el timestamp y 003 para `info`).
 
 El volumen `siem-postgres-data` conserva los datos al recrear el contenedor. No uses `docker compose down -v` si quieres conservarlos.
 
@@ -78,7 +80,7 @@ Desde `modules/05-siem`, ejecuta las pruebas Java:
 ./mvnw clean verify
 ```
 
-Para comprobar también PostgreSQL real, migraciones, recuperación, reenvíos y persistencia del volumen, usa el [ejecutor aislado SEM-66](docs/sem66-storage-tests.md). La validación del OpenAPI histórico requiere `jsonschema>=4,<5`:
+Para comprobar también PostgreSQL real, migraciones, recuperación, reenvíos y persistencia del volumen, usa el [ejecutor aislado SEM-66](docs/sem66-storage-tests.md). La validación de los contratos requiere `jsonschema>=4,<5`:
 
 ```bash
 python3 scripts/verify-contract.py

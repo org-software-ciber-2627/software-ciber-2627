@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "SIEM Sprint 1 security event",
+  "title": "SIEM security event",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -43,11 +43,13 @@
     "severity": {
       "type": "string",
       "enum": [
+        "info",
         "low",
         "medium",
         "high",
         "critical"
-      ]
+      ],
+      "description": "info denotes an informational observation; it does not imply a vulnerability or generate an alert."
     },
     "title": {
       "type": "string",
