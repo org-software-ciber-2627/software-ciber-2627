@@ -47,7 +47,7 @@ El fixture `src/test/resources/db/legacy-events-before-info.sql` conserva la def
 ## Resultado local
 
 - 41 pruebas Java ejecutadas, cero fallos, errores u omisiones; PostgreSQL habilitado.
-- Tres regresiones Python correctas.
+- Ocho regresiones Python correctas, incluidas cinco de seguridad y limpieza del ejecutor de integración real.
 - 16 comprobaciones HTTP de humo correctas contra la aplicación empaquetada.
 - Contratos, referencias y cuatro ejemplos de eventos validados; el catálogo de alertas conserva sus valores anteriores.
 - Migración desde el esquema antiguo, reaplicación, conservación de datos e instalación nueva correctas.
@@ -59,3 +59,6 @@ Los resultados de JUnit están en `target/surefire-reports/`; el runner genera `
 Las pruebas de compatibilidad envían JSON preparado. Para acreditar la integración real se necesita un evento generado por el Escáner, su acuse correlacionado por `event_id`, comprobación de almacenamiento y un fallo de entrega observable. La versión de publicador referenciada en el contrato todavía ignora respuestas y excepciones de envío; estas pruebas no modifican ni validan ese comportamiento.
 
 La API no implementa autenticación ni autorización de productores y se usa HTTP sin TLS en el laboratorio. Los eventos sintéticos no contienen secretos reales; la conexión a PostgreSQL sí utiliza su contraseña externa. La ampliación no añade reintentos automáticos, correlación, generación de alertas ni cambios en otros módulos.
+
+
+El recorrido ejecutando el productor real se documenta por separado en [scanner-integration.md](scanner-integration.md); sus resultados no se deducen de estas pruebas sintéticas.

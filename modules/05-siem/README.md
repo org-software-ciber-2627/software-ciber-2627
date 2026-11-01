@@ -8,7 +8,7 @@ Consulta la [guía de configuración y persistencia](docs/sem67-persistence-guid
 
 Con el perfil Spring `persistence`, `POST /events` valida y almacena el evento antes de confirmar la recepción. La clave primaria `(source, event_id)` evita duplicar eventos: el reenvío con el mismo contenido recibe 200 y el mismo identificador con otro contenido recibe 409. Sin almacenamiento disponible, la ingesta responde 503. La validación existente conserva 400 y 415.
 
-La [especificación Escáner → SIEM](contract/scanner-events.md) define el formato de publicación. El catálogo común de eventos admite `info`, `low`, `medium`, `high` y `critical`. Para bases existentes, aplica la migración `003-allow-info-severity.sql` antes de enviar eventos informativos. Las [pruebas de compatibilidad](docs/scanner-events-tests.md) distinguen la ingesta probada del recorrido real del productor.
+La [especificación Escáner → SIEM](contract/scanner-events.md) define el formato de publicación. El catálogo común de eventos admite `info`, `low`, `medium`, `high` y `critical`. Para bases existentes, aplica la migración `003-allow-info-severity.sql` antes de enviar eventos informativos. Las [pruebas de compatibilidad](docs/scanner-events-tests.md) verifican entradas sintéticas; la [prueba de integración real](docs/scanner-integration.md) ejecuta el productor y contrasta entrega y almacenamiento.
 
 `GET /alerts` y `GET /alerts/{id}` usan tres alertas estáticas. Ingerir un evento no modifica esa lista ni genera correlaciones. La API no autentica productores.
 

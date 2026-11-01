@@ -205,3 +205,6 @@ La actualización del catálogo de eventos se comunica a sus consumidores. No se
 | Fin de las pruebas | Procesos de prueba terminados, recursos desechables retirados y puertos comprobados |
 
 Un JSON preparado valida compatibilidad, pero no acredita por sí solo un escaneo real. Un evento de inventario no sustituye al hallazgo de vulnerabilidad en la prueba de extremo a extremo. Las pruebas locales de compatibilidad del SIEM se describen en [scanner-events-tests.md](../docs/scanner-events-tests.md). No equivalen a ejecutar el Escáner ni a verificar su publicador real.
+
+
+La ejecución independiente del recorrido con el productor real y sus límites se describe en [scanner-integration.md](../docs/scanner-integration.md).
