@@ -42,6 +42,14 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from crypto import decrypt, encrypt
 
+import tempfile
+import time
+
+try:
+    import fcntl  # solo Linux/macOS (el contenedor); en Windows no existe
+except ImportError:
+    fcntl = None
+
 
 class ConfigError(RuntimeError):
     """Falta configuración obligatoria (clave JWT o clave AES)."""
@@ -94,6 +102,11 @@ EVENTOS = ("login_ok", "login_failed", "invalid_user", "secret_read", "secret_de
 IDS_URL   = os.environ.get("IDS_URL", "http://ids/logs")
 _HOSTNAME = socket.gethostname()
 _PID      = os.getpid()
+
+IDS_RETRY_SECONDS = int(os.environ.get("IDS_RETRY_SECONDS", "30"))  # espera base entre reintentos
+IDS_RETRY_MIN_AGE = 10   # no se reintentan eventos recientes: su primer envío puede estar en curso
+IDS_RETRY_BATCH   = int(os.environ.get("IDS_RETRY_BATCH", "20"))  # eventos por lote (confirmar límite con el IDS)
+_LOCK_PATH = os.path.join(tempfile.gettempdir(), "identidad-ids-reintentos.lock")
 
 # Caracteres que rompen el formato key=value en syslog: controles, espacio y '='
 _LOG_UNSAFE = re.compile(r'[\x00-\x1f\x7f =]')
@@ -265,6 +278,87 @@ def _enviar_al_ids(log):
             pass
 
     threading.Thread(target=_send, daemon=True).start()
+
+def _reintentar_pendientes():
+    """Reenvía al IDS, del más antiguo al más reciente, los eventos con enviado=False.
+    Devuelve cuántos se entregaron, o None si el IDS no los aceptó."""
+    with app.app_context():
+        limite = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=IDS_RETRY_MIN_AGE)
+        pendientes = (
+            AuditLog.query
+            .filter(AuditLog.enviado.is_(False), AuditLog.timestamp <= limite)
+            .order_by(AuditLog.timestamp.asc(), AuditLog.id.asc())
+            .limit(IDS_RETRY_BATCH)
+            .all()
+        )
+        if not pendientes:
+            return 0
+        ids = [l.id for l in pendientes]
+        payload = {
+            "source": "01-identidad",
+            "logs": [{"id": l.log_id, "raw_line": _format_raw_line(l)} for l in pendientes],
+        }
+        try:
+            resp = http_client.post(IDS_URL, json=payload, timeout=5)
+        except Exception:
+            return None
+        if resp.status_code not in (200, 202):
+            return None
+        try:
+            AuditLog.query.filter(AuditLog.id.in_(ids)).update({"enviado": True}, synchronize_session=False)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()  # el evento sigue guardado; se volverá a enviar
+            return None
+        return len(ids)
+
+
+def _con_candado(funcion):
+    """Ejecuta funcion() solo si ningún otro proceso del contenedor está reintentando."""
+    if fcntl is None:
+        return funcion()
+    with open(_LOCK_PATH, "a+") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return 0  # otro worker ya está reintentando
+        try:
+            return funcion()
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def _bucle_reintentos():
+    fallos = 0
+    while True:
+        time.sleep(min(IDS_RETRY_SECONDS * 2 ** fallos, 300))  # 30, 60, 120, 240, 300 s
+        while True:  # vacía la cola por lotes mientras el IDS responda
+            try:
+                enviados = _con_candado(_reintentar_pendientes)
+            except Exception:
+                enviados = None
+            if enviados is None:
+                fallos = min(fallos + 1, 4)  # IDS caído: espera cada vez mayor
+                break
+            fallos = 0
+            if enviados < IDS_RETRY_BATCH:
+                break
+
+
+_reintentos_pid = None
+_reintentos_lock = threading.Lock()
+
+
+@app.before_request
+def _arrancar_reintentos_en_este_proceso():
+    """Arranca el hilo de reintentos una vez por proceso (con gunicorn --preload, uno por worker)."""
+    global _reintentos_pid
+    if os.environ.get("IDS_REINTENTOS", "1") != "1" or _reintentos_pid == os.getpid():
+        return
+    with _reintentos_lock:
+        if _reintentos_pid != os.getpid():
+            _reintentos_pid = os.getpid()
+            threading.Thread(target=_bucle_reintentos, daemon=True, name="ids-reintentos").start()
 
 
 def registrar_evento(event_type, result, username=None, role=None, clave=None):
