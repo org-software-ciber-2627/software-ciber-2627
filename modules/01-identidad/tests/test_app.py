@@ -5,7 +5,8 @@ import tempfile
 import time
 import unittest
 from datetime import datetime, timedelta, timezone
- 
+import base64
+
 import jwt
  
 SRC = os.path.join(os.path.dirname(__file__), "..", "src")
@@ -23,7 +24,7 @@ for _var in VARIABLES:
  
 import app as app_module  # noqa: E402
 from app import Secret, User, app, db  # noqa: E402
-from crypto import encrypt  # noqa: E402
+from crypto import encrypt, decrypt  # noqa: E402
  
 USUARIO = {
     "username": "usuario.ejemplo",
@@ -702,6 +703,93 @@ class TestMinimoPrivilegio(BaseTest):  # AAA-25
         r = self.get("/logs", "cuenta.servicio")
         self.assertEqual(r.status_code, 200)
         self.assertNotIn(self.VALOR, r.get_data(as_text=True))
+        
+class TestAlmacenamientoCifrado(BaseTest):  # AAA-75
+    VALOR = "valor-de-prueba-del-secreto"
+
+    def guardar(self, clave="api_key", valor=None):
+        enc, iv, tag = encrypt(valor or self.VALOR, self.aes_key)
+        with app.app_context():
+            db.session.add(Secret(clave=clave, valor_encriptado=enc, iv=iv, tag=tag))
+            db.session.commit()
+        return enc, iv, tag
+
+    def leer_como_servicio(self, clave="api_key"):
+        self.crear_usuario("cuenta.servicio", "servicio")
+        return self.client.get(f"/secrets/{clave}", headers=self.con_token(self.token_de("cuenta.servicio")))
+
+    def test_1_cifrar_y_descifrar_devuelve_el_valor_original(self):
+        for valor in (self.VALOR, "ñandú-contraseña-€", "x" * 500):
+            enc, iv, tag = encrypt(valor, self.aes_key)
+            self.assertEqual(decrypt(enc, iv, tag, self.aes_key), valor)
+
+    def test_2_el_mismo_valor_cifrado_dos_veces_da_resultados_distintos(self):
+        a = encrypt(self.VALOR, self.aes_key)
+        b = encrypt(self.VALOR, self.aes_key)
+        self.assertNotEqual(a[1], b[1])  # iv distinto
+        self.assertNotEqual(a[0], b[0])  # texto cifrado distinto
+
+    def test_3_el_valor_no_esta_en_claro_en_la_base_de_datos(self):
+        self.guardar()
+        ruta = os.path.join(tempfile.gettempdir(), "identidad_tests.db")
+        with open(ruta, "rb") as f:
+            contenido = f.read()
+        self.assertNotIn(self.VALOR.encode(), contenido)
+        with app.app_context():
+            fila = Secret.query.filter_by(clave="api_key").first()
+            self.assertNotIn(self.VALOR, f"{fila.valor_encriptado}{fila.iv}{fila.tag}")
+
+    def test_4_con_otra_clave_no_se_puede_descifrar(self):
+        enc, iv, tag = encrypt(self.VALOR, self.aes_key)
+        with self.assertRaises(ValueError):
+            decrypt(enc, iv, tag, os.urandom(32))
+
+    def test_5_si_alguien_modifica_el_dato_cifrado_el_endpoint_da_500_sin_filtrar_nada(self):
+        enc, iv, tag = self.guardar()
+        crudo = bytearray(base64.b64decode(enc))
+        crudo[0] ^= 1
+        with app.app_context():
+            fila = Secret.query.filter_by(clave="api_key").first()
+            fila.valor_encriptado = base64.b64encode(bytes(crudo)).decode()
+            db.session.commit()
+        r = self.leer_como_servicio()
+        self.assertEqual(r.status_code, 500)
+        self.assertNotIn(self.VALOR, r.get_data(as_text=True))
+
+    def test_6_los_secretos_sembrados_desde_el_entorno_se_leen_descifrados(self):
+        valor = secrets.token_hex(8)
+        os.environ["SECRET_API_KEY"] = valor
+        with app.app_context():
+            app_module.seed()
+        r = self.leer_como_servicio()
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.get_json()["valor"], valor)
+        with app.app_context():
+            fila = Secret.query.filter_by(clave="api_key").first()
+            self.assertNotIn(valor, fila.valor_encriptado)
+
+    def test_7_cada_secreto_usa_su_propio_iv(self):
+        self.guardar("api_key")
+        self.guardar("db_password", "otro-valor")
+        with app.app_context():
+            ivs = [s.iv for s in Secret.query.all()]
+        self.assertEqual(len(ivs), 2)
+        self.assertEqual(len(set(ivs)), 2)
+
+    def test_8_una_clave_aes_invalida_se_rechaza(self):
+        invalidas = ("esto-no-es-base64!!", base64.b64encode(os.urandom(16)).decode(), "")
+        for valor in invalidas:
+            os.environ["AES_KEY"] = valor
+            try:
+                self.assertIsNone(app_module._load_aes_key())
+            finally:
+                os.environ.pop("AES_KEY", None)
+        os.environ["AES_KEY"] = base64.b64encode(os.urandom(32)).decode()
+        try:
+            self.assertEqual(len(app_module._load_aes_key()), 32)
+        finally:
+            os.environ.pop("AES_KEY", None)
+
 
 if __name__ == "__main__":
     unittest.main()
