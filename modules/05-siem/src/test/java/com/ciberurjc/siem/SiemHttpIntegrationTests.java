@@ -15,12 +15,15 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import com.ciberurjc.siem.services.AlertRepository;
 import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class SiemHttpIntegrationTests {
     @Autowired Environment environment;
     @Autowired ObjectMapper mapper;
+    @Autowired
+AlertRepository alertRepository;
     final HttpClient client = HttpClient.newHttpClient();
     String baseUrl;
 
@@ -131,7 +134,43 @@ class SiemHttpIntegrationTests {
             assertEquals(mapper.readTree(input), mapper.readTree(mapper.writeValueAsString(model)), filename);
             var response = request("/events", input, "application/json");
             assertEquals(200, response.statusCode());
-            assertEquals(Map.of("status", "success", "message", "Event received successfully (mock)", "event_id", model.event_id()), mapper.readValue(response.body(), Map.class));
-        }
+            assertEquals(Map.of("status", "success", "message", "Event received successfully", "event_id", model.event_id()), mapper.readValue(response.body(), Map.class));        }
     }
+
+    @Test
+    void generatesAndStoresAlertFromReceivedEvent() throws Exception {
+
+        // 1. Leer un evento real de ejemplo del IDS
+        String event = Files.readString(
+            Path.of("contract/examples/grupo_2_ids_ejemplo_propuesto.json")
+        );
+
+        // 2. Obtener el identificador del evento
+        String eventId = mapper.readTree(event)
+            .get("event_id").asText();
+
+        // 3. Enviar el evento al SIEM
+        var response = request(
+            "/events",
+            event,
+            "application/json"
+        );
+
+        // 4. Comprobar que se ha recibido correctamente
+        assertEquals(200, response.statusCode());
+
+        // 5. Buscar la alerta generada en el repositorio
+        var alert = alertRepository.findAll().stream()
+            .filter(a -> eventId.equals(a.get("event_id")))
+            .findFirst();
+
+        // 6. Comprobar que la alerta existe
+        assertTrue(alert.isPresent());
+
+        // 7. Comprobar sus datos
+        assertEquals(eventId, alert.get().get("event_id"));
+        assertEquals("ids", alert.get().get("source"));
+        assertNotNull(alert.get().get("alert_id"));
+    }
+
 }
