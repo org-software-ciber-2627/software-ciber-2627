@@ -3,7 +3,7 @@
   "info": {
     "title": "SIEM · Contrato de integración (SEM-6)",
     "version": "0.2.0-sprint1-review",
-    "description": "Sprint 1 mock candidate aligned with the communicated 200/400 behavior. Intergroup ratification and PO acceptance are pending. No persistence, correlation or authentication is implemented."
+    "description": "Each accepted event generates one alert stored in memory (lost on restart). Identical retries are idempotent; a changed resend of the same source and event_id returns 409. Request bodies are limited to 64 KiB and storage to 10000 alerts by default. Intergroup ratification and PO acceptance are pending. No durable persistence, correlation or authentication is implemented."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -44,8 +44,8 @@
     "/events": {
       "post": {
         "operationId": "receiveEvent",
-        "summary": "Receive a mock security event",
-        "description": "One event per request. Returns 200 without persistence, deduplication or alert generation. Invalid event bodies return 400.",
+        "summary": "Receive a security event and generate its alert",
+        "description": "One event per request. The first accepted event for a source and event_id stores one alert; an identical retry returns 200 without changes; different content for the same source and event_id returns 409 and never replaces the stored alert. Bodies over the configured limit (default 65536 bytes) return 413. When storage is full, new alerts return 507. Invalid event bodies return 400.",
         "requestBody": {
           "required": true,
           "content": {
@@ -126,7 +126,7 @@
         },
         "responses": {
           "200": {
-            "description": "Mock event received; nothing is stored.",
+            "description": "Event accepted. Its alert is stored, or already existed with identical content.",
             "content": {
               "application/json": {
                 "schema": {
@@ -168,6 +168,38 @@
               }
             }
           },
+          "409": {
+            "description": "The same source and event_id was already received with different content. The stored alert is kept unchanged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "EVENT_CONFLICT",
+                    "message": "An event with the same source and event_id was already received with different content"
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body exceeds the configured limit (default 65536 bytes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "PAYLOAD_TOO_LARGE",
+                    "message": "The request body exceeds the maximum allowed size"
+                  }
+                }
+              }
+            }
+          },
           "415": {
             "description": "Tipo de contenido no admitido.",
             "content": {
@@ -179,6 +211,22 @@
                   "error": {
                     "code": "UNSUPPORTED_MEDIA_TYPE",
                     "message": "Content-Type must be application/json"
+                  }
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Alert storage reached its configured capacity (default 10000). Identical retries of stored events still return 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "STORAGE_FULL",
+                    "message": "Alert storage has reached its capacity"
                   }
                 }
               }
@@ -426,8 +474,9 @@
           "event_id": {
             "type": "string",
             "minLength": 1,
-            "description": "Unique within source; stable on retries. UUID is not required.",
-            "pattern": "\\S"
+            "maxLength": 128,
+            "description": "Unique within source; stable on retries. UUID is not required. Letters, digits, dot, underscore, colon and hyphen only.",
+            "pattern": "^[A-Za-z0-9._:-]{1,128}$"
           },
           "timestamp": {
             "type": "string",
