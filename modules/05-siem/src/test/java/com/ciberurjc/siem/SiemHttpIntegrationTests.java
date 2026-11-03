@@ -18,6 +18,7 @@ import java.util.Map;
 import com.ciberurjc.siem.services.AlertRepository;
 import static org.junit.jupiter.api.Assertions.*;
 
+@org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class SiemHttpIntegrationTests {
     @Autowired Environment environment;
@@ -47,8 +48,8 @@ AlertRepository alertRepository;
     }
 
     @Test
-    void acceptsAllProducersWithoutChangingStaticAlerts() throws Exception {
-        String before = request("/alerts", null, null).body();
+    void acceptsAllProducersAndListsTheirStoredAlerts() throws Exception {
+        assertEquals(mapper.readTree("{\"alerts\":[]}"), mapper.readTree(request("/alerts", null, null).body()));
         for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json")) {
             String event = Files.readString(Path.of("contract/examples", filename));
             var response = request("/events", event, "application/json");
@@ -57,7 +58,14 @@ AlertRepository alertRepository;
             assertEquals(mapper.readTree(event).get("event_id"), mapper.readTree(response.body()).get("event_id"));
             assertEquals(200, request("/events", event, "application/json").statusCode());
         }
-        assertEquals(mapper.readTree(before), mapper.readTree(request("/alerts", null, null).body()));
+        var listed = mapper.readTree(request("/alerts", null, null).body()).get("alerts");
+        assertEquals(3, listed.size());
+        for (var alert : listed) {
+            assertEquals(mapper.valueToTree(alertRepository.findById(alert.get("alert_id").asText()).orElseThrow()), alert);
+            var detail = request("/alerts/" + alert.get("alert_id").asText(), null, null);
+            assertEquals(200, detail.statusCode());
+            assertEquals(alert, mapper.readTree(detail.body()));
+        }
     }
 
     @Test
@@ -91,14 +99,11 @@ AlertRepository alertRepository;
     }
 
     @Test
-    void servesFixtureListAndDetailNeedsStorage() throws Exception {
-        var expected = mapper.readTree(Files.readString(Path.of("mocks/alerts.json")));
+    void returnsEmptyListAndMissingDetailForEmptyStorage() throws Exception {
         var response = request("/alerts", null, null);
         assertEquals(200, response.statusCode());
-        assertEquals(expected, mapper.readTree(response.body()));
-        // HU17: sin almacenamiento el detalle ya no devuelve el mock.
-        var detail = request("/alerts/" + expected.get("alerts").get(0).get("alert_id").asText(), null, null);
-        assertEquals(404, detail.statusCode());
+        assertEquals(mapper.readTree("{\"alerts\":[]}"), mapper.readTree(response.body()));
+        assertEquals(404, request("/alerts/UNKNOWN", null, null).statusCode());
     }
 
     @Test

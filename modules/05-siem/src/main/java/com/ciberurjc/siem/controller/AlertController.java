@@ -1,7 +1,7 @@
 package com.ciberurjc.siem.controller;
 
 import com.ciberurjc.siem.services.AlertRepository;
-import com.ciberurjc.siem.services.MockAlertService;
+import com.ciberurjc.siem.services.AlertQueryService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.util.Map;
@@ -9,17 +9,17 @@ import java.util.Map;
 @RestController
 @RequestMapping("/alerts")
 public class AlertController {
-    private final MockAlertService mockAlertService;
+    private final AlertQueryService alertQueryService;
     private final AlertRepository alertRepository;
 
-    public AlertController(MockAlertService mockAlertService, AlertRepository alertRepository) {
-        this.mockAlertService = mockAlertService;
+    public AlertController(AlertQueryService alertQueryService, AlertRepository alertRepository) {
+        this.alertQueryService = alertQueryService;
         this.alertRepository = alertRepository;
     }
 
     @GetMapping
     public Map<String, Object> getAllAlerts() {
-        return Map.of("alerts", mockAlertService.getAllAlerts());
+        return Map.of("alerts", alertQueryService.findAll());
     }
 
     // HU17 / SEM-33: el detalle se lee del almacén común de alertas (HU13).

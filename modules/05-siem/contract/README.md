@@ -60,3 +60,11 @@ Los ejemplos son simulados de laboratorio. Su presencia, las pruebas locales y e
 ## Acuerdo SEM-68 de Sprint 2
 
 [Contrato de listado y detalle](sem68-alert-query-contract.md): el OpenAPI incluye 503 STORAGE_UNAVAILABLE y 500 INTERNAL_ERROR para ambas consultas, con el formato de error común y mensaje genérico. Son requisitos acordados para la implementación real; el texto anterior describe el mock de Sprint 1. Comunicación a G6/G7 prevista en el Scrum de Scrums.
+
+## Implementación SEM-70
+
+GET /alerts consulta AlertQueryService y el repositorio en memoria de HU13. Devuelve todas las alertas disponibles, sin orden garantizado, filtros ni paginación. Una consulta vacía devuelve 200 con {"alerts":[]}. El detalle incorporado desde SEM-33 consulta el mismo repositorio.
+
+AlertErrorHandler aplica a ambas rutas: AlertStorageUnavailableException produce 503 STORAGE_UNAVAILABLE; los fallos inesperados de ejecución producen 500 INTERNAL_ERROR con mensaje genérico. El repositorio actual en memoria no tiene un fallo de conexión natural; el 503 se prueba inyectando un fallo tipado. Un futuro adaptador de almacenamiento debe traducir únicamente fallos de disponibilidad a esa excepción.
+
+Validación local: bash ./mvnw clean test desde modules/05-siem. Las pruebas HTTP envían ejemplos de los tres productores, comprueban listado y detalle, resultado vacío y errores. El almacenamiento se pierde al reiniciar. La ingesta persistente de HU8 y su integración siguen fuera de esta rama; la CI específica corresponde a SEM-71.
