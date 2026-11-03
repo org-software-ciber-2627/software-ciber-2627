@@ -1,4 +1,6 @@
 import util.health
+from pathlib import Path
+import json
 
 from threading import Thread
 from util.log_parser import parse_log_lines
@@ -37,6 +39,9 @@ def main():
     storage = ParsedLogStorage()
     storage.save_many(eventos)
 
+    # Creamos una lista vacía para almacenar las detecciones
+    detecciones = []
+
     print(f"[*] Log a procesar: {config['LOGFILE']}")
     print(f"[*] Whitelist: {config['WHITELIST']}")
     print(f"[*] Reglas activas")
@@ -45,9 +50,16 @@ def main():
     print(f"[*] Eventos parseados: {len(eventos)}")
     for rule in rules:
         if rule.enabled:
-            rule.run(eventos)
+            detecciones.extend(rule.run(eventos))
         else:
             print(f"---Regla {rule.pattern_id} desactivada---")
+
+    events_path = Path(__file__).resolve().parents[1] / "output"
+    events_path.mkdir(parents=True, exist_ok=True)
+
+    with open(events_path / "events.json", "w") as file:
+        json.dump(detecciones, file, indent=2)
+
 
     # Wait for web application to finish
     app.join()
