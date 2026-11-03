@@ -6,5 +6,6 @@ COPY src /usr/share/nginx/html
 # Solo se publica el mock que consume la web (SIEM). Los mocks de SOAR y Escáner son servicios
 # Flask independientes y su código no debe quedar accesible desde nginx.
 COPY mocks/siem-alerts.json /usr/share/nginx/html/mocks/siem-alerts.json
+COPY mocks/soar-incidents.json /usr/share/nginx/html/mocks/soar-incidents.json
 
 EXPOSE 80
