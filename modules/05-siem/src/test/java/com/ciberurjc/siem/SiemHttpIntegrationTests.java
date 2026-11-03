@@ -69,6 +69,36 @@ AlertRepository alertRepository;
     }
 
     @Test
+    void listsAllStoredAlertsWithExactContractFields() throws Exception {
+        var converter = new com.ciberurjc.siem.services.AlertConverter();
+        var expected = new java.util.HashSet<String>();
+        for (int i = 0; i < 150; i++) {
+            var alert = converter.convert(new com.ciberurjc.siem.models.Event(
+                "http-query-" + i, "2026-11-03T12:00:00Z", "scanner", "finding", "low",
+                "Finding", "Scanner finding", Map.of("target", Map.of("ip", "192.0.2.20"))));
+            alertRepository.save(alert);
+            expected.add((String) alert.get("alert_id"));
+        }
+        var response = request("/alerts", null, null);
+        assertEquals(200, response.statusCode());
+        assertTrue(response.headers().firstValue("Content-Type").orElseThrow().startsWith("application/json"));
+        var body = mapper.readTree(response.body());
+        assertEquals(1, body.size());
+        var alerts = body.get("alerts");
+        assertTrue(alerts.isArray());
+        assertEquals(150, alerts.size());
+        var actual = new java.util.HashSet<String>();
+        for (var alert : alerts) {
+            assertEquals(11, alert.size());
+            String id = alert.get("alert_id").asText();
+            assertEquals(mapper.valueToTree(alertRepository.findById(id).orElseThrow()), alert);
+            assertTrue(alert.get("source_ip").isNull());
+            actual.add(id);
+        }
+        assertEquals(expected, actual);
+    }
+
+    @Test
     void rejectsMissingFieldsAndInvalidValues() throws Exception {
         Map<String, Object> valid = mapper.readValue(Files.readString(Path.of("contract/examples/grupo_3_honeypot.json")), Map.class);
         for (String field : valid.keySet()) {

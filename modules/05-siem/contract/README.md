@@ -68,3 +68,9 @@ GET /alerts consulta AlertQueryService y el repositorio en memoria de HU13. Devu
 AlertErrorHandler aplica a ambas rutas: AlertStorageUnavailableException produce 503 STORAGE_UNAVAILABLE; los fallos inesperados de ejecución producen 500 INTERNAL_ERROR con mensaje genérico. El repositorio actual en memoria no tiene un fallo de conexión natural; el 503 se prueba inyectando un fallo tipado. Un futuro adaptador de almacenamiento debe traducir únicamente fallos de disponibilidad a esa excepción.
 
 Validación local: bash ./mvnw clean test desde modules/05-siem. Las pruebas HTTP envían ejemplos de los tres productores, comprueban listado y detalle, resultado vacío y errores. El almacenamiento se pierde al reiniciar. La ingesta persistente de HU8 y su integración siguen fuera de esta rama; la CI específica corresponde a SEM-71.
+
+## CI del listado, SEM-71
+
+El workflow `.github/workflows/siem-tests.yml` ejecuta `bash ./mvnw --batch-mode --no-transfer-progress clean verify -DfailIfNoTests=true` con Temurin 21. Se activa en pushes a main y ramas equipo-05-siem, y PR a main cuando cambia el módulo o el workflow. Conserva los informes Surefire como artefacto durante 14 días incluso ante fallos.
+
+Cobertura: varios productores mediante POST /events; listado y detalle del mismo almacén; vacío; 150 alertas sin truncado ni orden exigido; contenedor y once campos con valores nulos; 503/500 sin detalles internos. El almacenamiento probado es en memoria: estas pruebas no acreditan durabilidad tras reinicio. Las comprobaciones globales de Docker y otros equipos permanecen en el workflow CI existente.

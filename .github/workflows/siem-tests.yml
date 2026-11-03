@@ -1,0 +1,49 @@
+name: SIEM tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'modules/05-siem/**'
+      - '.github/workflows/siem-tests.yml'
+  push:
+    branches:
+      - main
+      - 'equipo-05-siem/**'
+    paths:
+      - 'modules/05-siem/**'
+      - '.github/workflows/siem-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: siem-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-siem:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: modules/05-siem
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: modules/05-siem/pom.xml
+      - name: Run SIEM tests
+        run: bash ./mvnw --batch-mode --no-transfer-progress clean verify -DfailIfNoTests=true
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: siem-test-reports
+          path: modules/05-siem/target/surefire-reports/
+          if-no-files-found: warn
+          retention-days: 14
