@@ -80,19 +80,67 @@
         </form>
     </div>
 
-    <script>
-        document.getElementById("login-form").addEventListener("submit", function(e) {
-            e.preventDefault();
-            const usuario = document.getElementById("usuario").value.trim();
-            const password = document.getElementById("password").value.trim();
+        <script type="module">
+        import { login } from "./auth-client.js";
 
-            // Login trivial: con que introduzca cualquier valor en usuario y contraseña es válido
-            if (usuario && password) {
-                sessionStorage.setItem("logged_in", "true");
-                sessionStorage.setItem("token", "token-de-prueba"); // Compatible con tu SIEM-client.js
+        const form = document.getElementById("login-form");
+        const errorMsg = document.getElementById("error-msg");
+        const button = form.querySelector("button");
+
+        function showError(text) {
+            errorMsg.textContent = text;
+            errorMsg.style.display = "block";
+        }
+
+        // 429: no se reintenta; se bloquea el botón con cuenta atrás
+        function bloquear(segundos) {
+            let restante = segundos;
+            button.disabled = true;
+            const tick = () => {
+                if (restante <= 0) {
+                    button.disabled = false;
+                    button.textContent = "Entrar";
+                    errorMsg.style.display = "none";
+                    return;
+                }
+                showError(`Demasiados intentos fallidos. Espera ${restante} s antes de volver a intentarlo.`);
+                button.textContent = `Espera ${restante} s`;
+                restante--;
+                setTimeout(tick, 1000);
+            };
+            tick();
+        }
+
+        form.addEventListener("submit", async function (e) {
+            e.preventDefault();
+            errorMsg.style.display = "none";
+            const username = document.getElementById("usuario").value.trim();
+            const password = document.getElementById("password").value; // sin trim: las contraseñas pueden llevar espacios
+
+            if (!username || !password) {
+                showError("Por favor, rellena ambos campos.");
+                return;
+            }
+
+            button.disabled = true;
+            const result = await login(username, password);
+
+            if (result.ok) {
+                sessionStorage.setItem("logged_in", "true"); // provisional: index.html aún lo comprueba (se sustituye en la 47)
                 window.location.href = "index.html";
+                return;
+            }
+
+            if (result.reason === "rate_limited") {
+                bloquear(result.retryAfter ?? 60);
+                return;
+            }
+
+            button.disabled = false;
+            if (result.reason === "invalid_credentials" || result.reason === "bad_request") {
+                showError("Usuario o contraseña incorrectos.");
             } else {
-                document.getElementById("error-msg").style.display = "block";
+                showError("El servicio de identidad no está disponible. Inténtalo de nuevo más tarde.");
             }
         });
     </script>
