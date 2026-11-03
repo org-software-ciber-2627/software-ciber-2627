@@ -31,8 +31,7 @@
       "enum": [
         "ids",
         "honeypot",
-        "scanner",
-        "identity"
+        "scanner"
       ]
     },
     "event_type": {

@@ -1,0 +1,91 @@
+{
+  "logs": [
+    {
+      "event_id": "g1-log-1792681500000-6",
+      "timestamp": "2026-10-22T15:05:00Z",
+      "source": "identity",
+      "event_type": "login_ok",
+      "result": "ok",
+      "source_ip": "10.0.0.8",
+      "details": {
+        "username": "admin",
+        "role": "admin",
+        "source_port": 44120,
+        "clave": null
+      }
+    },
+    {
+      "event_id": "g1-log-1792681320000-5",
+      "timestamp": "2026-10-22T15:02:00Z",
+      "source": "identity",
+      "event_type": "secret_denied",
+      "result": "fail",
+      "source_ip": "10.0.0.15",
+      "details": {
+        "username": "analista1",
+        "role": "analista",
+        "source_port": null,
+        "clave": "db_password"
+      }
+    },
+    {
+      "event_id": "g1-log-1792681290000-4",
+      "timestamp": "2026-10-22T15:01:30Z",
+      "source": "identity",
+      "event_type": "secret_read",
+      "result": "ok",
+      "source_ip": "10.0.0.5",
+      "details": {
+        "username": "servicio",
+        "role": "servicio",
+        "source_port": 38800,
+        "clave": "db_password"
+      }
+    },
+    {
+      "event_id": "g1-log-1792681215000-3",
+      "timestamp": "2026-10-22T15:00:15Z",
+      "source": "identity",
+      "event_type": "invalid_user",
+      "result": "fail",
+      "source_ip": "10.0.0.22",
+      "details": {
+        "username": "root",
+        "role": null,
+        "source_port": 40023,
+        "clave": null
+      }
+    },
+    {
+      "event_id": "g1-log-1792681209000-2",
+      "timestamp": "2026-10-22T15:00:09Z",
+      "source": "identity",
+      "event_type": "login_failed",
+      "result": "fail",
+      "source_ip": "10.0.0.22",
+      "details": {
+        "username": "analista1",
+        "role": "analista",
+        "source_port": 40022,
+        "clave": null
+      }
+    },
+    {
+      "event_id": "g1-log-1792681201000-1",
+      "timestamp": "2026-10-22T15:00:01Z",
+      "source": "identity",
+      "event_type": "login_ok",
+      "result": "ok",
+      "source_ip": "10.0.0.15",
+      "details": {
+        "username": "analista1",
+        "role": "analista",
+        "source_port": 51234,
+        "clave": null
+      }
+    }
+  ],
+  "total": 6,
+  "limit": 50,
+  "offset": 0
+}

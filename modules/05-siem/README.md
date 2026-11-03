@@ -55,7 +55,7 @@ curl -i http://localhost:8005/alerts/SIEM-ALERT-EJEMPLO-003
 
 ## Errores de POST /events (SEM-24 · HU7)
 
-IDS, Honeypot, Escáner e Identidad deben enviar un único objeto de evento por petición con `Content-Type: application/json`. Los rechazos descritos aquí devuelven JSON con un objeto `error` que contiene únicamente `code` y `message`. No se añade una propiedad `details` a la respuesta de error; `details` sigue siendo un campo del evento de entrada.
+IDS, Honeypot y Escáner deben enviar un único objeto de evento por petición con `Content-Type: application/json`. Los rechazos descritos aquí devuelven JSON con un objeto `error` que contiene únicamente `code` y `message`. No se añade una propiedad `details` a la respuesta de error; `details` sigue siendo un campo del evento de entrada.
 
 | HTTP | `error.code` | Motivo del rechazo |
 | --- | --- | --- |
@@ -70,7 +70,7 @@ IDS, Honeypot, Escáner e Identidad deben enviar un único objeto de evento por 
 - Los ocho campos son obligatorios y no pueden ser `null`: `event_id`, `timestamp`, `source`, `event_type`, `severity`, `title`, `description` y `details`.
 - Todos excepto `details` deben ser cadenas JSON. No se convierten números ni booleanos automáticamente en texto.
 - `event_id`, `timestamp`, `event_type`, `title` y `description` no pueden estar vacíos ni contener solo espacios en blanco. `event_id` no exige UUID; `event_type` no tiene todavía un catálogo cerrado.
-- `source` admite exactamente `ids`, `honeypot`, `scanner` o `identity`.
+- `source` admite exactamente `ids`, `honeypot` o `scanner`.
 - `severity` admite exactamente `low`, `medium`, `high` o `critical`. Los catálogos distinguen mayúsculas y no admiten espacios adicionales.
 - `timestamp` debe representar una fecha y hora UTC válidas y terminar en `Z`, por ejemplo `2026-09-22T18:30:15Z`. Una fecha con `+00:00` también se rechaza por no usar el sufijo exigido.
 - `details` debe ser un objeto JSON. Puede estar vacío y contener propiedades propias del productor y valores nulos internos; todavía no se validan sus reglas internas.
@@ -131,7 +131,7 @@ Respuesta **HTTP 400**:
 {
   "error": {
     "code": "VALIDATION_ERROR",
-    "message": "description: is required and must not be blank; severity: must be one of: low, medium, high, critical; source: must be one of: ids, honeypot, scanner, identity; title: is required and must not be blank"
+    "message": "description: is required and must not be blank; severity: must be one of: low, medium, high, critical; source: must be one of: ids, honeypot, scanner; title: is required and must not be blank"
   }
 }
 ```
@@ -182,7 +182,7 @@ Desde `modules/05-siem`:
 ./mvnw clean verify
 ```
 
-Las pruebas arrancan el servidor en un puerto aleatorio y comprueban los cuatro orígenes admitidos, los campos obligatorios, valores inválidos, JSON incorrecto, los mensajes detallados de rechazo, el HTTP 415, los tres detalles de alerta y el error 404. También verifican el formato de error, su orden estable y que no revele valores sensibles. No certifican servicios de otros equipos.
+Las pruebas arrancan el servidor en un puerto aleatorio y comprueban los tres orígenes admitidos, los campos obligatorios, valores inválidos, JSON incorrecto, los mensajes detallados de rechazo, el HTTP 415, los tres detalles de alerta y el error 404. También verifican el formato de error, su orden estable y que no revele valores sensibles. No certifican servicios de otros equipos.
 
 Consultar `docs/estado-integracion.md` para evidencias y acuerdos pendientes. La API no expone credenciales en los logs; los datos de `credential` de los ejemplos son datos ficticios de laboratorio.
 

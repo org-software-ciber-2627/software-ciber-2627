@@ -175,10 +175,10 @@ class SiemHttpIntegrationTests {
 
     @Test
     void explainsAllowedSourceAndSeverityValues() throws Exception {
-        for (String value : List.of("soar", "IDS", " ids ", "IDENTITY", " identity ", "", " ", SENSITIVE_VALUE)) {
+        for (String value : List.of("soar", "IDS", " ids ", "identity", "IDENTITY", " identity ", "", " ", SENSITIVE_VALUE)) {
             var event = validEvent();
             event.put("source", value);
-            assertEventError(event, "VALIDATION_ERROR", "source: must be one of: ids, honeypot, scanner, identity");
+            assertEventError(event, "VALIDATION_ERROR", "source: must be one of: ids, honeypot, scanner");
         }
         for (String value : List.of("urgent", "HIGH", " high ", "", " ", SENSITIVE_VALUE)) {
             var event = validEvent();
@@ -201,7 +201,7 @@ class SiemHttpIntegrationTests {
         // regardless of request property order or repeated validation.
         String expected = "description: is required and must not be blank; "
             + "severity: must be one of: low, medium, high, critical; "
-            + "source: must be one of: ids, honeypot, scanner, identity; "
+            + "source: must be one of: ids, honeypot, scanner; "
             + "title: is required and must not be blank";
         for (int attempt = 0; attempt < 3; attempt++) {
             assertEventError(event, "VALIDATION_ERROR", expected);
@@ -326,7 +326,7 @@ class SiemHttpIntegrationTests {
 
     @Test
     void acceptsAllowedValuesAndOpenDetailsWithExactReceipt() throws Exception {
-        for (String source : List.of("ids", "honeypot", "scanner", "identity")) {
+        for (String source : List.of("ids", "honeypot", "scanner")) {
             for (String severity : List.of("low", "medium", "high", "critical")) {
                 var event = validEvent();
                 event.put("source", source);
@@ -349,32 +349,6 @@ class SiemHttpIntegrationTests {
         }
     }
 
-    @Test
-    void acceptsIdentityBruteForceEventWithExactReceipt() throws Exception {
-        String event = """
-            {
-              "event_id": "IDENTITY-BRUTE-FORCE-001",
-              "timestamp": "2026-10-27T10:15:00Z",
-              "source": "identity",
-              "event_type": "fuerza_bruta",
-              "severity": "high",
-              "title": "Intentos de acceso fallidos en Identidad",
-              "description": "Se han detectado 8 intentos de acceso fallidos en 60 segundos.",
-              "details": {
-                "username": "usuario_prueba",
-                "source_ip": "192.0.2.10",
-                "failed_attempts": 8,
-                "window_seconds": 60,
-                "endpoint": "/auth/login"
-              }
-            }
-            """;
-        var response = request("/events", event, "application/json");
-        assertEquals(200, response.statusCode(), response.body());
-        assertEquals(Map.of("status", "success", "message", "Event received successfully (mock)",
-            "event_id", "IDENTITY-BRUTE-FORCE-001"), mapper.readValue(response.body(), Map.class));
-    }
-
     private LinkedHashMap<String, Object> validEvent() throws Exception {
         return mapper.readValue(Files.readString(Path.of("contract/examples/grupo_3_honeypot.json")),
             new TypeReference<LinkedHashMap<String, Object>>() {});
@@ -395,5 +369,21 @@ class SiemHttpIntegrationTests {
                 "com.ciberurjc.", "\tat ")) {
             assertFalse(actualMessage.contains(forbidden), "Response must not expose " + forbidden);
         }
+    }
+
+    @Test
+    void acceptsCurrentHoneypotPayloadAndPreservesDetails() throws Exception {
+        String input = Files.readString(Path.of("contract/examples/grupo_3_honeypot_actual.json"));
+        var event = mapper.readValue(input, com.ciberurjc.siem.models.Event.class);
+
+        assertEquals(mapper.readTree(input), mapper.readTree(mapper.writeValueAsString(event)));
+        assertEquals("/login", event.details().get("ruta"));
+        assertTrue(event.details().containsKey("navegador"));
+        assertTrue(event.details().containsKey("command"));
+        assertNull(event.details().get("command"));
+
+        var response = request("/events", input, "application/json");
+        assertEquals(200, response.statusCode(), response.body());
+        assertEquals(event.event_id(), mapper.readTree(response.body()).get("event_id").asText());
     }
 }
