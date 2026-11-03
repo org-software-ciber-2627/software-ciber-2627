@@ -70,6 +70,7 @@ IDS, Honeypot y Escáner deben enviar un único objeto de evento por petición c
 - Los ocho campos son obligatorios y no pueden ser `null`: `event_id`, `timestamp`, `source`, `event_type`, `severity`, `title`, `description` y `details`.
 - Todos excepto `details` deben ser cadenas JSON. No se convierten números ni booleanos automáticamente en texto.
 - `event_id`, `timestamp`, `event_type`, `title` y `description` no pueden estar vacíos ni contener solo espacios en blanco. `event_id` no exige UUID; `event_type` no tiene todavía un catálogo cerrado.
+- `event_id` debe cumplir `[A-Za-z0-9._:-]{1,128}`: entre 1 y 128 letras ASCII, dígitos, puntos, guiones bajos, dos puntos o guiones. Esta regla coincide con SEM-72; no se admiten espacios, saltos de línea ni caracteres fuera del patrón.
 - `source` admite exactamente `ids`, `honeypot` o `scanner`.
 - `severity` admite exactamente `low`, `medium`, `high` o `critical`. Los catálogos distinguen mayúsculas y no admiten espacios adicionales.
 - `timestamp` debe representar una fecha y hora UTC válidas y terminar en `Z`, por ejemplo `2026-09-22T18:30:15Z`. Una fecha con `+00:00` también se rechaza por no usar el sufijo exigido.
@@ -145,6 +146,8 @@ En las filas que modifican un campo, partir del [evento válido de Honeypot](con
 | Petición inválida | HTTP / `error.code` | `error.message` exacto |
 | --- | --- | --- |
 | Omitir `title`, enviarlo como `null`, `""` o `" "` | 400 / `VALIDATION_ERROR` | `title: is required and must not be blank` |
+| Omitir `event_id`, enviarlo como `null`, `""` o solo espacios | 400 / `VALIDATION_ERROR` | `event_id: is required and must not be blank` |
+| Enviar `event_id: "with space"` o un identificador de 129 caracteres | 400 / `VALIDATION_ERROR` | `event_id: must contain 1 to 128 ASCII letters, digits, dots, underscores, colons or hyphens` |
 | Enviar `details: null` | 400 / `VALIDATION_ERROR` | `details: is required and must be a JSON object` |
 | Enviar `details: 42` | 400 / `INVALID_JSON` | `details: must be a JSON object` |
 | Añadir `source_module: "honeypot"` al objeto principal | 400 / `INVALID_JSON` | `The event contains an unknown field; allowed fields are: event_id, timestamp, source, event_type, severity, title, description, details` |
@@ -167,7 +170,19 @@ El cuerpo vacío y el literal JSON `null` se detectan mediante `RequestBodyAdvic
 
 Bean Validation puede informar de varios campos incorrectos en una respuesta. Los errores de conversión JSON pueden detenerse en el primer fallo detectado y las etapas posteriores no se ejecutan si falla una anterior. Por eso, después de corregir un error puede aparecer otro; las comprobaciones de fecha del servicio solo se realizan cuando pasa Bean Validation. Un campo ausente y uno enviado como `null` pueden compartir el mismo mensaje.
 
+Cuando un campo incumple `NotBlank`, se omite su error de `Pattern` en la respuesta: primero hay que proporcionar un valor. Esto conserva un único mensaje claro para `event_id` vacío sin ocultar errores de otros campos ni motivos distintos del patrón.
+
 Los mensajes y el formato de estos ejemplos están comprobados en [SiemHttpIntegrationTests.java](src/test/java/com/ciberurjc/siem/SiemHttpIntegrationTests.java), incluidos el orden de errores, el HTTP 415 y la ausencia de valores sensibles en las respuestas.
+
+## Preparación para integrar SEM-72
+
+Referencia revisada: `equipo-05-siem/SEM-72-validacion-hu16`, commit `a5b3ea6`. Esta preparación incorpora su restricción de `event_id`, pero el servicio actual sigue siendo el mock: responde `Event received successfully (mock)`, no almacena eventos ni genera alertas y consulta las fixtures estáticas.
+
+Los rechazos controlados de entrada desde `EventService` o un futuro converter deben usar `EventValidationException` con un campo público y un motivo fijo y seguro. No se transforma cualquier `IllegalArgumentException` en HTTP 400 ni se copia su mensaje interno. Al integrar `EventService`, conservar las excepciones específicas de timestamp antes de añadir conversión, almacenamiento y notificación.
+
+`ApiErrorHandler` reconoce `config.RequestBodyTooLargeException`, con el mismo tipo que SEM-72, y responde HTTP 413 con `PAYLOAD_TOO_LARGE` y `The request body exceeds the maximum allowed size`. La detección tiene prioridad sobre la clasificación JSON, incluso cuando otra excepción la envuelve. Se ha preparado el manejo de la excepción; el filtro que mide y limita cuerpos todavía no está incorporado, por lo que no hay un límite de tamaño de SEM-72 activo en esta rama. Las pruebas simulan el rechazo del lector; la comprobación real con longitud declarada y envío chunked queda pendiente de integrar ese filtro.
+
+Al incorporar SEM-72, combinar este handler con los manejadores de 409/507 y conservar los errores 500/503 de consultas. También habrá que actualizar el acuse y su ejemplo OpenAPI a `Event received successfully`. La expectativa exacta de las pruebas se centraliza en `RECEIPT_MESSAGE`; cambiarla junto al controlador, sin aceptar indistintamente los dos textos. Las variantes de eventos de SEM-24 usan identificadores distintos para evitar conflictos por contenido modificado. Las pruebas de alertas estáticas siguen vigentes ahora y deberán adaptarse al almacén real conservando su cobertura, junto con las pruebas de generación y del Honeypot. Hasta entonces no se anuncian almacenamiento, idempotencia ni respuestas 409/507 como funciones disponibles.
 
 ## Contrato y comprobaciones
 

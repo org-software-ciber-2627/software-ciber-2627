@@ -15,7 +15,7 @@ Acceso local `http://localhost:8005`; red Docker `http://siem:80`.
 
 ## Evento común
 
-Un objeto JSON por petición, con `event_id`, `timestamp`, `source`, `event_type`, `severity`, `title`, `description` y `details`. Los textos comunes no pueden ser vacíos; `event_id` no exige UUID. `timestamp` es una fecha válida UTC terminada en Z. `source` acepta `ids`, `honeypot` o `scanner`; `severity` acepta `low`, `medium`, `high` o `critical`. `details` es un objeto que conserva campos específicos y valores nulos. Las claves superiores desconocidas se rechazan en este candidato; ratificar esta política con los productores.
+Un objeto JSON por petición, con `event_id`, `timestamp`, `source`, `event_type`, `severity`, `title`, `description` y `details`. Los textos comunes no pueden ser vacíos; `event_id` no exige UUID y cumple `[A-Za-z0-9._:-]{1,128}` (1-128 letras ASCII, dígitos, puntos, guiones bajos, dos puntos o guiones). `timestamp` es una fecha válida UTC terminada en Z. `source` acepta `ids`, `honeypot` o `scanner`; `severity` acepta `low`, `medium`, `high` o `critical`. `details` es un objeto que conserva campos específicos y valores nulos. Las claves superiores desconocidas se rechazan en este candidato; ratificar esta política con los productores.
 
 | Grupo | Ejemplo de datos específicos |
 | --- | --- |
@@ -40,6 +40,12 @@ Los errores siguen el formato común del borrador:
 ```
 
 Códigos del mock: `INVALID_JSON`, `VALIDATION_ERROR`, `UNSUPPORTED_MEDIA_TYPE` y `ALERT_NOT_FOUND`. Los errores internos imprevistos no tienen un formato garantizado en esta versión.
+
+SEM-24 detalla los motivos en `error.message`, conservando este contenedor y los códigos. Para `event_id` ausente, nulo o vacío devuelve `event_id: is required and must not be blank`; si contiene caracteres no permitidos o supera 128 caracteres devuelve `event_id: must contain 1 to 128 ASCII letters, digits, dots, underscores, colons or hyphens`. Un valor vacío no añade un segundo mensaje de patrón. Los ejemplos completos están en el [README del módulo](../README.md#errores-de-post-events-sem-24--hu7).
+
+### Compatibilidad preparada, pendiente de integración
+
+La restricción de `event_id` ya coincide con SEM-72 (`a5b3ea6`). El manejo de su excepción de tamaño está preparado para devolver 413 `PAYLOAD_TOO_LARGE`, pero falta incorporar el filtro que aplica ese límite; OpenAPI sigue describiendo las respuestas del mock actual. El acuse sin `(mock)`, almacenamiento, listado real, reintentos idempotentes y respuestas 409/507 pertenecen a la futura integración. Los rechazos controlados deben conservar `EventValidationException` y los mensajes seguros de SEM-24. Ver [plan de compatibilidad](../README.md#preparación-para-integrar-sem-72).
 
 ## Alertas para G6 y G7
 

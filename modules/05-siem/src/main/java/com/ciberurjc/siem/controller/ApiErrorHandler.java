@@ -1,5 +1,6 @@
 package com.ciberurjc.siem.controller;
 
+import com.ciberurjc.siem.config.RequestBodyTooLargeException;
 import com.ciberurjc.siem.exceptions.EventValidationException;
 import com.ciberurjc.siem.exceptions.MissingEventBodyException;
 import org.springframework.http.ResponseEntity;
@@ -27,13 +28,22 @@ public class ApiErrorHandler {
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<Map<String, Object>> invalidJson(HttpMessageNotReadableException exception) {
+        // SEM-72's body limit can be wrapped by the JSON reader, especially for chunked requests.
+        var tooLarge = findCause(exception, RequestBodyTooLargeException.class);
+        if (tooLarge != null) return payloadTooLarge(tooLarge);
         return error(400, "INVALID_JSON", jsonErrorMessage(exception));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> invalidEvent(MethodArgumentNotValidException exception) {
+        var blankFields = exception.getBindingResult().getFieldErrors().stream()
+            .filter(fieldError -> "NotBlank".equals(fieldError.getCode()))
+            .map(fieldError -> fieldError.getField())
+            .collect(Collectors.toSet());
         var errors = new TreeMap<String, TreeSet<String>>();
         for (var fieldError : exception.getBindingResult().getFieldErrors()) {
+            // A blank field needs a value before its format can be corrected.
+            if ("Pattern".equals(fieldError.getCode()) && blankFields.contains(fieldError.getField())) continue;
             String message = fieldError.getDefaultMessage();
             errors.computeIfAbsent(fieldError.getField(), field -> new TreeSet<>())
                 .add(message == null ? "is invalid" : message);
@@ -48,6 +58,11 @@ public class ApiErrorHandler {
     @ExceptionHandler(EventValidationException.class)
     public ResponseEntity<Map<String, Object>> invalidEventValue(EventValidationException exception) {
         return error(400, "VALIDATION_ERROR", exception.getMessage());
+    }
+
+    @ExceptionHandler(RequestBodyTooLargeException.class)
+    public ResponseEntity<Map<String, Object>> payloadTooLarge(RequestBodyTooLargeException exception) {
+        return error(413, "PAYLOAD_TOO_LARGE", "The request body exceeds the maximum allowed size");
     }
 
     @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
@@ -105,7 +120,9 @@ public class ApiErrorHandler {
     }
 
     private <T extends Throwable> T findCause(Throwable exception, Class<T> type) {
-        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+        // Match SEM-72's bounded traversal: a cyclic cause chain must not hang a request.
+        Throwable cause = exception;
+        for (int depth = 0; cause != null && depth < 16; depth++, cause = cause.getCause()) {
             if (type.isInstance(cause)) return type.cast(cause);
         }
         return null;

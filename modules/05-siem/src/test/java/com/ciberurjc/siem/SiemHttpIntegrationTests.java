@@ -23,6 +23,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class SiemHttpIntegrationTests {
     private static final String SENSITIVE_VALUE = "SEM24_SECRET_DO_NOT_ECHO";
+    // Change this single expectation when EventController adopts SEM-72's non-mock receipt.
+    private static final String RECEIPT_MESSAGE = "Event received successfully (mock)";
     private static final String UNKNOWN_FIELD_MESSAGE = "The event contains an unknown field; allowed fields are: "
         + "event_id, timestamp, source, event_type, severity, title, description, details";
     @Autowired Environment environment;
@@ -137,7 +139,7 @@ class SiemHttpIntegrationTests {
             assertEquals(mapper.readTree(input), mapper.readTree(mapper.writeValueAsString(model)), filename);
             var response = request("/events", input, "application/json");
             assertEquals(200, response.statusCode());
-            assertEquals(Map.of("status", "success", "message", "Event received successfully (mock)", "event_id", model.event_id()), mapper.readValue(response.body(), Map.class));
+            assertEventReceipt(response, model.event_id());
         }
     }
 
@@ -170,6 +172,26 @@ class SiemHttpIntegrationTests {
                 event.put(field, value);
                 assertEventError(event, "VALIDATION_ERROR", field + ": is required and must not be blank");
             }
+        }
+    }
+
+    @Test
+    void explainsInvalidEventIdsWithoutEchoingTheirValues() throws Exception {
+        for (String value : List.of("x".repeat(129), "with space", "path/id", "á", "<script>",
+                "prefix\n" + SENSITIVE_VALUE, "prefix\r" + SENSITIVE_VALUE)) {
+            var event = validEvent();
+            event.put("event_id", value);
+            assertEventError(event, "VALIDATION_ERROR",
+                "event_id: must contain 1 to 128 ASCII letters, digits, dots, underscores, colons or hyphens");
+        }
+    }
+
+    @Test
+    void acceptsEventIdsAtContractBoundaries() throws Exception {
+        for (String value : List.of("a", "x".repeat(128), "scan:001.a_b-C", "non-uuid-identifier")) {
+            var event = validEvent();
+            event.put("event_id", value);
+            assertEventReceipt(request("/events", mapper.writeValueAsString(event), "application/json"), value);
         }
     }
 
@@ -288,8 +310,7 @@ class SiemHttpIntegrationTests {
         event.put("details", Map.of(SENSITIVE_VALUE, Map.of("Exception", SENSITIVE_VALUE)));
         var response = request("/events", mapper.writeValueAsString(event), "application/json");
         assertEquals(200, response.statusCode(), response.body());
-        assertEquals(Map.of("status", "success", "message", "Event received successfully (mock)",
-            "event_id", event.get("event_id")), mapper.readValue(response.body(), Map.class));
+        assertEventReceipt(response, (String) event.get("event_id"));
         assertFalse(response.body().contains(SENSITIVE_VALUE));
     }
 
@@ -331,18 +352,19 @@ class SiemHttpIntegrationTests {
                 var event = validEvent();
                 event.put("source", source);
                 event.put("severity", severity);
-                event.put("event_id", "non-uuid-" + source + "-" + severity);
                 event.put("timestamp", "2026-09-22T18:30:15.123Z");
                 event.put("event_type", "producer_specific_event");
                 var details = new LinkedHashMap<String, Object>();
                 details.put("credential", SENSITIVE_VALUE);
                 details.put("optional", null);
+                int variant = 0;
                 for (Map<String, Object> value : List.of(Map.<String, Object>of(), details)) {
+                    // Different details represent different events, not changed retries (SEM-72: 409).
+                    event.put("event_id", "non-uuid-" + source + "-" + severity + "-" + variant++);
                     event.put("details", value);
                     var response = request("/events", mapper.writeValueAsString(event), "application/json");
                     assertEquals(200, response.statusCode(), response.body());
-                    assertEquals(Map.of("status", "success", "message", "Event received successfully (mock)",
-                        "event_id", event.get("event_id")), mapper.readValue(response.body(), Map.class));
+                    assertEventReceipt(response, (String) event.get("event_id"));
                     assertFalse(response.body().contains(SENSITIVE_VALUE));
                 }
             }
@@ -350,8 +372,17 @@ class SiemHttpIntegrationTests {
     }
 
     private LinkedHashMap<String, Object> validEvent() throws Exception {
-        return mapper.readValue(Files.readString(Path.of("contract/examples/grupo_3_honeypot.json")),
+        LinkedHashMap<String, Object> event = mapper.readValue(Files.readString(Path.of("contract/examples/grupo_3_honeypot.json")),
             new TypeReference<LinkedHashMap<String, Object>>() {});
+        // Tests modify this fixture independently; they must not collide in a future shared store.
+        event.put("event_id", "SEM24-" + java.util.UUID.randomUUID());
+        return event;
+    }
+
+    private void assertEventReceipt(HttpResponse<String> response, String eventId) throws Exception {
+        assertEquals(200, response.statusCode(), response.body());
+        assertEquals(Map.of("status", "success", "message", RECEIPT_MESSAGE, "event_id", eventId),
+            mapper.readValue(response.body(), Map.class));
     }
 
     private void assertEventError(Map<String, Object> event, String code, String message) throws Exception {
