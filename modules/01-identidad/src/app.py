@@ -82,6 +82,7 @@ jwt = JWTManager(app)
 CORS(app, resources={
     r"/auth/login":    {"origins": "http://localhost:8007"},
     r"/auth/register": {"origins": "http://localhost:8007"},
+    r"/auth/validate": {"origins": "http://localhost:8007"},
 })
 
 # Roles del contrato (shared/auth-contract.md). Los usuarios registrados nacen como "analista".
@@ -230,16 +231,43 @@ def get_aes_key():
 
 
 def _format_raw_line(log):
-    """Línea syslog: MMM d HH:mm:ss host identidad[pid]: campos del evento."""
+    """Línea syslog al estilo OpenSSH para que el IDS active las reglas (P004, etc.).
+
+    Mapeo de eventos a mensajes reconocidos por log_parser.py del IDS:
+      login_failed  → Failed password for <user> from <ip> port <port> ssh2
+      invalid_user  → Failed password for invalid user <user> from <ip> port <port> ssh2
+      login_ok      → Accepted password for <user> from <ip> port <port> ssh2
+      limit_exceeded→ authentication attempts exceeded from <ip> port <port>
+      otros         → mensaje genérico (secret_read, secret_denied, …)
+    """
     ts = log.timestamp
     prefix = ts.strftime("%b") + " " + str(ts.day).rjust(2) + ts.strftime(" %H:%M:%S")
-    parts = [f"event={log.event_type}", f"result={log.result}"]
-    if log.username:
-        parts.append(f"user={_sanitize_log_field(log.username)}")
-    parts.append(f"from={log.source_ip}")
-    if log.clave:
-        parts.append(f"clave={log.clave}")
-    return f"{prefix} {_HOSTNAME} identidad[{_PID}]: {' '.join(parts)}"
+
+    ip = log.source_ip
+    port_part = f" port {log.source_port}" if log.source_port else ""
+    user = _sanitize_log_field(log.username) if log.username else "unknown"
+
+    if log.event_type == "login_ok":
+        message = f"Accepted password for {user} from {ip}{port_part} ssh2"
+    elif log.event_type == "login_failed":
+        message = f"Failed password for {user} from {ip}{port_part} ssh2"
+    elif log.event_type == "invalid_user":
+        # "Failed password for invalid user" activa event_type=failed_login en el IDS
+        # y hace que P004 cuente también los intentos con usuario inexistente.
+        message = f"Failed password for invalid user {user} from {ip}{port_part} ssh2"
+    elif log.event_type == "limit_exceeded":
+        message = f"authentication attempts exceeded from {ip}{port_part}"
+    else:
+        # secret_read, secret_denied: sin equivalente OpenSSH → mensaje informativo genérico
+        parts = [f"event={log.event_type}", f"result={log.result}"]
+        if log.username:
+            parts.append(f"user={_sanitize_log_field(log.username)}")
+        parts.append(f"from={ip}")
+        if log.clave:
+            parts.append(f"clave={log.clave}")
+        message = " ".join(parts)
+
+    return f"{prefix} {_HOSTNAME} identidad[{_PID}]: {message}"
 
 
 def _enviar_al_ids(log):
