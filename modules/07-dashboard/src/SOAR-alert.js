@@ -6,16 +6,16 @@ async function initSOAR() {
         const tbody = document.getElementById('soar-body');
         if (!tbody) return;
 
-        tbody.innerHTML = '';
+        tbody.textContent = '';
 
         if (!incidents || incidents.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4">No hay incidentes registrados.</td></tr>';
+            tbody.textContent = '<tr><td colspan="4">No hay incidentes registrados.</td></tr>';
             return;
         }
 
         incidents.forEach(inc => {
             const tr = document.createElement('tr');
-            tr.innerHTML = `
+            tr.textContent = `
                 <td>${inc.incident_id}</td>
                 <td>${inc.alert_id}</td>
                 <td><span class="sev ${inc.severity || 'low'}">${inc.status}</span></td>
