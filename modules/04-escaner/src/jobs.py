@@ -6,6 +6,7 @@ import threading
 from runner import start_nmap
 from parser import parse_xml
 
+
 JOBS = {}  # estructura temporal que actúa como BBDD en memoria
 SIEM_URL = os.environ.get("SIEM_URL", "http://localhost:8005/events")
 

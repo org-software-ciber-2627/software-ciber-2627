@@ -1,7 +1,10 @@
+from copy import deepcopy
+
 from flask import Blueprint, current_app, jsonify
 from jobs import get_job
 
 reports_bp = Blueprint("reports", __name__)
+
 
 def respuesta_error(codigo, mensaje, http_status):
     return jsonify({
@@ -11,25 +14,27 @@ def respuesta_error(codigo, mensaje, http_status):
         }
     }), http_status
 
+
 @reports_bp.route("/scans/<scan_id>/report", methods=["GET"])
 def consultar_informe(scan_id):
-    """Consulta los eventos del escaneo guardados en memoria por jobs.py."""
+    """Devuelve las vulnerabilidades del escaneo para el Dashboard."""
     try:
         job = get_job(scan_id)
 
         if job is None:
             return respuesta_error(
-                    "SCAN_NOT_FOUND",
-                    "No existe un escaneo con ese identificador",
-                    404
+                "SCAN_NOT_FOUND",
+                "No existe un escaneo con ese identificador",
+                404,
             )
 
         status = job.get("status")
+
         if status in ("pending", "running"):
             return jsonify({
                 "scan_id": scan_id,
                 "estado": (
-                  "pendiente" if status == "pending" else "en_curso"
+                    "pendiente" if status == "pending" else "en_curso"
                 ),
                 "mensaje": "El informe todavía no está disponible",
             }), 202
@@ -60,7 +65,22 @@ def consultar_informe(scan_id):
                 500,
             )
 
-        return jsonify(events), 200
+        findings = []
+
+        for event in events:
+            # El informe excluye eventos informativos de puertos y servicios.
+            if event.get("event_type") not in (
+                "vulnerability_detected",
+                "cve_detected",
+            ):
+                continue
+
+            # Adaptamos una copia sin modificar el evento original del SIEM.
+            finding = deepcopy(event)
+            finding["event_type"] = "vulnerability_detected"
+            findings.append(finding)
+
+        return jsonify(findings), 200
 
     except Exception:
         current_app.logger.exception(
