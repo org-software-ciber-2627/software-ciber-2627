@@ -121,6 +121,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '429':
+          description: >
+            Demasiados intentos de autenticación. El bloqueo se aplica
+            por combinación de usuario e IP. Retry-After indica los
+            segundos restantes. Se registra limit_exceeded una sola
+            vez al alcanzar el límite durante el episodio de bloqueo.
+          headers:
+            Retry-After:
+              description: Segundos restantes hasta que expire el bloqueo.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '500':
           description: Error no esperado
           content:

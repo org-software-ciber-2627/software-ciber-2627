@@ -45,11 +45,13 @@ Cada módulo arranca hoy como un contenedor `nginx:alpine` mínimo que solo resp
 
 ## Convención de nombres
 
-Las claves de Jira van en el nombre de rama y en los mensajes de commit, por ejemplo:
+Las claves de Jira deben incluirse en el nombre de la rama y en los mensajes de commit. Respetad el prefijo correspondiente a vuestro equipo o historia; en este repositorio se utilizan, entre otros, `DASHG7-nn`, `AAA-nn`, `SEM-nn`, `SB-nn` y `LV8-nn`.
 
-```
-git checkout -b equipo-07-dashboard/DSH-12-vista-alertas
-git commit -m "feat: vista de alertas (DSH-12)"
+Por ejemplo, para una tarea del Dashboard:
+
+```bash
+git checkout -b equipo-07-dashboard-DASHG7-117-actualizar-readmes
+git commit -m "docs: actualiza los README (DASHG7-117)"
 ```
 
 ## Recursos compartidos
