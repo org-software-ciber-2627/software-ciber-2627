@@ -134,7 +134,7 @@
                 },
                 "example": {
                   "status": "success",
-                  "message": "Event received successfully (mock)",
+                  "message": "Event received successfully",
                   "event_id": "HP-981839239323"
                 }
               }
@@ -191,7 +191,7 @@
       "get": {
         "operationId": "listAlerts",
         "summary": "Consultar alertas",
-        "description": "Sin filtros, paginación ni orden garantizado en esta propuesta. Lista vacía: {\"alerts\": []}. El mock contiene una alerta por evento.",
+        "description": "All currently stored alerts without filtering, pagination, truncation or guaranteed order. Empty result: {\"alerts\": []}. In-memory storage is lost on restart.",
         "responses": {
           "200": {
             "description": "Lista de alertas.",

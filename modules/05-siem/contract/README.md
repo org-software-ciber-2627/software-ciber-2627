@@ -1,76 +1,36 @@
-# Contrato del mock SIEM · Sprint 1 · SEM-6
+# Contrato SIEM: eventos y alertas reales
 
-Versión `0.2.0-sprint1-review`. Candidato de integración pendiente de ratificación intergrupo, revisión cruzada y aceptación del PO.
+[OpenAPI](openapi.json) define la interfaz. [Acuerdo SEM-68](sem68-alert-query-contract.md) registra la aceptación del contrato de errores por Claudio. [README del módulo](../README.md) contiene arranque y comprobación reproducible.
 
-## Interfaz
+## Ingesta
 
-| Método | Ruta | Respuesta |
+POST /events acepta un evento JSON con event_id, timestamp UTC terminado en Z, source, event_type, severity, title, description y details. Fuentes: ids, honeypot y scanner. Severidades: low, medium, high y critical. Devuelve 200 con status success, message "Event received successfully" y event_id. Los cuerpos inválidos producen 400; un Content-Type incompatible, 415.
+
+Esta rama genera y guarda una alerta en memoria por evento aceptado. No incorpora la persistencia de eventos de HU8 ni garantiza entrega externa de notificaciones.
+
+## Consulta
+
+GET /alerts devuelve {"alerts":[...]} con todas las alertas almacenadas, sin orden garantizado, filtros, paginación ni recortes. Vacío real: 200 con {"alerts":[]}. Un fallo nunca se representa como vacío.
+
+Cada alerta incluye alert_id, event_id, timestamp, source, event_type, severity, title, description, source_ip, target_ip y details. Los campos IP pueden ser null; details conserva los atributos del productor. GET /alerts/{id} devuelve la misma alerta o 404 ALERT_NOT_FOUND si no existe.
+
+Ambas consultas comparten errores {"error":{"code":"...","message":"..."}}:
+
+| Estado | Código | Mensaje |
 | --- | --- | --- |
-| GET | `/health` | 200 con `status: ok` y `module: 05-siem` |
-| POST | `/events` | 200 para eventos válidos, 400 para cuerpos/eventos inválidos, 415 para un Content-Type incorrecto |
-| GET | `/alerts` | 200 con `{"alerts": [...]}` |
-| GET | `/alerts/{id}` | 200 con una alerta o 404 con `error.code: ALERT_NOT_FOUND` |
+| 503 | STORAGE_UNAVAILABLE | Alert storage is temporarily unavailable |
+| 500 | INTERNAL_ERROR | An unexpected error occurred |
 
-Acceso local `http://localhost:8005`; red Docker `http://siem:80`.
+AlertErrorHandler aplica el acuerdo a ambas rutas. La indisponibilidad se representa mediante AlertStorageUnavailableException; los errores inesperados de ejecución reciben el 500 genérico. Los tests inyectan el fallo de almacenamiento porque el repositorio actual no tiene conexión externa. No se incluyen detalles internos.
 
-## Evento común
+## Compatibilidad y límites
 
-Un objeto JSON por petición, con `event_id`, `timestamp`, `source`, `event_type`, `severity`, `title`, `description` y `details`. Los textos comunes no pueden ser vacíos; `event_id` no exige UUID. `timestamp` es una fecha válida UTC terminada en Z. `source` acepta `ids`, `honeypot` o `scanner`; `severity` acepta `low`, `medium`, `high` o `critical`. `details` es un objeto que conserva campos específicos y valores nulos. Las claves superiores desconocidas se rechazan en este candidato; ratificar esta política con los productores.
+Dashboard consume alerts y ordena/filtra en cliente; SOAR acepta el mismo contenedor. No se añaden status, priority, risk_score, recommended_action ni related_events. El almacenamiento es en memoria, se pierde al reiniciar y es común al listado y al detalle. Autenticación y persistencia duradera quedan fuera de este incremento.
 
-| Grupo | Ejemplo de datos específicos |
-| --- | --- |
-| G2 IDS | `rule_id`, `source_ip`, `target_ip`, `protocol`, `distinct_ports_count`, `window_seconds` |
-| G3 Honeypot | `source_ip`, `service`, `username`, `credential`, `command` |
-| G4 Escáner | `target`, `scan_id`, `tool`, `profile`, `script_id`, `evidence`, `cve`, `cvss` |
+Los ficheros mocks/alerts.json y contract/examples son datos de laboratorio para pruebas. El listado HTTP no consulta el mock. verify-contract.py comprueba las fixtures estáticas; smoke-test.py comprueba el servicio real mediante POST y consultas.
 
-La validación de Sprint 1 comprueba la cabecera y que `details` sea un objeto. Reglas internas por productor y catálogo de `event_type` requieren acuerdo antes del servicio real.
+## Verificación y entrega
 
-## Acuse y errores
+Desde modules/05-siem: `bash ./mvnw clean verify`. CI SIEM tests usa Java 21 y guarda los informes Surefire 14 días. [Evidencias HU16](../docs/hu16-acceptance.md).
 
-El 200/400 sigue lo comunicado a G3 y la historia SEM-10. El evento no se almacena ni genera una alerta. Los reintentos válidos también devuelven 200. El formato del acuse se ha conservado de la implementación de ingesta, con mensajes en inglés:
-
-```json
-{"status":"success","message":"Event received successfully (mock)","event_id":"HP-981839239323"}
-```
-
-Los errores siguen el formato común del borrador:
-
-```json
-{"error":{"code":"VALIDATION_ERROR","message":"The event does not match the required schema"}}
-```
-
-Códigos del mock: `INVALID_JSON`, `VALIDATION_ERROR`, `UNSUPPORTED_MEDIA_TYPE` y `ALERT_NOT_FOUND`. Los errores internos imprevistos no tienen un formato garantizado en esta versión.
-
-## Alertas para G6 y G7
-
-Cada alerta conserva todos los campos del evento y añade `alert_id`, `source_ip` y `target_ip`. IDS toma las IP de `details`; Honeypot tiene destino null; Escáner tiene origen null y destino `details.target.ip`. No añadir `status`, `priority`, `risk_score`, `recommended_action` ni `related_events` sin acuerdo.
-
-`GET /alerts` utiliza `mocks/alerts.json`, con tres ejemplos completos. `GET /alerts/{id}` usa el identificador exacto, sensible a mayúsculas y minúsculas. El JSON estático no cambia después de POST /events.
-
-## Acuerdos pendientes
-
-- Ratificar respuestas, formato del acuse, claves extra y catálogos con G2/G3/G4/G6/G7.
-- Confirmar que G6/G7 consultan mediante GET, y verificarlo contra sus servicios.
-- Negociar con G1 el formato de credenciales y los roles de cada endpoint.
-- Revisar el esquema local y coordinar su adopción en `shared/event-schema.json`, mantenido fuera de esta propuesta del módulo.
-- Definir persistencia, deduplicación y correlación en las historias posteriores. El borrador 0.1.0 propuso 201/422/409; no son respuestas del mock actual.
-
-Los ejemplos son simulados de laboratorio. Su presencia, las pruebas locales y el contrato no sustituyen el acuerdo entre equipos ni la aprobación del PR.
-
-## Acuerdo SEM-68 de Sprint 2
-
-[Contrato de listado y detalle](sem68-alert-query-contract.md): el OpenAPI incluye 503 STORAGE_UNAVAILABLE y 500 INTERNAL_ERROR para ambas consultas, con el formato de error común y mensaje genérico. Son requisitos acordados para la implementación real; el texto anterior describe el mock de Sprint 1. Comunicación a G6/G7 prevista en el Scrum de Scrums.
-
-## Implementación SEM-70
-
-GET /alerts consulta AlertQueryService y el repositorio en memoria de HU13. Devuelve todas las alertas disponibles, sin orden garantizado, filtros ni paginación. Una consulta vacía devuelve 200 con {"alerts":[]}. El detalle incorporado desde SEM-33 consulta el mismo repositorio.
-
-AlertErrorHandler aplica a ambas rutas: AlertStorageUnavailableException produce 503 STORAGE_UNAVAILABLE; los fallos inesperados de ejecución producen 500 INTERNAL_ERROR con mensaje genérico. El repositorio actual en memoria no tiene un fallo de conexión natural; el 503 se prueba inyectando un fallo tipado. Un futuro adaptador de almacenamiento debe traducir únicamente fallos de disponibilidad a esa excepción.
-
-Validación local: bash ./mvnw clean test desde modules/05-siem. Las pruebas HTTP envían ejemplos de los tres productores, comprueban listado y detalle, resultado vacío y errores. El almacenamiento se pierde al reiniciar. La ingesta persistente de HU8 y su integración siguen fuera de esta rama; la CI específica corresponde a SEM-71.
-
-## CI del listado, SEM-71
-
-El workflow `.github/workflows/siem-tests.yml` ejecuta `bash ./mvnw --batch-mode --no-transfer-progress clean verify -DfailIfNoTests=true` con Temurin 21. Se activa en pushes a main y ramas equipo-05-siem, y PR a main cuando cambia el módulo o el workflow. Conserva los informes Surefire como artefacto durante 14 días incluso ante fallos.
-
-Cobertura: varios productores mediante POST /events; listado y detalle del mismo almacén; vacío; 150 alertas sin truncado ni orden exigido; contenedor y once campos con valores nulos; 503/500 sin detalles internos. El almacenamiento probado es en memoria: estas pruebas no acreditan durabilidad tras reinicio. Las comprobaciones globales de Docker y otros equipos permanecen en el workflow CI existente.
+Comunicación a G6/G7 prevista en Scrum de Scrums. La revisión por PR y aceptación final del PO se registran por separado de los tests.
