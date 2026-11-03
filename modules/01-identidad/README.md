@@ -129,7 +129,17 @@ Los valores sensibles se leen de **variables de entorno**, nunca del código. El
 
 ## Pruebas
 
-Todavía no hay pruebas automáticas del servicio: se añadirán con las historias de registro y login. Cuando existan, aquí se indicará el comando para ejecutarlas. Mientras tanto, el CI del monorepo comprueba que la imagen se construye y que `GET /health` responde 200, y debe quedar en verde antes de fusionar.
+El módulo dispone de pruebas automáticas para comprobar el funcionamiento de los endpoints y la lógica del servicio de identidad.
+
+Para ejecutar las pruebas desde la raíz del monorepo, utiliza:
+
+```
+python -m unittest discover -s modules/01-identidad/tests -p 'test_*.py'
+```
+
+Las pruebas se ejecutan también automáticamente mediante GitHub Actions cuando se realizan los eventos configurados en el workflow de CI (`.github/workflows/ci.yml`).
+
+Antes de fusionar un Pull Request, el CI debe finalizar correctamente. Si alguna prueba falla, el trabajo de CI se marcará como fallido y será necesario corregir el problema antes de fusionar los cambios.
 
 ## Cómo contribuir
 
