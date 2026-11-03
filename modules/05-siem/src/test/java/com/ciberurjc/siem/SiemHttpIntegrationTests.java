@@ -1,5 +1,6 @@
 package com.ciberurjc.siem;
 
+import com.ciberurjc.siem.services.AlertRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,15 +16,13 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import com.ciberurjc.siem.services.AlertRepository;
 import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class SiemHttpIntegrationTests {
     @Autowired Environment environment;
     @Autowired ObjectMapper mapper;
-    @Autowired
-AlertRepository alertRepository;
+    @Autowired AlertRepository alertRepository;
     final HttpClient client = HttpClient.newHttpClient();
     String baseUrl;
 
@@ -134,21 +133,134 @@ AlertRepository alertRepository;
             assertEquals(mapper.readTree(input), mapper.readTree(mapper.writeValueAsString(model)), filename);
             var response = request("/events", input, "application/json");
             assertEquals(200, response.statusCode());
-            assertEquals(Map.of("status", "success", "message", "Event received successfully", "event_id", model.event_id()), mapper.readValue(response.body(), Map.class));        }
+            assertEquals(Map.of("status", "success", "message", "Event received successfully", "event_id", model.event_id()), mapper.readValue(response.body(), Map.class));
+        }
     }
     @Test
     void acceptsCurrentHoneypotPayloadAndPreservesDetails() throws Exception {
-        String input = Files.readString(Path.of("contract/examples/grupo_3_honeypot_actual.json"));
-        var event = mapper.readValue(input, com.ciberurjc.siem.models.Event.class);
+        String input = Files.readString(
+            Path.of("contract/examples/grupo_3_honeypot_actual.json")
+    );
 
-        assertEquals(mapper.readTree(input), mapper.readTree(mapper.writeValueAsString(event)));
-        assertEquals("/login", event.details().get("ruta"));
-        assertTrue(event.details().containsKey("navegador"));
-        assertTrue(event.details().containsKey("command"));
-        assertNull(event.details().get("command"));
+    var event = mapper.readValue(
+        input,
+        com.ciberurjc.siem.models.Event.class
+    );
 
-        var response = request("/events", input, "application/json");
-        assertEquals(200, response.statusCode(), response.body());
-        assertEquals(event.event_id(), mapper.readTree(response.body()).get("event_id").asText());
+    assertEquals(
+        mapper.readTree(input),
+        mapper.readTree(mapper.writeValueAsString(event))
+    );
+
+    assertEquals("/login", event.details().get("ruta"));
+    assertTrue(event.details().containsKey("navegador"));
+    assertTrue(event.details().containsKey("command"));
+    assertNull(event.details().get("command"));
+
+    var response = request("/events", input, "application/json");
+
+    assertEquals(200, response.statusCode(), response.body());
+    assertEquals(
+        event.event_id(),
+        mapper.readTree(response.body()).get("event_id").asText()
+        );
     }
+    @Test
+    
+    void generatesAndStoresAlertFromReceivedEvent() throws Exception {
+        String event = Files.readString(Path.of("contract/examples/grupo_2_ids_ejemplo_propuesto.json"));
+        String eventId = mapper.readTree(event).get("event_id").asText();
+
+        var response = request("/events", event, "application/json");
+        assertEquals(200, response.statusCode());
+
+        var alert = alertRepository.findAll().stream()
+            .filter(a -> eventId.equals(a.get("event_id")))
+            .findFirst();
+
+        assertTrue(alert.isPresent());
+        assertEquals(eventId, alert.get().get("event_id"));
+        assertEquals("ids", alert.get().get("source"));
+        assertNotNull(alert.get().get("alert_id"));
+    }
+    @Test
+    void acceptsRealIdsBruteForceEvent() throws Exception {
+
+        String event = """
+            {
+            "event_id": "IDS-P004-181.25.206.27-20260329T141540Z",
+            "timestamp": "2026-03-29T14:15:52Z",
+            "source": "ids",
+            "event_type": "brute_force",
+            "severity": "medium",
+            "title": "Posible ataque de fuerza bruta",
+            "description": "La IP ha realizado 5 intentos fallidos de login.",
+            "details": {
+                "rule_id": "P004",
+                "source_ip": "181.25.206.27",
+                "service": "sshd",
+                "attempts": 5,
+                "usernames": ["pi"],
+                "window_seconds": 60,
+                "first_attempt": "2026-03-29T14:15:40Z",
+                "last_attempt": "2026-03-29T14:15:52Z",
+                "login_success": false
+            }
+            }
+            """;
+
+        var response = request("/events", event, "application/json");
+
+        assertEquals(200, response.statusCode(), response.body());
+
+        var result = mapper.readTree(response.body());
+
+        assertEquals("success", result.get("status").asText());
+        assertEquals(
+            "IDS-P004-181.25.206.27-20260329T141540Z",
+            result.get("event_id").asText()
+        );
+    }
+
+    @Test
+    void acceptsIdsEndpointScanEvent() throws Exception {
+
+        String event = """
+            {
+            "event_id": "IDS-P005-TEST-001",
+            "timestamp": "2026-03-29T14:15:06Z",
+            "source": "ids",
+            "event_type": "endpoint_scan",
+            "severity": "medium",
+            "title": "Posible escaneo de endpoints",
+            "description": "Se han detectado conexiones a diferentes destinos.",
+            "details": {
+                "rule_id": "P005",
+                "source_ip": "203.0.113.10",
+                "targets": 3,
+                "target_ips": [
+                "10.0.0.1",
+                "10.0.0.2",
+                "10.0.0.3"
+                ],
+                "ports": [81, 82, 83],
+                "connections": 3,
+                "threshold": 3,
+                "window_seconds": 60,
+                "first_seen": "2026-03-29T14:15:00Z",
+                "last_seen": "2026-03-29T14:15:06Z"
+            }
+            }
+            """;
+
+        var response = request("/events", event, "application/json");
+
+        assertEquals(200, response.statusCode(), response.body());
+
+        var result = mapper.readTree(response.body());
+
+        assertEquals("success", result.get("status").asText());
+        assertEquals("IDS-P005-TEST-001", result.get("event_id").asText());
+    }
+
 }
