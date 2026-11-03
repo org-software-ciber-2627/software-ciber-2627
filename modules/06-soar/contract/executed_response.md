@@ -62,8 +62,29 @@ Estos estados son un catálogo **distinto** de los estados del incidente (`open`
 | Playbook | Acción | Sprint | Ejecuta |
 | --- | --- | --- | --- |
 | `brute_force` | `notify` | Sprint 2 | Módulo 6, envía el incidente al grupo 7 |
-| `brute_force` | `block_ip` | Sprint 3 | Equipo 1 (módulo de identidad) |
-| `brute_force` | `disable_account` | Sprint 3 | Equipo 1 (módulo de identidad) |
+
+En el Sprint 3 está previsto añadir `block_ip` y `disable_account`, ejecutadas por el equipo 1.
+
+## Equivalencias con la salida del playbook (HU14 → HU15)
+
+`soar/services/response_mapper.py` crea una respuesta por cada acción de `BruteForcePlaybookOutput`:
+
+| HU14 | HU15 |
+| --- | --- |
+| `incident_id` | `incident_id` |
+| `playbook` | `playbook` |
+| `actions_taken[].action_name` | `action` |
+| `actions_taken[].status` | `status` (`success`, `failed` o `skipped`) |
+| `actions_taken[].details` | `message` si `success`; `error` si `failed` o `skipped` |
+| `executed_at` | `executed_at` (UTC) |
+| `actions_taken[].target`, `execution_id`, `status` | `details.target`, `details.execution_id`, `details.playbook_status` |
+
+`triggered_by` es `automatic` cuando la respuesta la lanza el flujo de sondeo.
+
+## Persistencia y consulta
+
+Las respuestas se guardan en la tabla `executed_responses` del SQLite del módulo y se consultan con
+`GET /incidents/{incident_id}/responses`. Si un incidente ya tiene respuestas, el playbook no se vuelve a ejecutar.
 
 ## Relación con Incident
 
