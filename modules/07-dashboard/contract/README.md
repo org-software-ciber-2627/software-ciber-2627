@@ -15,12 +15,12 @@ Nada.
 
 ### Identidad (`equipo-01-identidad`)
 
-Contrato de origen: `modules/01-identidad/contract/openapi.yaml` y `shared/auth-contract.md` (v1.0.2). Si este documento y el suyo difieren, manda el de Identidad. Servicio en `http://localhost:8001`.
+Contrato de origen: `modules/01-identidad/contract/openapi.yaml` y `shared/auth-contract.md` (v1.2.0). Si este documento y el suyo difieren, manda el de Identidad. Servicio en `http://localhost:8001`.
 
 **`POST /auth/login`** (publicado)
 - Campos de petición: `username` (string, requerido), `password` (string, requerido).
 - Respuesta 200: `token` (JWT HS256, caduca a los 30 minutos) y `user` (`id` entero, `username`, `email`, `role`).
-- Respuesta 400: falta usuario o contraseña. Respuesta 401: credenciales incorrectas (mensaje genérico, sin revelar si el usuario existe). Cuerpo de error: `{"error": "<mensaje>"}`.
+- Respuesta 400: falta usuario o contraseña. Respuesta 401: credenciales incorrectas (mensaje genérico, sin revelar si el usuario existe). Respuesta 429: demasiados intentos fallidos; bloqueo temporal por combinación de usuario e IP, con la cabecera `Retry-After` (segundos restantes). Cuerpo de error: `{"error": "<mensaje>"}`.
 
 ```json
 { "username": "analista1", "password": "••••••••" }
@@ -41,10 +41,14 @@ Contrato de origen: `modules/01-identidad/contract/openapi.yaml` y `shared/auth-
 { "valid": true, "user_id": 1, "username": "analista1", "role": "analista" }
 ```
 
-**Pendiente de Identidad** (respuesta del equipo del 22/10, aún no está en `main`):
-- CORS para el origen `http://localhost:8007`. En `main` solo está habilitado en `/auth/login` y `/auth/register`; en `/auth/validate` todavía no, y el navegador bloquea la llamada hasta que lo suban.
-- Límite de intentos de login: tras 5 fallos seguidos, `/auth/login` devolverá `429`. Todavía no está en `main` ni en su contrato.
-- `POST /auth/logout` existe en su código pero no está en su contrato: no lo usamos hasta que lo publiquen.
+**`POST /auth/logout`** (publicado, v1.2.0)
+- Cabecera: `Authorization: Bearer <token>`. Sin cuerpo.
+- Respuesta 200: `{"message": "Token revocado"}`. A partir de ahí ese token deja de valer: `GET /auth/validate` responde 401 con él.
+- Respuesta 401: token inválido, expirado, revocado o ausente (también si ya se había cerrado la sesión con él).
+
+**CORS** (publicado el 27/10): solo se permite el origen `http://localhost:8007`, y solo en `POST /auth/login` y `POST /auth/register`. `GET /auth/validate` y `POST /auth/logout` no están en esa lista, así que una llamada directa desde el navegador a esos dos endpoints se bloquea. Hay que pedir a Equipo 1 que los añada o llamarlos a través de un proxy del nginx del Dashboard (como se hace con el SIEM).
+
+**No lo consume el Dashboard en el Sprint 2:** `GET /audit` (solo `admin`). Su contrato lo documenta, pero el código de Identidad expone `GET /logs`; la diferencia ya se la hemos comunicado a Equipo 1.
 
 ### SIEM (`equipo-05-siem`)
 
@@ -88,11 +92,16 @@ Contrato de origen: `modules/05-siem/contract/openapi.json` (versión `0.2.0-spr
 
 **`GET /incidents`** (borrador)
 
-Su `contract/README.md` sigue vacío en `main`. Sí hay un borrador del modelo en su rama `equipo-06-soar/SB-13-listar-incidentes` (`contract/incidents.md`), sin PR. Su código todavía no tiene ninguna ruta: solo el modelo y una función interna que lista incidentes. Por eso la ruta y el formato de la respuesta son una suposición nuestra.
+Lo acordado con Equipo 6 en el Scrum de Scrums del 27/10 (minuta en Miro): `GET /incidents` devuelve una lista directa, `[]` si no hay incidentes, y un campo opcional `applied_playbook` (id del playbook o `null`). Usamos su JSON como mock.
 
-- Respuesta 200 (suposición): lista directa de incidentes. Sin incidentes: `[]`.
-- Campos de cada incidente: `incident_id` (string, requerido), `alert_id` (`alert_id` de la alerta del SIEM que lo originó, requerido), `event_type` (string, requerido), `severity` (`low` | `medium` | `high` | `critical`, requerido), `source_ip` (string o `null`), `status` (`open` | `in_progress` | `contained` | `resolved`, requerido), `created_at` (ISO 8601, requerido) y `resolved_at` (ISO 8601 o `null`).
-- No tiene `playbook`, que pide la historia del listado de incidentes (DASHG7-26). Hasta que Equipo 6 diga si lo añade, no se muestra.
+Lo publicado por ellos todavía no coincide con eso, y por eso el formato sigue siendo un borrador:
+- Su `contract/README.md` en `main` describe una respuesta con `id`, `alert_key`, `alert` y `first_seen`, y es lo que hace el código de `main`.
+- Su rama `equipo-06-soar/integracion-sprint2` (sin PR) tiene `contract/incidents.md` con el modelo de abajo (`incident_id`, `alert_id`…), pero su `src/app.py` sigue devolviendo la forma anterior (`id`, `alert_key`, `alert`, `first_seen`). Tampoco aparece `applied_playbook` en ninguno de los dos.
+- Hasta que publiquen un único formato, el Dashboard sigue el modelo de `incidents.md` más `applied_playbook`.
+
+- Respuesta 200: lista directa de incidentes. Sin incidentes: `[]`.
+- Campos de cada incidente: `incident_id` (string, requerido), `alert_id` (`alert_id` de la alerta del SIEM que lo originó, requerido), `event_type` (string, requerido), `severity` (`low` | `medium` | `high` | `critical`, requerido), `source_ip` (string o `null`), `status` (`open` | `in_progress` | `contained` | `resolved`, requerido), `created_at` (ISO 8601, requerido), `resolved_at` (ISO 8601 o `null`) y `applied_playbook` (string o `null`, opcional: si falta se trata como `null`).
+- `applied_playbook` es lo que pide la historia del listado de incidentes (DASHG7-26). Hoy el único playbook previsto en su contrato de automatización es `brute_force`, para `fuerza_bruta` con `source_ip`.
 - MTTR: `resolved_at` − `created_at`. MTTD: `created_at` − `timestamp` de la alerta (se busca con `alert_id` en el SIEM), suponiendo que `created_at` es cuando se crea el incidente.
 
 ```json
@@ -105,7 +114,8 @@ Su `contract/README.md` sigue vacío en `main`. Sí hay un borrador del modelo e
     "source_ip": "192.168.1.50",
     "status": "open",
     "created_at": "2026-09-22T18:30:20Z",
-    "resolved_at": null
+    "resolved_at": null,
+    "applied_playbook": "brute_force"
   }
 ]
 ```
@@ -162,5 +172,5 @@ Todos los módulos publican `GET /health`. Respuesta esperada: **200** con `{"st
 Mientras una dependencia no esté disponible, el Dashboard trabaja contra su propio mock en `modules/07-dashboard/mocks/`, con datos de ejemplo fijos.
 
 - El mock del SIEM (`siem-alerts.json`) respeta el formato publicado por el SIEM.
-- El mock de SOAR (`GET /incidents`, puerto 5001) sigue el borrador de Equipo 6 y el del Escáner (`GET /events` y `GET /scan/{id}`, puerto 5002) sigue lo que se deduce de su código. Ninguno está confirmado por su equipo: hay que revisarlos cuando publiquen su contrato.
+- El mock de SOAR (`GET /incidents`, puerto 5001) sigue el borrador de Equipo 6 con `applied_playbook` y el del Escáner (`GET /events` y `GET /scan/{id}`, puerto 5002) sigue lo que se deduce de su código. Ninguno está confirmado por su equipo: hay que revisarlos cuando publiquen su contrato.
 - La URL del SIEM es una constante en `src/SIEM-client.js`. Apunta a `/api/siem/alerts`, que el nginx del Dashboard (`default.conf`) reenvía al SIEM real; para usar el mock se cambia por `../mocks/siem-alerts.json`.
