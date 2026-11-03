@@ -94,6 +94,9 @@ EVENTOS = ("login_ok", "login_failed", "invalid_user", "secret_read", "secret_de
 IDS_URL   = os.environ.get("IDS_URL", "http://ids/logs")
 _HOSTNAME = socket.gethostname()
 _PID      = os.getpid()
+ids_lock  = threading.Lock()
+
+
 
 # Caracteres que rompen el formato key=value en syslog: controles, espacio y '='
 _LOG_UNSAFE = re.compile(r'[\x00-\x1f\x7f =]')
@@ -242,29 +245,59 @@ def _format_raw_line(log):
     return f"{prefix} {_HOSTNAME} identidad[{_PID}]: {' '.join(parts)}"
 
 
-def _enviar_al_ids(log):
-    """Envía el evento al IDS en segundo plano. Fallo silencioso."""
-    log_id   = log.log_id
-    raw_line = _format_raw_line(log)
-    audit_id = log.id
+def enviar_lote_al_ids():
+    """Consulta los registros pendientes y los envía en lotes al IDS (AAA-84)."""
+    if not ids_lock.acquire(blocking=False):
+        return 0
 
-    def _send():
-        try:
+    try:
+        total_enviados = 0
+        while True:
+            pendientes = (
+                AuditLog.query
+                .filter_by(enviado=False)
+                .order_by(AuditLog.timestamp.asc(), AuditLog.id.asc())
+                .limit(200)
+                .all()
+            )
+            if not pendientes:
+                break
+
             payload = {
-                "source": "01-identidad",
-                "logs": [{"id": log_id, "raw_line": raw_line}],
+                "source": "identity",
+                "logs": [
+                    {"id": log.log_id, "raw_line": _format_raw_line(log)}
+                    for log in pendientes
+                ],
             }
-            resp = http_client.post(IDS_URL, json=payload, timeout=2)
-            if resp.status_code in (200, 202):
-                with app.app_context():
-                    entry = db.session.get(AuditLog, audit_id)
-                    if entry:
-                        entry.enviado = True
-                        db.session.commit()
-        except Exception:
-            pass
+            try:
+                resp = http_client.post(IDS_URL, json=payload, timeout=2)
+                if resp.status_code in (200, 202):
+                    for log in pendientes:
+                        log.enviado = True
+                    db.session.commit()
+                    total_enviados += len(pendientes)
+                else:
+                    app.logger.error(f"Error del IDS al enviar lote: {resp.status_code} - {resp.text}")
+                    break
+            except Exception as e:
+                db.session.rollback()
+                app.logger.error(f"Error de red conectando al IDS: {e}")
+                break
+        return total_enviados
+    finally:
+        ids_lock.release()
+
+
+
+def _enviar_al_ids(_log=None):
+    """Dispara el envío del lote pendiente al IDS en segundo plano sin bloquear el endpoint."""
+    def _send():
+        with app.app_context():
+            enviar_lote_al_ids()
 
     threading.Thread(target=_send, daemon=True).start()
+
 
 
 def registrar_evento(event_type, result, username=None, role=None, clave=None):

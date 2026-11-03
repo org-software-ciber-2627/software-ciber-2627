@@ -5,6 +5,7 @@ import tempfile
 import time
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
  
 import jwt
  
@@ -34,6 +35,8 @@ USUARIO = {
  
 class BaseTest(unittest.TestCase):
     def setUp(self):
+        self.patcher = patch("app._enviar_al_ids")
+        self.patcher.start()
         # Claves aleatorias generadas en cada prueba: no hay secretos escritos en el código.
         self.jwt_secret = secrets.token_hex(32)
         self.aes_key = os.urandom(32)
@@ -44,6 +47,7 @@ class BaseTest(unittest.TestCase):
         self.client = app.test_client()
  
     def tearDown(self):
+        self.patcher.stop()
         with app.app_context():
             db.session.remove()
         for var in ("ADMIN_PASSWORD", "SERVICE_PASSWORD", "SECRET_API_KEY"):
@@ -331,6 +335,20 @@ class TestValidate(BaseTest):  # adelanta AAA-20
             secrets.token_hex(32), algorithm="HS256",
         )
         self.assertEqual(self.validar(otro).status_code, 401)
+    
+    def test_6_cabecera_mal_formada_sin_bearer_retorna_401(self):
+        token = self.registrar().get_json()["token"]
+        r = self.client.get("/auth/validate", headers={"Authorization": token})
+        self.assertEqual(r.status_code, 401)
+        self.assertIs(r.get_json()["valid"], False)
+
+    def test_7_token_revocado_via_logout_retorna_401(self):
+        token = self.registrar().get_json()["token"]
+        self.client.post("/auth/logout", headers=self.con_token(token))
+        r = self.client.get("/auth/validate", headers=self.con_token(token))
+        self.assertEqual(r.status_code, 401)
+        self.assertIs(r.get_json()["valid"], False)
+
  
  
 class TestSecretos(BaseTest):  # adelanta AAA-15/16
@@ -702,6 +720,78 @@ class TestMinimoPrivilegio(BaseTest):  # AAA-25
         r = self.get("/logs", "cuenta.servicio")
         self.assertEqual(r.status_code, 200)
         self.assertNotIn(self.VALOR, r.get_data(as_text=True))
+
+class TestIDSClient(BaseTest):
+
+    def _insertar_eventos(self, n):
+        with app.app_context():
+            for i in range(n):
+                db.session.add(app_module.AuditLog(
+                    event_type="login_failed", result="fail",
+                    source_ip="10.0.0.1", username=f"intruso{i}"
+                ))
+            db.session.commit()
+
+    @patch("app.http_client.post")
+    def test_1_envio_exitoso_marca_enviados_con_200_o_202(self, mock_post):
+        # Prueba con 200
+        mock_post.return_value.status_code = 200
+        self._insertar_eventos(2)
+        with app.app_context():
+            app_module.enviar_lote_al_ids()
+            self.assertEqual(app_module.AuditLog.query.filter_by(enviado=False).count(), 0)
+
+        # Prueba con 202
+        mock_post.return_value.status_code = 202
+        self._insertar_eventos(3)
+        with app.app_context():
+            app_module.enviar_lote_al_ids()
+            self.assertEqual(app_module.AuditLog.query.filter_by(enviado=False).count(), 0)
+
+    @patch("app.http_client.post")
+    def test_2_error_del_ids_no_marca_enviados_y_no_reintenta_infinito(self, mock_post):
+        mock_post.return_value.status_code = 400
+        self._insertar_eventos(3)
+        with app.app_context():
+            app_module.enviar_lote_al_ids()
+            self.assertEqual(app_module.AuditLog.query.filter_by(enviado=False).count(), 3)
+            # Asegura que el bucle hizo 'break' y no iteró infinitamente
+            self.assertEqual(mock_post.call_count, 1)
+
+    @patch("app.http_client.post")
+    def test_3_limite_de_lote_paga_en_bloques_de_200_con_orden_cronologico_y_source_identity(self, mock_post):
+        mock_post.return_value.status_code = 202
+        self._insertar_eventos(250)
+        with app.app_context():
+            # Forzamos un orden alterado para asegurar que la query lo ordena bien
+            ids_esperados = [log.log_id for log in app_module.AuditLog.query.order_by(app_module.AuditLog.timestamp.asc(), app_module.AuditLog.id.asc()).all()]
+            
+            app_module.enviar_lote_al_ids()
+            self.assertEqual(mock_post.call_count, 2)
+            
+            # Comprueba primer lote (200 eventos)
+            args, kwargs = mock_post.call_args_list[0]
+            payload1 = kwargs["json"]
+            self.assertEqual(payload1["source"], "identity")
+            self.assertEqual(len(payload1["logs"]), 200)
+            self.assertEqual([log["id"] for log in payload1["logs"]], ids_esperados[:200])
+            
+            # Comprueba segundo lote (50 eventos)
+            args, kwargs = mock_post.call_args_list[1]
+            payload2 = kwargs["json"]
+            self.assertEqual(payload2["source"], "identity")
+            self.assertEqual(len(payload2["logs"]), 50)
+            self.assertEqual([log["id"] for log in payload2["logs"]], ids_esperados[200:])
+
+    @patch("app.http_client.post")
+    def test_4_excepcion_de_red_deje_eventos_pendientes(self, mock_post):
+        mock_post.side_effect = Exception("Connection Refused")
+        self._insertar_eventos(2)
+        with app.app_context():
+            app_module.enviar_lote_al_ids()
+            self.assertEqual(app_module.AuditLog.query.filter_by(enviado=False).count(), 2)
+            self.assertEqual(mock_post.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

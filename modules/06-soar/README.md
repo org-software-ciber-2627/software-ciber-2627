@@ -24,3 +24,13 @@ peticiones concurrentes.
 Para activar el sondeo periódico, estableced `POLL_INTERVAL_SECONDS` con un
 valor mayor que cero. Con `0` (valor por defecto) el sondeo se dispara
 manualmente mediante `POST /poll`.
+
+## Mock local del SIEM (Sprint 1)
+
+Simulación local del servicio SIEM (Equipo 5) para desacoplar el desarrollo del SOAR y cumplir los criterios del Sprint 1.
+
+### Arranque rápido con Python
+```bash
+pip install -r requirements-mock.txt
+uvicorn mock_siem_server:app --port 8000 --reload
+```
