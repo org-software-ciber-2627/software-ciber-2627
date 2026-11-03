@@ -56,3 +56,7 @@ Cada alerta conserva todos los campos del evento y añade `alert_id`, `source_ip
 - Definir persistencia, deduplicación y correlación en las historias posteriores. El borrador 0.1.0 propuso 201/422/409; no son respuestas del mock actual.
 
 Los ejemplos son simulados de laboratorio. Su presencia, las pruebas locales y el contrato no sustituyen el acuerdo entre equipos ni la aprobación del PR.
+
+## Acuerdo SEM-68 de Sprint 2
+
+[Contrato de listado y detalle](sem68-alert-query-contract.md): el OpenAPI incluye 503 STORAGE_UNAVAILABLE y 500 INTERNAL_ERROR para ambas consultas, con el formato de error común y mensaje genérico. Son requisitos acordados para la implementación real; el texto anterior describe el mock de Sprint 1. Comunicación a G6/G7 prevista en el Scrum de Scrums.

@@ -272,6 +272,38 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Alert storage is temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "STORAGE_UNAVAILABLE",
+                    "message": "Alert storage is temporarily unavailable"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unexpected error occurred",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "An unexpected error occurred"
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -334,6 +366,38 @@
                   "error": {
                     "code": "ALERT_NOT_FOUND",
                     "message": "The requested alert does not exist"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Alert storage is temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "STORAGE_UNAVAILABLE",
+                    "message": "Alert storage is temporarily unavailable"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unexpected error occurred",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "An unexpected error occurred"
                   }
                 }
               }
@@ -542,7 +606,8 @@
                   "UNSUPPORTED_MEDIA_TYPE",
                   "VALIDATION_ERROR",
                   "ALERT_NOT_FOUND",
-                  "INTERNAL_ERROR"
+                  "INTERNAL_ERROR",
+                  "STORAGE_UNAVAILABLE"
                 ]
               },
               "message": {
