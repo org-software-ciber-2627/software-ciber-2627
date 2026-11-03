@@ -95,7 +95,7 @@ class SiemHttpIntegrationTests {
         assertEquals(expected, mapper.readTree(response.body()));
         // HU17: sin almacenamiento el detalle ya no devuelve el mock.
         var detail = request("/alerts/" + expected.get("alerts").get(0).get("alert_id").asText(), null, null);
-        assertEquals(503, detail.statusCode());
+        assertEquals(404, detail.statusCode());
     }
 
     @Test
