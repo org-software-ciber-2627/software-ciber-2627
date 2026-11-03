@@ -21,9 +21,13 @@ Variables de entorno:
 """
 import base64
 import os
+import math
 import re
-from datetime import datetime, timezone
+import socket
+import threading
+from datetime import datetime, timedelta, timezone
 
+import requests as http_client
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_jwt_extended import (JWTManager, create_access_token, decode_token,
@@ -85,7 +89,19 @@ ROLES = ("admin", "analista", "servicio")
 DEFAULT_ROLE = "analista"
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 CLAVE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
-EVENTOS = ("login_ok", "login_failed", "invalid_user", "secret_read", "secret_denied")
+EVENTOS = ("login_ok", "login_failed", "invalid_user", "secret_read", "secret_denied", "limit_exceeded")
+
+IDS_URL   = os.environ.get("IDS_URL", "http://ids/logs")
+_HOSTNAME = socket.gethostname()
+_PID      = os.getpid()
+
+# Caracteres que rompen el formato key=value en syslog: controles, espacio y '='
+_LOG_UNSAFE = re.compile(r'[\x00-\x1f\x7f =]')
+
+
+def _sanitize_log_field(value):
+    """Percent-encodes space, '=' y controles para evitar inyección de campos en syslog."""
+    return _LOG_UNSAFE.sub(lambda m: f"%{ord(m.group()):02X}", value)
 
 
 # ── Modelos ───────────────────────────────────────────────────────────────────
@@ -213,11 +229,49 @@ def get_aes_key():
     return key
 
 
+def _format_raw_line(log):
+    """Línea syslog: MMM d HH:mm:ss host identidad[pid]: campos del evento."""
+    ts = log.timestamp
+    prefix = ts.strftime("%b") + " " + str(ts.day).rjust(2) + ts.strftime(" %H:%M:%S")
+    parts = [f"event={log.event_type}", f"result={log.result}"]
+    if log.username:
+        parts.append(f"user={_sanitize_log_field(log.username)}")
+    parts.append(f"from={log.source_ip}")
+    if log.clave:
+        parts.append(f"clave={log.clave}")
+    return f"{prefix} {_HOSTNAME} identidad[{_PID}]: {' '.join(parts)}"
+
+
+def _enviar_al_ids(log):
+    """Envía el evento al IDS en segundo plano. Fallo silencioso."""
+    log_id   = log.log_id
+    raw_line = _format_raw_line(log)
+    audit_id = log.id
+
+    def _send():
+        try:
+            payload = {
+                "source": "01-identidad",
+                "logs": [{"id": log_id, "raw_line": raw_line}],
+            }
+            resp = http_client.post(IDS_URL, json=payload, timeout=2)
+            if resp.status_code in (200, 202):
+                with app.app_context():
+                    entry = db.session.get(AuditLog, audit_id)
+                    if entry:
+                        entry.enviado = True
+                        db.session.commit()
+        except Exception:
+            pass
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
 def registrar_evento(event_type, result, username=None, role=None, clave=None):
-    """Guarda un evento de auditoría. Un fallo aquí nunca debe tumbar el endpoint."""
+    """Guarda un evento de auditoría y lo reenvía al IDS. Un fallo aquí nunca debe tumbar el endpoint."""
     try:
         puerto = request.environ.get("REMOTE_PORT")
-        db.session.add(AuditLog(
+        log = AuditLog(
             event_type=event_type, result=result,
             username=username[:50] if username else None, role=role, clave=clave,
             # Con TRUSTED_PROXY_HOPS>0, ProxyFix ya resolvió request.remote_addr a la IP
@@ -225,11 +279,33 @@ def registrar_evento(event_type, result, username=None, role=None, clave=None):
             # IP de la conexión TCP directa y X-Forwarded-For se ignora (no es falsificable).
             source_ip=request.remote_addr or "unknown",
             source_port=int(puerto) if puerto and str(puerto).isdigit() and not TRUSTED_PROXY_HOPS else None,
-        ))
+        )
+        db.session.add(log)
         db.session.commit()
+        _enviar_al_ids(log)
     except Exception:
         db.session.rollback()
 
+def registrar_evento_login(event_type, result, username=None, role=None, ip=None):
+    """Registra un evento de login; propaga los errores de persistencia."""
+    puerto = request.environ.get("REMOTE_PORT")
+    log = AuditLog(
+        event_type=event_type,
+        result=result,
+        username=username[:50] if username else None,
+        role=role,
+        source_ip=ip or request.remote_addr or "unknown",
+        source_port=(
+            int(puerto)
+            if puerto and str(puerto).isdigit() and not TRUSTED_PROXY_HOPS
+            else None
+        ),
+    )
+    db.session.add(log)
+    # Si falla, la excepción llega al endpoint,
+    # se evita que puedas autenticarte sin registrar los fallos
+    db.session.commit()
+    _enviar_al_ids(log)
 
 def crear_token(user):
     """JWT HS256 con sub (nombre de usuario), role, user_id, iat y exp (30 min por defecto)."""
@@ -267,6 +343,33 @@ def check_auth(required_roles=None):
         return None, ("El rol no tiene permiso para este recurso", 403)
     return claims, None
 
+MAX_LOGIN_FAILURES = 5
+LOGIN_WINDOW = timedelta(minutes=15)
+
+def obtener_bloqueo_login(username, ip):
+    """Calcula cuánto tiempo queda de bloqueo para una pareja usuario + IP."""
+    ahora = datetime.now(timezone.utc).replace(tzinfo=None)
+    desde = ahora - LOGIN_WINDOW
+    fallos = (
+        AuditLog.query
+        .filter(
+            AuditLog.username == username[:50],
+            AuditLog.source_ip == ip,
+            AuditLog.result == "fail",
+            AuditLog.event_type.in_(("login_failed", "invalid_user")),
+            AuditLog.timestamp >= desde,
+            AuditLog.timestamp <= ahora,
+        )
+        .order_by(AuditLog.timestamp.desc())
+        .limit(MAX_LOGIN_FAILURES)
+        .all()
+    )
+    if len(fallos) < MAX_LOGIN_FAILURES:
+        return 0
+    # El fallo más antiguo de los cinco más recientes determina cuándo vuelve a haber menos de cinco fallos en la ventana.
+    expiracion = fallos[-1].timestamp + LOGIN_WINDOW
+    restante = math.ceil((expiracion - ahora).total_seconds())
+    return max(0, restante)
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -296,32 +399,52 @@ def login():
     password = data.get("password") if isinstance(data, dict) else None
     if not (isinstance(username, str) and username and isinstance(password, str) and password):
         return jsonify(error="Falta el nombre de usuario o la contraseña"), 400
-    user = User.query.filter_by(username=username).first()
-    if user is None:
-        check_password_hash(_DUMMY_HASH, password)  # tiempo parecido exista o no la cuenta
-        registrar_evento("invalid_user", "fail", username=username)
+    ip = request.remote_addr or "unknown"
+    try:
+        # Consultar el bloqueo ANTES de verificar la contraseña.
+        espera = obtener_bloqueo_login(username, ip)
+        if espera > 0:
+            # El bloqueo ya está activo: no registrar otro limit_exceeded.
+            respuesta = jsonify(error="Demasiados intentos. Inténtalo más tarde.")
+            respuesta.headers["Retry-After"] = str(espera)
+            return respuesta, 429
+        user = User.query.filter_by(username=username).first()
+        if user is None:
+            check_password_hash(_DUMMY_HASH, password)  # tiempo parecido exista o no la cuenta
+            registrar_evento_login("invalid_user", "fail", username=username,ip=ip)
+        elif not user.check_password(password):
+            registrar_evento_login("login_failed", "fail", username=user.username, role=user.role,ip=ip)
+        else:
+            registrar_evento_login("login_ok", "ok", username=user.username, role=user.role,ip=ip)
+            return jsonify(token=crear_token(user), user=user.to_dict()), 200
+        # Tras registrar el fallo, comprobar si acaba de alcanzarse el límite.
+        espera = obtener_bloqueo_login(username, ip)
+        if espera > 0:
+            registrar_evento_login("limit_exceeded", "fail", username=username, ip=ip)
+            respuesta = jsonify(error="Demasiados intentos. Inténtalo más tarde.")
+            respuesta.headers["Retry-After"] = str(espera)
+            return respuesta, 429
         return jsonify(error="Usuario o contraseña incorrectos"), 401
-    if not user.check_password(password):
-        registrar_evento("login_failed", "fail", username=user.username, role=user.role)
-        return jsonify(error="Usuario o contraseña incorrectos"), 401
-    registrar_evento("login_ok", "ok", username=user.username, role=user.role)
-    return jsonify(token=crear_token(user), user=user.to_dict()), 200
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Error al procesar el login")
+        return jsonify(error="Error no esperado"), 500
+    
 
 
 @app.post("/auth/logout")
 def logout():
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return jsonify(error="Token inválido, expirado o ausente"), 401
-    raw_token = auth_header.split(" ", 1)[1].strip()
-    try:
-        decoded = decode_token(raw_token)
-    except Exception:
-        return jsonify(error="Token inválido, expirado o ausente"), 401
-    jti = decoded["jti"]
+    """Revoca el token actual insertando su JTI en la blocklist."""
+    claims, err = check_auth()
+    if err:
+        return jsonify(error=err[0]), err[1]
+
+    jti = claims["jti"]
+    # Solo lo insertamos si no existe ya (evita errores de integridad)
     if not TokenBlocklist.query.filter_by(jti=jti).first():
         db.session.add(TokenBlocklist(jti=jti))
         db.session.commit()
+
     return jsonify(message="Token revocado"), 200
 
 
