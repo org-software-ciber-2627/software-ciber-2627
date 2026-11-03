@@ -2,7 +2,8 @@ from flask import Flask, jsonify
 
 app = Flask(__name__)
 
-# Formato del borrador de Equipo 6 (rama equipo-06-soar/SB-13-listar-incidentes, contract/incidents.md).
+# Formato del borrador de Equipo 6 (rama equipo-06-soar/integracion-sprint2, contract/incidents.md)
+# más el campo opcional applied_playbook acordado en el Scrum de Scrums del 27/10.
 # Aún no está en main: no está confirmado. Las alertas de origen son las del mock del SIEM.
 INCIDENTS = [
     {
@@ -13,7 +14,8 @@ INCIDENTS = [
         "source_ip": "192.168.1.50",
         "status": "open",
         "created_at": "2026-09-22T18:30:20Z",
-        "resolved_at": None
+        "resolved_at": None,
+        "applied_playbook": "brute_force"
     },
     {
         "incident_id": "INC-002",
@@ -23,7 +25,8 @@ INCIDENTS = [
         "source_ip": "192.168.1.50",
         "status": "in_progress",
         "created_at": "2026-09-22T18:31:10Z",
-        "resolved_at": None
+        "resolved_at": None,
+        "applied_playbook": None
     },
     {
         "incident_id": "INC-003",
@@ -33,7 +36,8 @@ INCIDENTS = [
         "source_ip": None,
         "status": "resolved",
         "created_at": "2026-09-29T10:35:00Z",
-        "resolved_at": "2026-09-29T11:20:00Z"
+        "resolved_at": "2026-09-29T11:20:00Z",
+        "applied_playbook": None
     }
 ]
 
