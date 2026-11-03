@@ -42,6 +42,14 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from crypto import decrypt, encrypt
 
+import tempfile
+import time
+
+try:
+    import fcntl  # solo Linux/macOS (el contenedor); en Windows no existe
+except ImportError:
+    fcntl = None
+
 
 class ConfigError(RuntimeError):
     """Falta configuración obligatoria (clave JWT o clave AES)."""
@@ -97,6 +105,9 @@ _HOSTNAME = socket.gethostname()
 _PID      = os.getpid()
 ids_lock  = threading.Lock()
 
+IDS_RETRY_SECONDS = int(os.environ.get("IDS_RETRY_SECONDS", "30"))  # espera base entre reintentos
+IDS_RETRY_MIN_AGE = 10  # un evento pendiente solo cuenta como fallo si tiene más de 10 s
+_LOCK_PATH = os.path.join(tempfile.gettempdir(), "identidad-ids-reintentos.lock")
 
 
 # Caracteres que rompen el formato key=value en syslog: controles, espacio y '='
@@ -325,6 +336,67 @@ def _enviar_al_ids(_log=None):
             enviar_lote_al_ids()
 
     threading.Thread(target=_send, daemon=True).start()
+
+def _espera_reintento(fallos):
+    return min(IDS_RETRY_SECONDS * 2 ** fallos, 300)  # 30, 60, 120, 240, 300 s
+
+
+def _hay_pendientes_antiguos():
+    limite = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=IDS_RETRY_MIN_AGE)
+    return db.session.query(AuditLog.id).filter(
+        AuditLog.enviado.is_(False), AuditLog.timestamp <= limite
+    ).first() is not None
+
+
+def _con_candado(funcion):
+    """Ejecuta funcion() solo si ningún otro proceso del contenedor está reintentando.
+    Devuelve None si otro proceso tiene el candado."""
+    if fcntl is None:
+        return funcion()
+    with open(_LOCK_PATH, "a+") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return None
+        try:
+            return funcion()
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def _ciclo_reintento():
+    """Un intento de vaciar la cola. True si no queda nada pendiente (o ya lo hace otro proceso)."""
+    with app.app_context():
+        if _con_candado(enviar_lote_al_ids) is None:
+            return True
+        return not _hay_pendientes_antiguos()
+
+
+def _bucle_reintentos():
+    fallos = 0
+    while True:
+        time.sleep(_espera_reintento(fallos))
+        try:
+            ok = _ciclo_reintento()
+        except Exception:
+            ok = False
+        fallos = 0 if ok else min(fallos + 1, 4)  # IDS caído: espera cada vez mayor
+
+
+_reintentos_pid = None
+_reintentos_lock = threading.Lock()
+
+
+@app.before_request
+def _arrancar_reintentos_en_este_proceso():
+    """Arranca el hilo de reintentos una vez por proceso (con gunicorn --preload, uno por worker)."""
+    global _reintentos_pid
+    if os.environ.get("IDS_REINTENTOS", "1") != "1" or _reintentos_pid == os.getpid():
+        return
+    with _reintentos_lock:
+        if _reintentos_pid != os.getpid():
+            _reintentos_pid = os.getpid()
+            threading.Thread(target=_bucle_reintentos, daemon=True, name="ids-reintentos").start()
 
 
 
