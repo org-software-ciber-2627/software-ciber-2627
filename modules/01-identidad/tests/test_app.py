@@ -810,7 +810,7 @@ class TestAlmacenamientoCifrado(BaseTest):  # AAA-75
             os.environ.pop("AES_KEY", None)
 
 
-class TestIDSClient(BaseTest):
+class TestIDSClient(BaseTest):#AAA-86
 
     def _insertar_eventos(self, n):
         with app.app_context():
@@ -861,14 +861,14 @@ class TestIDSClient(BaseTest):
             # Comprueba primer lote (200 eventos)
             args, kwargs = mock_post.call_args_list[0]
             payload1 = kwargs["json"]
-            self.assertEqual(payload1["source"], "identity")
+            self.assertEqual(payload1["source"], "01-identidad")
             self.assertEqual(len(payload1["logs"]), 200)
             self.assertEqual([log["id"] for log in payload1["logs"]], ids_esperados[:200])
             
             # Comprueba segundo lote (50 eventos)
             args, kwargs = mock_post.call_args_list[1]
             payload2 = kwargs["json"]
-            self.assertEqual(payload2["source"], "identity")
+            self.assertEqual(payload2["source"], "01-identidad")
             self.assertEqual(len(payload2["logs"]), 50)
             self.assertEqual([log["id"] for log in payload2["logs"]], ids_esperados[200:])
 
@@ -881,6 +881,87 @@ class TestIDSClient(BaseTest):
             self.assertEqual(app_module.AuditLog.query.filter_by(enviado=False).count(), 2)
             self.assertEqual(mock_post.call_count, 1)
 
+    @patch("app.http_client.post")
+    def test_5_payload_cumple_contrato_ids(self, mock_post):
+        mock_post.return_value.status_code = 202
+        self._insertar_eventos(2)
+        with app.app_context():
+            app_module.enviar_lote_al_ids()
+            payload = mock_post.call_args.kwargs["json"]
+            self.assertEqual(payload["source"], "01-identidad")
+            self.assertEqual(len(payload["logs"]), 2)
+            for log in payload["logs"]:
+                self.assertEqual(set(log.keys()), {"id", "raw_line"})
+                self.assertTrue(log["id"])
+                self.assertTrue(log["raw_line"])
+
+    @patch("app.http_client.post")
+    def test_6_raw_line_formato_syslog(self, mock_post):
+        mock_post.return_value.status_code = 202
+        self._insertar_eventos(1)
+        with app.app_context():
+            app_module.enviar_lote_al_ids()
+            payload = mock_post.call_args.kwargs["json"]
+            raw_line = payload["logs"][0]["raw_line"]
+            import re
+            patron = (
+                r"^[A-Z][a-z]{2}\s+\d{1,2} "
+                r"\d{2}:\d{2}:\d{2} "
+                r"\S+ identidad\[\d+\]: .+$"
+            )
+            self.assertRegex(raw_line, patron)
+            self.assertFalse(raw_line.endswith("\n"))
+
+    @patch("app.http_client.post")
+    def test_7_raw_line_no_contiene_secretos(self, mock_post):
+        mock_post.return_value.status_code = 202
+        self._insertar_eventos(1)
+        with app.app_context():
+            app_module.enviar_lote_al_ids()
+            payload = mock_post.call_args.kwargs["json"]
+            raw_line = payload["logs"][0]["raw_line"]
+            self.assertNotIn("password=", raw_line)
+            self.assertNotIn("Bearer ", raw_line)
+            self.assertNotIn("valor-de-secreto", raw_line)
+
+    @patch("app.http_client.post")
+    def test_8_ids_estables_en_reintentos(self, mock_post):
+        mock_post.return_value.status_code = 500
+        self._insertar_eventos(2)
+        with app.app_context():
+            app_module.enviar_lote_al_ids()
+            primer_payload = mock_post.call_args.kwargs["json"]
+            ids_primera_vez = [
+                log["id"] for log in primer_payload["logs"]
+            ]
+            mock_post.return_value.status_code = 202
+            app_module.enviar_lote_al_ids()
+            segundo_payload = mock_post.call_args.kwargs["json"]
+            ids_segunda_vez = [
+                log["id"] for log in segundo_payload["logs"]
+            ]
+            self.assertEqual(ids_primera_vez, ids_segunda_vez)
+
+    @patch("app.http_client.post")
+    def test_9_lotes_no_superan_1000_logs(self, mock_post):
+        mock_post.return_value.status_code = 202
+        self._insertar_eventos(1001)
+        with app.app_context():
+            app_module.enviar_lote_al_ids()
+            for llamada in mock_post.call_args_list:
+                payload = llamada.kwargs["json"]
+                self.assertGreaterEqual(len(payload["logs"]), 1)
+                self.assertLessEqual(len(payload["logs"]), 1000)
+
+    @patch("app.http_client.post")
+    def test_10_envio_usa_json_y_timeout(self, mock_post):
+        mock_post.return_value.status_code = 202
+        self._insertar_eventos(1)
+        with app.app_context():
+            app_module.enviar_lote_al_ids()
+            _, kwargs = mock_post.call_args
+            self.assertIn("json", kwargs)
+            self.assertEqual(kwargs["timeout"], 2)
 
 if __name__ == "__main__":
     unittest.main()
