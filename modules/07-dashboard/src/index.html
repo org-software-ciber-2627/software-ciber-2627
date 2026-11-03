@@ -60,5 +60,26 @@
         }
     </script>
     <script type="module" src="SIEM-alert.js"></script>
+
+    <!-- SECCIÓN SOAR (DASHG7-26) -->
+    <h2 style="margin-top: 40px;">Incidentes del SOAR</h2>
+    <div id="error-soar" style="display:none;color:#b91c1c">No se pudo conectar con el SOAR.</div>
+    <table>
+        <thead>
+            <tr>
+                <th>ID Incidente</th>
+                <th>Alerta Origen</th>
+                <th>Estado</th>
+                <th>Playbook Aplicado</th>
+            </tr>
+        </thead>
+        <tbody id="soar-body">
+        </tbody>
+    </table>
+
+    <!-- Al final del body, junto al script del SIEM -->
+    <script type="module" src="SOAR-alert.js"></script>
+
+
 </body>
 </html>
