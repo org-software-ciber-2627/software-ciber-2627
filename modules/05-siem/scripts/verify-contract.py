@@ -42,5 +42,5 @@ def check_refs(value):
         for child in value:
             check_refs(child)
 check_refs(api)
-assert set(api["paths"]["/events"]["post"]["responses"]) == {"200", "400", "415"}
+assert set(api["paths"]["/events"]["post"]["responses"]) == {"200", "400", "409", "413", "415", "507"}
 print("PASS: 3 producer events, 3 complete alerts, IP mapping and all OpenAPI references")

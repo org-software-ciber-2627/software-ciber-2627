@@ -1,83 +1,57 @@
-# Equipo 5 · SIEM · Sprint 1
+# Equipo 5 · SIEM · Alertas reales
 
-Candidato de integración de SEM-5, SEM-6, SEM-10 y SEM-20. Conserva el trabajo de las cuatro ramas y añade correcciones y pruebas. Requiere revisión cruzada y aceptación del PO.
+Esta rama integra la generación y el almacén en memoria de HU13, el listado de HU16 y el detalle de HU17. POST /events valida el evento, genera su alerta y la guarda; GET /alerts y GET /alerts/{id} consultan el mismo repositorio.
 
-## Alcance
+## Ejecutar y comprobar
 
-Servidor Java 21 y Spring Boot 4.1.1. Recibe un evento JSON por petición, valida la cabecera común y devuelve un acuse. Publica tres alertas estáticas, una por productor, conservando todos sus campos y valores nulos.
-
-No hay persistencia, deduplicación, correlación ni autenticación real en este mock. Enviar eventos no cambia la lista de alertas. El contrato de G1 y la integración externa siguen pendientes.
-
-## Arranque con Docker
-
-Desde la raíz del repositorio:
+Requiere Java 21 o posterior. Desde modules/05-siem:
 
 ```bash
-docker compose up --build -d siem
-docker compose ps siem
-curl -f http://localhost:8005/health
+bash ./mvnw --batch-mode --no-transfer-progress clean verify
+bash ./mvnw spring-boot:run
 ```
 
-Dirección local: `http://localhost:8005`. Entre contenedores de la red `ciberurjc`: `http://siem:80`. El Dockerfile mantiene el puerto interno 80 y el healthcheck del compose compartido.
-
-Para detener el módulo:
+El puerto por defecto es 8005, configurable mediante SERVER_PORT. Con una instancia recién arrancada, sin datos:
 
 ```bash
-docker compose stop siem
-```
-
-## Arranque local con Java
-
-Requiere Java 21 o posterior. Desde `modules/05-siem`:
-
-```bash
-./mvnw spring-boot:run
-```
-
-El puerto local por defecto es 8005. Puede configurarse con `SERVER_PORT`. El wrapper descarga Maven y las dependencias oficiales en el primer arranque.
-
-## API del mock
-
-| Ruta | Resultado |
-| --- | --- |
-| `GET /health` | 200, `{"status":"ok","module":"05-siem"}` |
-| `POST /events` | 200 y acuse si el evento es válido; 400 si el cuerpo o sus campos son inválidos; 415 para un Content-Type distinto de JSON |
-| `GET /alerts` | 200, `{"alerts":[...]}` con tres ejemplos |
-| `GET /alerts/{id}` | 200 con una alerta; 404 con error JSON si no existe |
-
-Se usa el 200/400 ya comunicado a G3. El borrador anterior proponía 201/422 y deduplicación; esta rama los sustituye para el mock del Sprint 1. La ratificación del contrato entre equipos y del formato del acuse sigue pendiente.
-
-```bash
-curl -i -H 'Content-Type: application/json' --data-binary @modules/05-siem/contract/examples/grupo_3_honeypot.json http://localhost:8005/events
 curl -i http://localhost:8005/alerts
-curl -i http://localhost:8005/alerts/SIEM-ALERT-EJEMPLO-003
 ```
 
-## Contrato y comprobaciones
-
-- `contract/openapi.json`: interfaz del mock preparada para revisión.
-- `contract/event-schema.json`: esquema local del SIEM. No sustituye el esquema global pendiente de acuerdo.
-- `contract/examples/`: ejemplos G2, G3 y G4.
-- `mocks/alerts.json`: fuente única de las tres alertas, incluida en el JAR.
-
-Desde `modules/05-siem`:
+Resultado: 200 y {"alerts":[]}. Desde la raíz del repositorio:
 
 ```bash
-./mvnw clean verify
-```
-
-Las pruebas arrancan el servidor en un puerto aleatorio y comprueban los tres productores, los campos obligatorios, valores inválidos, JSON incorrecto, los tres detalles y el error 404. No certifican servicios de otros equipos.
-
-Consultar `docs/estado-integracion.md` para evidencias y acuerdos pendientes. La API no expone credenciales en los logs; los datos de `credential` de los ejemplos son datos ficticios de laboratorio.
-
-Comprobación del contenedor arrancado, desde la raíz del repositorio:
-
-```bash
+curl -i -H 'Content-Type: application/json' --data-binary @modules/05-siem/contract/examples/grupo_2_ids_ejemplo_propuesto.json http://localhost:8005/events
+curl -i http://localhost:8005/alerts
 python3 modules/05-siem/scripts/smoke-test.py http://localhost:8005
 ```
 
-Validación del contrato local. Requiere `jsonschema>=4,<5` en un entorno Python:
+El script envía los ejemplos de los productores, comprueba que aparecen en el listado y que el detalle coincide. Modifica el almacén de la instancia indicada; usar una instancia de desarrollo. No presupone que el almacén esté vacío ni identifica las alertas por posición.
 
-```bash
-python3 modules/05-siem/scripts/verify-contract.py
-```
+## API
+
+| Ruta | Resultado |
+| --- | --- |
+| GET /health | 200, status ok y module 05-siem |
+| POST /events | 200 con acuse; 400 para evento inválido; 415 para tipo de contenido incorrecto |
+| GET /alerts | 200 con alerts: array completo; vacío si no hay alertas |
+| GET /alerts/{id} | 200 con la alerta; 404 ALERT_NOT_FOUND si no existe |
+| Ambas consultas de alertas | 503 STORAGE_UNAVAILABLE para indisponibilidad identificada; 500 INTERNAL_ERROR para fallo inesperado |
+
+Los errores usan {"error":{"code":"...","message":"..."}}. El 500 dice "An unexpected error occurred", sin detalles internos. El 503 se prueba con un fallo tipado inyectado: el repositorio en memoria no tiene una conexión externa que pueda caerse.
+
+Los once campos son alert_id, event_id, timestamp, source, event_type, severity, title, description, source_ip, target_ip y details. Las IP pueden ser null. No hay filtros, paginación, truncado ni orden garantizado. Las alertas de mocks/alerts.json son fixtures de pruebas, no la fuente del listado.
+
+## Alcance y límites
+
+Las alertas se pierden al reiniciar. La rama todavía no incorpora HU8 de persistencia de eventos. Cada evento aceptado produce una alerta; no se implementan aquí nuevas reglas de correlación. Un reenvío conserva el identificador y sobrescribe la entrada, pero puede volver a emitir la notificación interna. No se acredita entrega externa de notificaciones a SOAR ni autenticación real.
+
+El detalle de Claudio se integra como dependencia; los errores comunes se aplican mediante AlertErrorHandler. La interfaz antigua repositories.AlertRepository permanece sin uso y no es el almacén activo.
+
+## Contrato, CI y aceptación
+
+- [OpenAPI](contract/openapi.json): formato del listado, detalle y errores.
+- [Acuerdo SEM-68](contract/sem68-alert-query-contract.md).
+- [Evidencias y aceptación HU16](docs/hu16-acceptance.md).
+- Workflow SIEM tests: Java 21, Maven clean verify e informes Surefire durante 14 días. Las pruebas locales no sustituyen CI ni aceptación del PO.
+
+Con Docker, desde la raíz: `docker compose up --build -d siem`. El puerto publicado es 8005 y el interno 80. La comprobación de esta entrega se ejecuta localmente con Java; el funcionamiento global de Docker depende de la CI compartida.

@@ -6,7 +6,7 @@ import jakarta.validation.constraints.Pattern;
 import java.util.Map;
 
 public record Event(
-    @NotBlank String event_id,
+    @NotBlank @Pattern(regexp = "[A-Za-z0-9._:-]{1,128}") String event_id,
     @NotBlank String timestamp,
     @NotNull @Pattern(regexp = "ids|honeypot|scanner") String source,
     @NotBlank String event_type,

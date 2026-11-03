@@ -52,10 +52,20 @@ public class EventService {
         Map<String, Object> alert =
             alertConverter.convert(event);
 
-        // 2. Guardar la alerta
-        alertRepository.save(alert);
+        // 2. Guardar la alerta (un reintento idéntico no la duplica ni la sustituye)
+        AlertRepository.SaveResult result =
+            alertRepository.save(alert);
 
-        // 3. Emitir la notificacion
+        if (result == AlertRepository.SaveResult.UNCHANGED) {
+            logger.info(
+                "Duplicate event ignored: event_id={}, alert_id={}",
+                event.event_id(),
+                alert.get("alert_id")
+            );
+            return;
+        }
+
+        // 3. Emitir la notificacion solo para alertas nuevas
         alertService.emitAlert(alert);
 
         logger.info(

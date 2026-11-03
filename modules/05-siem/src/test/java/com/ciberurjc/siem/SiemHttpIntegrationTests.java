@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
+@org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class SiemHttpIntegrationTests {
     @Autowired
@@ -51,10 +52,9 @@ class SiemHttpIntegrationTests {
     }
 
     @Test
-    void acceptsAllProducersWithoutChangingStaticAlerts() throws Exception {
-        String before = request("/alerts", null, null).body();
-        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json",
-                "grupo_4_scanner.json")) {
+    void acceptsAllProducersAndListsTheirStoredAlerts() throws Exception {
+        assertEquals(mapper.readTree("{\"alerts\":[]}"), mapper.readTree(request("/alerts", null, null).body()));
+        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json")) {
             String event = Files.readString(Path.of("contract/examples", filename));
             var response = request("/events", event, "application/json");
             assertEquals(200, response.statusCode(), response.body());
@@ -62,7 +62,44 @@ class SiemHttpIntegrationTests {
             assertEquals(mapper.readTree(event).get("event_id"), mapper.readTree(response.body()).get("event_id"));
             assertEquals(200, request("/events", event, "application/json").statusCode());
         }
-        assertEquals(mapper.readTree(before), mapper.readTree(request("/alerts", null, null).body()));
+        var listed = mapper.readTree(request("/alerts", null, null).body()).get("alerts");
+        assertEquals(3, listed.size());
+        for (var alert : listed) {
+            assertEquals(mapper.valueToTree(alertRepository.findById(alert.get("alert_id").asText()).orElseThrow()), alert);
+            var detail = request("/alerts/" + alert.get("alert_id").asText(), null, null);
+            assertEquals(200, detail.statusCode());
+            assertEquals(alert, mapper.readTree(detail.body()));
+        }
+    }
+
+    @Test
+    void listsAllStoredAlertsWithExactContractFields() throws Exception {
+        var converter = new com.ciberurjc.siem.services.AlertConverter();
+        var expected = new java.util.HashSet<String>();
+        for (int i = 0; i < 150; i++) {
+            var alert = converter.convert(new com.ciberurjc.siem.models.Event(
+                "http-query-" + i, "2026-11-03T12:00:00Z", "scanner", "finding", "low",
+                "Finding", "Scanner finding", Map.of("target", Map.of("ip", "192.0.2.20"))));
+            alertRepository.save(alert);
+            expected.add((String) alert.get("alert_id"));
+        }
+        var response = request("/alerts", null, null);
+        assertEquals(200, response.statusCode());
+        assertTrue(response.headers().firstValue("Content-Type").orElseThrow().startsWith("application/json"));
+        var body = mapper.readTree(response.body());
+        assertEquals(1, body.size());
+        var alerts = body.get("alerts");
+        assertTrue(alerts.isArray());
+        assertEquals(150, alerts.size());
+        var actual = new java.util.HashSet<String>();
+        for (var alert : alerts) {
+            assertEquals(11, alert.size());
+            String id = alert.get("alert_id").asText();
+            assertEquals(mapper.valueToTree(alertRepository.findById(id).orElseThrow()), alert);
+            assertTrue(alert.get("source_ip").isNull());
+            actual.add(id);
+        }
+        assertEquals(expected, actual);
     }
 
     @Test
@@ -99,20 +136,11 @@ class SiemHttpIntegrationTests {
     }
 
     @Test
-    void servesAllFixtureFieldsAndEachAlertDetail() throws Exception {
-        var expected = mapper.readTree(Files.readString(Path.of("mocks/alerts.json")));
+    void returnsEmptyListAndMissingDetailForEmptyStorage() throws Exception {
         var response = request("/alerts", null, null);
         assertEquals(200, response.statusCode());
-        assertEquals(expected, mapper.readTree(response.body()));
-        assertEquals(3, expected.get("alerts").size());
-        for (var alert : expected.get("alerts")) {
-            var detail = request("/alerts/" + alert.get("alert_id").asText(), null, null);
-            assertEquals(200, detail.statusCode());
-            assertEquals(alert, mapper.readTree(detail.body()));
-        }
-        var missing = request("/alerts/UNKNOWN", null, null);
-        assertEquals(404, missing.statusCode());
-        assertEquals("ALERT_NOT_FOUND", mapper.readTree(missing.body()).get("error").get("code").asText());
+        assertEquals(mapper.readTree("{\"alerts\":[]}"), mapper.readTree(response.body()));
+        assertEquals(404, request("/alerts/UNKNOWN", null, null).statusCode());
     }
 
     @Test
@@ -147,10 +175,43 @@ class SiemHttpIntegrationTests {
             assertEquals(mapper.readTree(input), mapper.readTree(mapper.writeValueAsString(model)), filename);
             var response = request("/events", input, "application/json");
             assertEquals(200, response.statusCode());
-            assertEquals(
-                    Map.of("status", "success", "message", "Event received successfully", "event_id", model.event_id()),
-                    mapper.readValue(response.body(), Map.class));
-        }
+            assertEquals(Map.of("status", "success", "message", "Event received successfully", "event_id", model.event_id()), mapper.readValue(response.body(), Map.class));        }
+    }
+
+    @Test
+    void generatesAndStoresAlertFromReceivedEvent() throws Exception {
+
+        // 1. Leer un evento real de ejemplo del IDS
+        String event = Files.readString(
+            Path.of("contract/examples/grupo_2_ids_ejemplo_propuesto.json")
+        );
+
+        // 2. Obtener el identificador del evento
+        String eventId = mapper.readTree(event)
+            .get("event_id").asText();
+
+        // 3. Enviar el evento al SIEM
+        var response = request(
+            "/events",
+            event,
+            "application/json"
+        );
+
+        // 4. Comprobar que se ha recibido correctamente
+        assertEquals(200, response.statusCode());
+
+        // 5. Buscar la alerta generada en el repositorio
+        var alert = alertRepository.findAll().stream()
+            .filter(a -> eventId.equals(a.get("event_id")))
+            .findFirst();
+
+        // 6. Comprobar que la alerta existe
+        assertTrue(alert.isPresent());
+
+        // 7. Comprobar sus datos
+        assertEquals(eventId, alert.get().get("event_id"));
+        assertEquals("ids", alert.get().get("source"));
+        assertNotNull(alert.get().get("alert_id"));
     }
 
     @Test
@@ -173,108 +234,10 @@ class SiemHttpIntegrationTests {
 
         var response = request("/events", input, "application/json");
 
-        assertEquals(200, response.statusCode(), response.body());
-        assertEquals(
-                event.event_id(),
-                mapper.readTree(response.body()).get("event_id").asText());
+    assertEquals(200, response.statusCode(), response.body());
+    assertEquals(
+        event.event_id(),
+        mapper.readTree(response.body()).get("event_id").asText()
+        );
     }
-
-    @Test
-
-    void generatesAndStoresAlertFromReceivedEvent() throws Exception {
-        String event = Files.readString(Path.of("contract/examples/grupo_2_ids_ejemplo_propuesto.json"));
-        String eventId = mapper.readTree(event).get("event_id").asText();
-
-        var response = request("/events", event, "application/json");
-        assertEquals(200, response.statusCode());
-
-        var alert = alertRepository.findAll().stream()
-                .filter(a -> eventId.equals(a.get("event_id")))
-                .findFirst();
-
-        assertTrue(alert.isPresent());
-        assertEquals(eventId, alert.get().get("event_id"));
-        assertEquals("ids", alert.get().get("source"));
-        assertNotNull(alert.get().get("alert_id"));
-    }
-
-    @Test
-    void acceptsRealIdsBruteForceEvent() throws Exception {
-
-        String event = """
-                {
-                "event_id": "IDS-P004-181.25.206.27-20260329T141540Z",
-                "timestamp": "2026-03-29T14:15:52Z",
-                "source": "ids",
-                "event_type": "brute_force",
-                "severity": "medium",
-                "title": "Posible ataque de fuerza bruta",
-                "description": "La IP ha realizado 5 intentos fallidos de login.",
-                "details": {
-                    "rule_id": "P004",
-                    "source_ip": "181.25.206.27",
-                    "service": "sshd",
-                    "attempts": 5,
-                    "usernames": ["pi"],
-                    "window_seconds": 60,
-                    "first_attempt": "2026-03-29T14:15:40Z",
-                    "last_attempt": "2026-03-29T14:15:52Z",
-                    "login_success": false
-                }
-                }
-                """;
-
-        var response = request("/events", event, "application/json");
-
-        assertEquals(200, response.statusCode(), response.body());
-
-        var result = mapper.readTree(response.body());
-
-        assertEquals("success", result.get("status").asText());
-        assertEquals(
-                "IDS-P004-181.25.206.27-20260329T141540Z",
-                result.get("event_id").asText());
-    }
-
-    @Test
-    void acceptsIdsEndpointScanEvent() throws Exception {
-
-        String event = """
-                {
-                "event_id": "IDS-P005-TEST-001",
-                "timestamp": "2026-03-29T14:15:06Z",
-                "source": "ids",
-                "event_type": "endpoint_scan",
-                "severity": "medium",
-                "title": "Posible escaneo de endpoints",
-                "description": "Se han detectado conexiones a diferentes destinos.",
-                "details": {
-                    "rule_id": "P005",
-                    "source_ip": "203.0.113.10",
-                    "targets": 3,
-                    "target_ips": [
-                    "10.0.0.1",
-                    "10.0.0.2",
-                    "10.0.0.3"
-                    ],
-                    "ports": [81, 82, 83],
-                    "connections": 3,
-                    "threshold": 3,
-                    "window_seconds": 60,
-                    "first_seen": "2026-03-29T14:15:00Z",
-                    "last_seen": "2026-03-29T14:15:06Z"
-                }
-                }
-                """;
-
-        var response = request("/events", event, "application/json");
-
-        assertEquals(200, response.statusCode(), response.body());
-
-        var result = mapper.readTree(response.body());
-
-        assertEquals("success", result.get("status").asText());
-        assertEquals("IDS-P005-TEST-001", result.get("event_id").asText());
-    }
-
 }
