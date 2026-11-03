@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Identidad y secretos
-  version: 1.2.0
+  version: 1.3.0
   description: |
     API de autenticación, gestión de usuarios, acceso a secretos y consulta del registro de auditoría.
 
@@ -27,13 +27,20 @@ info:
     y `GET /audit` responden `401` con él. Los demás módulos no cambian nada: siguen validando
     solo con `GET /auth/validate`.
 
+    **Envío de logs al IDS (novedad 1.3.0).** Este módulo entrega al IDS (módulo 02) los eventos
+    de auditoría mediante `POST /logs`, según el contrato del IDS (`modules/02-ids/contract/`):
+    `source` = `01-identidad` y una línea syslog por evento en `raw_line`. No añade ni modifica
+    ningún endpoint de este módulo. Si el IDS no responde, los eventos quedan pendientes y se
+    reintentan, sin bloquear el login ni la lectura de secretos.
+
     **Salud.** `GET /health` lo usan el CI y el docker-compose del monorepo.
 
     Resumen de formato de error: `{ "error": "<mensaje>" }` (y `{ "valid": false, "error": "<mensaje>" }`
     en `/auth/validate`).
 
-    **Historial.** 1.2.0: se añade `POST /auth/logout` (cambio compatible, no modifica los endpoints existentes).
-    1.1.0: se añade `GET /audit` (cambio compatible).
+    **Historial.** 1.3.0: se documenta el envío de logs al IDS (cambio compatible, no modifica
+    ningún endpoint). 1.2.0: se añade `POST /auth/logout` (cambio compatible, no modifica los
+    endpoints existentes). 1.1.0: se añade `GET /audit` (cambio compatible).
   contact:
     name: CypherGate
 servers:
