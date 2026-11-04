@@ -60,4 +60,18 @@ export async function logout() {
             headers: { Authorization: `Bearer ${token}` },
         });
     } catch { /* el token ya está descartado en el navegador */ }
+
+}
+
+// 83: guarda de sesión al abrir una página protegida.
+// Sin token, con token rechazado por /auth/validate o con Identidad caída, se redirige al login (falla cerrado).
+export async function requireSession() {
+    const result = await validate();
+    if (result.valid) {
+        document.getElementById("guard-style")?.remove(); // muestra la página
+        return result;
+    }
+    if (result.status === 401) sessionStorage.removeItem(TOKEN_KEY); // token caducado, revocado o manipulado
+    window.location.replace("login.html"); // replace: el botón Atrás no vuelve a la página protegida
+    return null;
 }
