@@ -1,4 +1,4 @@
-"""Módulo 1 · Identidad y secretos: servicio HTTP completo en un único fichero (contrato v1.0.2).
+"""Módulo 1 · Identidad y secretos: servicio HTTP completo en un único fichero (contrato v1.3.0).
 
 Sprint 1: GET /health, POST /auth/register (AAA-18), POST /auth/login (AAA-3) y emisión del
 token (AAA-19). Además incluye GET /auth/validate (adelanta AAA-20) y GET /secrets/{clave}
@@ -14,6 +14,9 @@ Variables de entorno:
   DATABASE_URL        opcional; por defecto sqlite:///identidad.db
   TRUSTED_PROXY_HOPS  opcional; nº de proxies de confianza delante (0 = ninguno, por defecto)
   JWT_EXPIRES_SECONDS opcional; por defecto 1800 (30 minutos, como dice el contrato)
+  IDS_URL             opcional; destino del envío de logs (por defecto http://ids/logs)
+  IDS_RETRY_SECONDS   opcional; espera base entre reintentos de envío al IDS (por defecto 30)
+  IDS_REINTENTOS      opcional; "0" desactiva el hilo de reintentos (lo usan los tests)
   ADMIN_PASSWORD      opcional; si existe se crea la cuenta "admin"
   SERVICE_PASSWORD    opcional; si existe se crea la cuenta "servicio"
   SECRET_DB_PASSWORD, SECRET_API_KEY, SECRET_JWT_SECRET
@@ -23,8 +26,9 @@ import base64
 import os
 import math
 import re
-import socket
+import tempfile
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import requests as http_client
@@ -41,9 +45,6 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from crypto import decrypt, encrypt
-
-import tempfile
-import time
 
 try:
     import fcntl  # solo Linux/macOS (el contenedor); en Windows no existe
@@ -86,11 +87,13 @@ if TRUSTED_PROXY_HOPS > 0:
 db  = SQLAlchemy(app)
 jwt = JWTManager(app)
 
-# CORS restringido al dashboard (puerto 8007). Solo los endpoints de autenticación lo necesitan.
+# CORS restringido al dashboard (puerto 8007). Solo los endpoints de autenticación que llama
+# el navegador lo necesitan: login, registro, validación de sesión y cierre de sesión.
 CORS(app, resources={
     r"/auth/login":    {"origins": "http://localhost:8007"},
     r"/auth/register": {"origins": "http://localhost:8007"},
     r"/auth/validate": {"origins": "http://localhost:8007"},
+    r"/auth/logout":   {"origins": "http://localhost:8007"},
 })
 
 # Roles del contrato (shared/auth-contract.md). Los usuarios registrados nacen como "analista".
@@ -101,8 +104,7 @@ CLAVE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
 EVENTOS = ("login_ok", "login_failed", "invalid_user", "secret_read", "secret_denied", "limit_exceeded")
 
 IDS_URL   = os.environ.get("IDS_URL", "http://ids/logs")
-_HOSTNAME = socket.gethostname()
-_PID      = os.getpid()
+_LOG_HOST = "identidad"  # fijo: el contenido de raw_line debe ser idéntico en cada reintento
 ids_lock  = threading.Lock()
 
 IDS_RETRY_SECONDS = int(os.environ.get("IDS_RETRY_SECONDS", "30"))  # espera base entre reintentos
@@ -257,7 +259,7 @@ def _format_raw_line(log):
     ts = log.timestamp
     prefix = ts.strftime("%b") + " " + str(ts.day).rjust(2) + ts.strftime(" %H:%M:%S")
 
-    ip = log.source_ip
+    ip = _sanitize_log_field(log.source_ip or "unknown")
     port_part = f" port {log.source_port}" if log.source_port else ""
     user = _sanitize_log_field(log.username) if log.username else "unknown"
 
@@ -273,15 +275,18 @@ def _format_raw_line(log):
         message = f"authentication attempts exceeded from {ip}{port_part}"
     else:
         # secret_read, secret_denied: sin equivalente OpenSSH → mensaje informativo genérico
-        parts = [f"event={log.event_type}", f"result={log.result}"]
+        # Todo valor que pueda venir del usuario se sanea (la clave de un secreto denegado llega
+        # sin validar): sin espacios ni saltos de línea no puede fabricar una línea de login falsa.
+        parts = [f"event={_sanitize_log_field(log.event_type)}", f"result={_sanitize_log_field(log.result)}"]
         if log.username:
             parts.append(f"user={_sanitize_log_field(log.username)}")
         parts.append(f"from={ip}")
         if log.clave:
-            parts.append(f"clave={log.clave}")
+            parts.append(f"clave={_sanitize_log_field(log.clave)}")
         message = " ".join(parts)
 
-    return f"{prefix} {_HOSTNAME} identidad[{_PID}]: {message}"
+    # host fijo y "pid" = id de la fila: así la misma línea sale igual tras reiniciar el servicio.
+    return f"{prefix} {_LOG_HOST} identidad[{log.id}]: {message}"
 
 
 def enviar_lote_al_ids():
@@ -311,13 +316,19 @@ def enviar_lote_al_ids():
             }
             try:
                 resp = http_client.post(IDS_URL, json=payload, timeout=2)
-                if resp.status_code in (200, 202):
+                # El contrato del IDS define 202 como único éxito. Un 200 no lo es: puede ser un
+                # servidor equivocado (p. ej. el contenedor placeholder) que descarta los logs.
+                if resp.status_code == 202:
                     for log in pendientes:
                         log.enviado = True
                     db.session.commit()
                     total_enviados += len(pendientes)
                 else:
-                    app.logger.error(f"Error del IDS al enviar lote: {resp.status_code} - {resp.text}")
+                    if resp.status_code in (400, 413, 415):
+                        tipo = "rechazo permanente (hay que corregir el payload; reintentar no lo arregla)"
+                    else:
+                        tipo = "respuesta inesperada o error temporal (se reintentará)"
+                    app.logger.error(f"IDS: {tipo}: {resp.status_code} - {resp.text}")
                     break
             except Exception as e:
                 db.session.rollback()
@@ -615,22 +626,6 @@ def leer_secreto(clave):
     respuesta = jsonify(clave=clave, valor=valor)
     respuesta.headers["Cache-Control"] = "no-store"  # contrato: nunca en caché
     return respuesta
-
-
-# ── Logs ─────────────────────────────────────────────────────────────────────
-
-@app.get("/logs")
-def get_logs():
-    claims, err = check_auth(required_roles=["admin", "servicio"])
-    if err:
-        return jsonify(error=err[0]), err[1]
-    logs = (
-        AuditLog.query
-        .order_by(AuditLog.timestamp.desc())
-        .limit(50)
-        .all()
-    )
-    return jsonify(logs=[l.to_dict() for l in logs], total=len(logs))
 
 
 # ── Salud y errores ───────────────────────────────────────────────────────────

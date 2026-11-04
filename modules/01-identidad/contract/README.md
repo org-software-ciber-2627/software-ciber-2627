@@ -10,7 +10,7 @@ Resumen para los demás módulos: [`shared/auth-contract.md`](../../../shared/au
 | Fichero | Contenido |
 |---|---|
 | `openapi.yaml` | Contrato OpenAPI 3.0.3 de los endpoints del módulo |
-| `../mocks/` | Mocks y ejemplos para que los demás equipos programen sin esperar al servicio real |
+| `../mocks/` | Carpeta reservada para mocks (hoy vacía) |
 
 ## Endpoints
 
@@ -18,7 +18,8 @@ Resumen para los demás módulos: [`shared/auth-contract.md`](../../../shared/au
 |---|---|---|
 | `GET /health` | CI y docker-compose | Estado del servicio (200) |
 | `POST /auth/register` | Usuarios | Alta de usuario con rol `analista`; devuelve JWT |
-| `POST /auth/login` | Usuarios | Login; devuelve JWT |
+| `POST /auth/login` | Usuarios | Login; devuelve JWT (`429` tras 5 fallos seguidos) |
+| `POST /auth/logout` | Usuarios | Revoca el token actual |
 | `GET /auth/validate` | Los otros 7 módulos | Valida un token y devuelve usuario y rol |
 | `GET /secrets/{clave}` | Solo rol `servicio` | Devuelve un secreto descifrado |
 
@@ -50,6 +51,9 @@ Los comandos requieren Node.js.
 
 ## Historial
 
+- **1.3.0**: se retira `GET /audit` (nunca se implementó ni lo usa ningún módulo); se documentan el `429` del login y el evento `limit_exceeded`; CORS también en validate y logout.
+- **1.2.0**: se añade `POST /auth/logout`.
+- **1.1.0**: se añade `GET /audit` (retirado en 1.3.0).
 - **1.0.2** (10/10/2026): el rol de los usuarios registrados pasa de `normal` a `analista`, para coincidir con los roles de `shared/auth-contract.md` (`admin`, `analista`, `servicio`).
 - **1.0.1** (10/10/2026): se añade `GET /health`, se unifica el tipo del identificador, se restringe `/secrets/{clave}` al rol `servicio` y se documenta el JWT.
 - **1.0.0**: versión inicial con login, registro, validación y secretos.
