@@ -57,7 +57,7 @@ curl -i http://localhost:8005/alerts/SIEM-ALERT-EJEMPLO-003
 
 - `contract/openapi.json`: interfaz del mock preparada para revisión.
 - `contract/event-schema.json`: esquema local del SIEM. No sustituye el esquema global pendiente de acuerdo.
-- `contract/examples/`: ejemplos G2, G3 y G4.
+- `contract/examples/`: ejemplos G2, G3, G4 y G8.
 - `mocks/alerts.json`: fuente única de las tres alertas, incluida en el JAR.
 
 Desde `modules/05-siem`:

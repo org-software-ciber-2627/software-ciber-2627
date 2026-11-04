@@ -18,7 +18,7 @@ Actualizado el 12/10/2026. Candidato técnico preparado para revisión; no repre
 
 Las cuatro pruebas HTTP arrancan Spring Boot en un puerto aleatorio y cubren health, POST de los tres productores y reintentos, ausencia de cada campo obligatorio, textos vacíos, source/severity/timestamp inválidos, campo antiguo desconocido, JSON mal formado, lotes y null, Content-Type incorrecto, tres alertas completas, sus detalles y 404.
 
-La prueba existente verifica que el contexto arranca. Estas pruebas ejercitan el servidor local real; no ejecutan los servicios de G2/G3/G4/G6/G7.
+La prueba existente verifica que el contexto arranca. Estas pruebas ejercitan el servidor local real; no ejecutan los servicios de G2/G3/G4/G6/G7/G8.
 
 Docker terminó de arrancar. La primera prueba detectó que el Dockerfile no copiaba mocks/alerts.json; se añadió COPY mocks mocks. La segunda construcción y el healthcheck pasaron con Java 21. El script smoke-test.py superó 15 comprobaciones HTTP contra el contenedor en localhost:8005. Resultado guardado en smoke-docker-result.json. CI y compose compartidos permanecen sin cambios.
 

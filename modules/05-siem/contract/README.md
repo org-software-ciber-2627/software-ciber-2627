@@ -15,13 +15,14 @@ Acceso local `http://localhost:8005`; red Docker `http://siem:80`.
 
 ## Evento común
 
-Un objeto JSON por petición, con `event_id`, `timestamp`, `source`, `event_type`, `severity`, `title`, `description` y `details`. Los textos comunes no pueden ser vacíos; `event_id` no exige UUID. `timestamp` es una fecha válida UTC terminada en Z. `source` acepta `ids`, `honeypot` o `scanner`; `severity` acepta `low`, `medium`, `high` o `critical`. `details` es un objeto que conserva campos específicos y valores nulos. Las claves superiores desconocidas se rechazan en este candidato; ratificar esta política con los productores.
+Un objeto JSON por petición, con `event_id`, `timestamp`, `source`, `event_type`, `severity`, `title`, `description` y `details`. Los textos comunes no pueden ser vacíos; `event_id` no exige UUID. `timestamp` es una fecha válida UTC terminada en Z. `source` acepta `ids`, `honeypot`, `scanner` o `pentesting`; `severity` acepta `low`, `medium`, `high` o `critical`. `details` es un objeto que conserva campos específicos y valores nulos. Las claves superiores desconocidas se rechazan en este candidato; ratificar esta política con los productores.
 
 | Grupo | Ejemplo de datos específicos |
 | --- | --- |
 | G2 IDS | `rule_id`, `source_ip`, `target_ip`, `protocol`, `distinct_ports_count`, `window_seconds` |
 | G3 Honeypot | `source_ip`, `service`, `username`, `credential`, `command` |
 | G4 Escáner | `target`, `scan_id`, `tool`, `profile`, `script_id`, `evidence`, `cve`, `cvss` |
+| G8 Pentesting | `tool`, `target`, `instances`, `solution` |
 
 La validación de Sprint 1 comprueba la cabecera y que `details` sea un objeto. Reglas internas por productor y catálogo de `event_type` requieren acuerdo antes del servicio real.
 
