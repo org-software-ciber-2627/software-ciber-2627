@@ -8,6 +8,8 @@ Servidor Java 21 y Spring Boot 4.1.1. Recibe un evento JSON por petición, valid
 
 No hay persistencia, deduplicación, correlación ni autenticación real en este mock. Enviar eventos no cambia la lista de alertas. El contrato de G1 y la integración externa siguen pendientes.
 
+SEM-29 añade un componente independiente para reconocer e interpretar detecciones P004 ya agrupadas por IDS. Devuelve un resultado Java con los datos disponibles y observaciones de coherencia; no genera alertas ni modifica la recepción HTTP. Su conexión con SEM-30 y la idempotencia de SEM-25/SEM-72 queda pendiente de integrar esas historias. Véase [diseño y pruebas de SEM-29](docs/sem29-deteccion-intentos-fallidos.md).
+
 ## Arranque con Docker
 
 Desde la raíz del repositorio:
