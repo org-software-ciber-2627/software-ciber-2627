@@ -46,7 +46,7 @@ class SiemHttpIntegrationTests {
     @Test
     void acceptsAllProducersWithoutChangingStaticAlerts() throws Exception {
         String before = request("/alerts", null, null).body();
-        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json")) {
+        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json", "grupo_8_pentesting.json")) {
             String event = Files.readString(Path.of("contract/examples", filename));
             var response = request("/events", event, "application/json");
             assertEquals(200, response.statusCode(), response.body());
@@ -125,7 +125,7 @@ class SiemHttpIntegrationTests {
 
     @Test
     void preservesEveryProducerFieldAndReturnsExactReceipt() throws Exception {
-        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json")) {
+        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json", "grupo_8_pentesting.json")) {
             String input = Files.readString(Path.of("contract/examples", filename));
             var model = mapper.readValue(input, com.ciberurjc.siem.models.Event.class);
             assertEquals(mapper.readTree(input), mapper.readTree(mapper.writeValueAsString(model)), filename);
@@ -162,5 +162,19 @@ class SiemHttpIntegrationTests {
         event.event_id(),
         mapper.readTree(response.body()).get("event_id").asText()
         );
+    }
+        @Test
+    void rejectsPentestingEventsOutsideTheCommonFormat() throws Exception {
+        Map<String, Object> valid = mapper.readValue(Files.readString(Path.of("contract/examples/grupo_8_pentesting.json")), Map.class);
+        var topLevelTool = new LinkedHashMap<>(valid);
+        topLevelTool.put("tool", "OWASP ZAP");
+        assertEquals(400, request("/events", mapper.writeValueAsString(topLevelTool), "application/json").statusCode());
+        var upperSeverity = new LinkedHashMap<>(valid);
+        upperSeverity.put("severity", "MEDIUM");
+        assertEquals(400, request("/events", mapper.writeValueAsString(upperSeverity), "application/json").statusCode());
+        String originalProposal = """
+            {"tool":"OWASP ZAP","title":"Cross-Domain Misconfiguration","description":"CORS misconfiguration.","severity":"MEDIUM","target":"http://juice-shop:3000","details":{}}
+            """;
+        assertEquals(400, request("/events", originalProposal, "application/json").statusCode());
     }
 }
