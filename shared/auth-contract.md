@@ -7,7 +7,7 @@ y se avisan por Teams a los equipos que usen el endpoint.
 
 Servicio en local con `docker compose up`: `http://localhost:8001` (puerto interno `80` dentro del compose).
 
-**Historial.** 1.3.0: se retira `GET /audit` (nunca se implementó y no lo usa ningún módulo); se documentan el `429` del login y el evento `limit_exceeded`; CORS también en `GET /auth/validate` y `POST /auth/logout`. 1.2.0: se añade `POST /auth/logout` (cierre de sesión). 1.1.0: se añade `GET /audit` (registro de auditoría, solo `admin`). Ambos son cambios compatibles: no modifican los endpoints existentes. 27/10: se documenta CORS para el Dashboard (sin cambios en los endpoints).
+**Historial.** 1.3.0: se retiran `GET /audit` (nunca se implementó) y `GET /logs` (existía en el código); ningún módulo los usa; se documentan el `429` del login y el evento `limit_exceeded`; CORS también en `GET /auth/validate` y `POST /auth/logout`. 1.2.0: se añade `POST /auth/logout` (cierre de sesión). 1.1.0: se añade `GET /audit` (registro de auditoría, solo `admin`). Ambos son cambios compatibles: no modifican los endpoints existentes. 27/10: se documenta CORS para el Dashboard (sin cambios en los endpoints).
 
 ## Endpoints
 

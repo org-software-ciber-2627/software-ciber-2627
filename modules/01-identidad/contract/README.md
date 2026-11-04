@@ -43,6 +43,59 @@ Los comandos requieren Node.js.
 | Acceso a secretos | Solo rol `servicio` | Pendiente de confirmar con el profesorado |
 | Validación desde otros módulos | Siempre llamando a `GET /auth/validate` | — |
 
+## Decisiones del Sprint 2 (v1.3.0)
+
+| Tema | Decisión | Cambio |
+|---|---|---|
+| Cierre de sesión | `POST /auth/logout` revoca el token. Con un token revocado, `validate` y `secrets` responden 401 | Compatible |
+| Límite de intentos | 5 fallos en 15 minutos del mismo usuario y la misma IP bloquean el login: 429 con `Retry-After` | Compatible |
+| Auditoría | Se registran login_ok, login_failed, invalid_user, limit_exceeded, secret_read y secret_denied. Nunca contraseñas, tokens ni valores de secretos. No hay endpoint de consulta: los eventos salen solo hacia el IDS | Compatible |
+| CORS | Origen `http://localhost:8007` en login, register, validate y logout | Compatible |
+| Envío de logs al IDS | Ver la sección siguiente | Compatible |
+
+## Envío de logs al IDS
+
+Este módulo entrega al IDS (módulo 02) los eventos de auditoría, según el contrato del IDS
+(`modules/02-ids/contract/`). No consume nada del IDS.
+
+| Tema | Acuerdo |
+|---|---|
+| Destino | `POST` a `IDS_URL` (por defecto `http://ids/logs`), `Content-Type: application/json` |
+| Autenticación | Ninguna (el contrato del IDS no la exige) |
+| Cuerpo | `{"source": "01-identidad", "logs": [{"id": "...", "raw_line": "..."}]}` |
+| Identificador | `g1-log-<milisegundos>-<fila>`: estable, el IDS descarta duplicados |
+| Contenido de `raw_line` | Determinista: host fijo `identidad` y `pid` = fila del evento. Un reintento envía exactamente la misma línea |
+| Orden | Del evento más antiguo al más reciente |
+| Tamaño del lote | Hasta 200 líneas por envío (el IDS admite hasta 1000) |
+| Respuesta correcta | Solo `202`. Cualquier otra respuesta deja los eventos pendientes |
+| Línea | `MMM d HH:mm:ss identidad identidad[<fila>]: mensaje` |
+
+Mensajes de cada evento (el puerto solo aparece si está disponible):
+
+| Evento | Mensaje |
+|---|---|
+| login_ok | `Accepted password for <user> from <ip> port <puerto> ssh2` |
+| login_failed | `Failed password for <user> from <ip> port <puerto> ssh2` |
+| invalid_user | `Failed password for invalid user <user> from <ip> port <puerto> ssh2` |
+| limit_exceeded | `authentication attempts exceeded from <ip> port <puerto>` |
+| secret_read, secret_denied | `event=<tipo> result=<ok o fail> user=<user> from=<ip> clave=<clave>` |
+
+Los campos que vienen de fuera (usuario, clave) se codifican en porcentaje si llevan espacios,
+`=` o caracteres de control, para que nadie pueda inyectar campos ni líneas. Nunca se envían
+contraseñas, tokens ni valores de secretos. `invalid_user` y `login_failed` llegan al IDS como
+`failed_login`, así que ambos cuentan para su regla de 5 fallos por IP en 60 s.
+
+**Funcionamiento.** Cada evento se guarda con `enviado = false` y un hilo en segundo plano envía
+los pendientes, del más antiguo al más reciente, en lotes de hasta 200. El login y la lectura de
+secretos nunca esperan al IDS. Si el IDS no responde `202`, los eventos quedan pendientes y un
+hilo de reintentos lo vuelve a intentar a los 30 s; si siguen quedando eventos sin enviar (de más
+de 10 s), la espera se duplica hasta un máximo de 300 s. Un candado evita que dos procesos envíen
+a la vez. Un rechazo `400`, `413` o `415` se registra como permanente: no se descarta nada, pero
+hay que corregir el payload para que la cola avance.
+
+**Variables de entorno:** `IDS_URL`, `IDS_RETRY_SECONDS` (30 por defecto) e `IDS_REINTENTOS`
+(1 activa los reintentos, 0 los desactiva).
+
 ## Cómo proponer cambios
 
 1. Abrir un Pull Request modificando `openapi.yaml` con la clave de Jira en el título (por ejemplo `AAA-NN`).
@@ -51,7 +104,7 @@ Los comandos requieren Node.js.
 
 ## Historial
 
-- **1.3.0**: se retira `GET /audit` (nunca se implementó ni lo usa ningún módulo); se documentan el `429` del login y el evento `limit_exceeded`; CORS también en validate y logout.
+- **1.3.0**: se retiran `GET /audit` (nunca se implementó) y `GET /logs` (existía en el código; no lo usa ningún módulo); se documenta el envío de logs al IDS; se documentan el `429` del login y el evento `limit_exceeded`; CORS también en validate y logout.
 - **1.2.0**: se añade `POST /auth/logout`.
 - **1.1.0**: se añade `GET /audit` (retirado en 1.3.0).
 - **1.0.2** (10/10/2026): el rol de los usuarios registrados pasa de `normal` a `analista`, para coincidir con los roles de `shared/auth-contract.md` (`admin`, `analista`, `servicio`).

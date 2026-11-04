@@ -32,7 +32,8 @@ info:
     Resumen de formato de error: `{ "error": "<mensaje>" }` (y `{ "valid": false, "error": "<mensaje>" }`
     en `/auth/validate`).
 
-    **Historial.** 1.3.0: se retira `GET /audit` (nunca llegó a implementarse ni lo usa ningún módulo);
+    **Historial.** 1.3.0: se retiran `GET /audit` (nunca llegó a implementarse) y `GET /logs` (existía en el código;
+    no lo usa ningún módulo);
     se documentan el límite de intentos de login (`429`) y el evento `limit_exceeded`.
     1.2.0: se añade `POST /auth/logout` (cambio compatible, no modifica los endpoints existentes).
     1.1.0: se añade `GET /audit` (cambio compatible).
