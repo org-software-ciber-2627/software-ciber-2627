@@ -80,6 +80,8 @@
     <script type="module">
         import { requireSession } from "./auth-client.js";
         requireSession();
+        // Si el navegador restaura la página desde la caché (botón Atrás), se vuelve a validar.
+        window.addEventListener("pageshow", (e) => { if (e.persisted) requireSession(); });
     </script>
 </head>
 

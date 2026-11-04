@@ -126,7 +126,6 @@
             const result = await login(username, password);
 
             if (result.ok) {
-                sessionStorage.setItem("logged_in", "true"); // provisional: index.html aún lo comprueba (se sustituye en la 47)
                 window.location.href = "index.html";
                 return;
             }
