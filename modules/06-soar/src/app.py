@@ -91,7 +91,20 @@ def build_pipeline() -> SoarPipeline:
 
 
 # Campos añadidos en el Sprint 2; las filas anteriores sin Incident normalizado los devuelven vacíos
-EMPTY_INCIDENT_VIEW = {"incident_id": None, "priority": None, "status": None, "automation": None, "responses": []}
+EMPTY_INCIDENT_VIEW = {
+    "incident_id": None,
+    "alert_id": None,
+    "event_type": None,
+    "severity": None,
+    "priority": None,
+    "source_ip": None,
+    "status": None,
+    "created_at": None,
+    "resolved_at": None,
+    "applied_playbook": None,
+    "automation": None,
+    "responses": [],
+}
 
 
 def list_incidents() -> list[dict[str, Any]]:

@@ -1,5 +1,8 @@
 # Contrato de incidentes del SOAR
 
+> **Nota:** este documento describe el **modelo interno** `Incident` del módulo 6. El formato
+> público de la API (`GET /incidents` y el resto de endpoints) está en [`contract/README.md`](README.md).
+
 Este documento define la estructura de un incidente utilizada por el módulo 6 (SOAR ligero).
 
 ## Modelo Incident

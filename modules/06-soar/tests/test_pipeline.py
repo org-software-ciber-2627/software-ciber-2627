@@ -5,11 +5,13 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from datetime import datetime
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
 import app
+from soar.repositories.incident_repository import SqliteIncidentRepository
 from soar.services.playbook_service import PlaybookService
 
 
@@ -17,6 +19,13 @@ MOCK_ALERTS = json.loads(
     (Path(__file__).resolve().parent.parent / "mocks" / "alertas_mock.json").read_text(encoding="utf-8")
 )["alerts"]
 PORT_SCAN_ALERT, BRUTE_FORCE_ALERT = MOCK_ALERTS[0], MOCK_ALERTS[1]
+
+# Campos del primer nivel que salen del Incident normalizado
+FLAT_FIELDS = (
+    "incident_id", "alert_id", "event_type", "severity", "priority",
+    "source_ip", "status", "created_at", "resolved_at",
+)
+INCIDENT_FIELDS = ("id", "alert_key", "alert", "first_seen") + FLAT_FIELDS + ("applied_playbook", "automation", "responses")
 
 
 class FakeHttpPost:
@@ -103,6 +112,48 @@ class TestPipeline(PipelineTestCase):
         self.assertEqual(incident["status"], "open")
         self.assertEqual(incident["responses"][0]["status"], "skipped")
 
+    def test_applied_playbook_with_skipped_response_is_brute_force(self):
+        self.build_pipeline(notify_url="").process_alert(BRUTE_FORCE_ALERT)
+
+        incident = self.find_incident("SIEM-ALERT-EJEMPLO-002")
+
+        self.assertEqual(incident["responses"][0]["status"], "skipped")
+        self.assertEqual(incident["applied_playbook"], "brute_force")
+
+    def test_applied_playbook_without_responses_is_null(self):
+        self.build_pipeline().process_alert(PORT_SCAN_ALERT)
+
+        incident = self.find_incident("SIEM-ALERT-EJEMPLO-001")
+
+        self.assertEqual(incident["responses"], [])
+        self.assertIsNone(incident["applied_playbook"])
+
+    def test_flat_fields_match_the_normalized_incident(self):
+        self.build_pipeline().process_alert(BRUTE_FORCE_ALERT)
+
+        view = self.find_incident("SIEM-ALERT-EJEMPLO-002")
+        incident = SqliteIncidentRepository(self.database_path).find_by_alert_key("SIEM-ALERT-EJEMPLO-002")
+
+        for field in FLAT_FIELDS:
+            self.assertEqual(view[field], getattr(incident, field), field)
+        self.assertEqual(datetime.fromisoformat(view["created_at"]).utcoffset().total_seconds(), 0)
+
+    def test_old_fields_are_kept_and_legacy_rows_return_null(self):
+        self.build_pipeline().process_alert(BRUTE_FORCE_ALERT)
+        app.save_alert({"alert_id": "SIEM-SPRINT-1"})
+
+        new_row = self.find_incident("SIEM-ALERT-EJEMPLO-002")
+        legacy_row = self.find_incident("SIEM-SPRINT-1")
+
+        self.assertEqual(new_row["alert"], BRUTE_FORCE_ALERT)
+        self.assertEqual(new_row["alert_key"], "SIEM-ALERT-EJEMPLO-002")
+        self.assertIsInstance(new_row["id"], int)
+        self.assertIsNotNone(new_row["first_seen"])
+        self.assertEqual(set(new_row), set(legacy_row))
+        for field in FLAT_FIELDS + ("applied_playbook", "automation"):
+            self.assertIsNone(legacy_row[field], field)
+        self.assertEqual(legacy_row["responses"], [])
+
     def test_invalid_alert_is_rejected_and_not_stored(self):
         with self.assertLogs("soar", level="WARNING"):
             outcome = self.build_pipeline().process_alert({"alert_id": "SIEM-MALA", "source": "firewall"})
@@ -144,8 +195,7 @@ class TestHttpApi(PipelineTestCase):
         status, body = self.request("GET", "/incidents")
 
         self.assertEqual(status, 200)
-        for field in ("id", "alert_key", "alert", "first_seen", "incident_id", "priority", "status", "automation", "responses"):
-            self.assertIn(field, body[0])
+        self.assertEqual(set(body[0]), set(INCIDENT_FIELDS))
 
     def test_get_responses(self):
         status, body = self.request("GET", f"/incidents/{self.incident_id}/responses")

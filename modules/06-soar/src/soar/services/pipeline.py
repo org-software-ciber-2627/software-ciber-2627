@@ -104,19 +104,25 @@ class SoarPipeline:
     def incident_views(self) -> dict[str, dict[str, Any]]:
         """
         Datos añadidos a GET /incidents, indexados por alert_key.
+        applied_playbook es el playbook de las respuestas registradas, sea cual sea su status.
         """
         views = {}
         for incident in self._incidents.find_all():
             decision = evaluate_automation(incident)
+            responses = self._responses.list_responses_by_incident(incident.incident_id)
             views[incident.alert_key] = {
                 "incident_id": incident.incident_id,
+                "alert_id": incident.alert_id,
+                "event_type": incident.event_type,
+                "severity": incident.severity,
                 "priority": incident.priority,
+                "source_ip": incident.source_ip,
                 "status": incident.status,
+                "created_at": incident.created_at,
+                "resolved_at": incident.resolved_at,
+                "applied_playbook": responses[0].playbook if responses else None,
                 "automation": decision.model_dump(),
-                "responses": [
-                    response.model_dump(mode="json")
-                    for response in self._responses.list_responses_by_incident(incident.incident_id)
-                ],
+                "responses": [response.model_dump(mode="json") for response in responses],
             }
         return views
 
