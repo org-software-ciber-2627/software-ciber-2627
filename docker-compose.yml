@@ -52,8 +52,15 @@ services:
       - "8004:80"
     networks:
       - ciberurjc
+    environment:
+      PORT: "80"
+      SIEM_URL: "http://siem:80/events"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:80/health', timeout=2)"
       interval: 10s
       timeout: 3s
       retries: 5

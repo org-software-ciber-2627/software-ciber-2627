@@ -5,6 +5,7 @@ import requests
 import threading
 from runner import start_nmap
 from parser import parse_xml
+from datetime import datetime, timezone
 
 
 JOBS = {}  # estructura temporal que actúa como BBDD en memoria
@@ -51,6 +52,7 @@ def create_job(target, profile):
 
     job = {
         "scan_id": scan_id,
+        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "target": target,
         "profile": profile,
         "status": "running",
@@ -73,6 +75,7 @@ def public(job):
         return None
     return {
         "scan_id": job["scan_id"],
+        "created_at": job.get("created_at"),
         "target": job["target"],
         "profile": job["profile"],
         "status": job["status"],

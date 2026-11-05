@@ -2,9 +2,34 @@ from flask import Flask, jsonify, request
 from runner import get_profiles
 from jobs import create_job, get_job, public, JOBS
 from reports import reports_bp
+import os
 
 app = Flask(__name__)
 app.register_blueprint(reports_bp)
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({
+        "status": "ok",
+        "module": "04-escaner",
+    }), 200
+
+@app.route("/scans", methods=["GET"])
+def listar_escaneos():
+    escaneos = []
+
+    for job in list(JOBS.values()):
+        resumen = public(job)
+        resumen.pop("events", None)
+        escaneos.append(resumen)
+
+    escaneos.sort(
+        key=lambda escaneo: escaneo.get("created_at") or "",
+        reverse=True,
+    )
+
+    return jsonify(escaneos), 200
 
 @app.route("/scan", methods=["POST"]) # metodo para realizar el escaneo
 def scan():
@@ -58,7 +83,7 @@ def diff():
 
     # Función auxiliar para crear una firma única de cada vulnerabilidad
     def get_signature(ev):
-        t = ev.get("target", {})
+        t = ev.get("details", {}).get("target", {})
         # Identificamos el hallazgo por IP, Puerto y el Título (CVE o script_id)
         return (t.get("ip"), t.get("port"), ev.get("title"))
 
@@ -86,4 +111,7 @@ def diff():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8004)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", "8004")),
+    )
