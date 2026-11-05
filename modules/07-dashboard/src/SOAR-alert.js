@@ -1,33 +1,33 @@
 import { getSOARIncidents } from './SOAR-client.js';
+import { pintar as mostrarEstado } from './api-estado.js';
+
+function esc(t) { 
+    const d = document.createElement('div');
+    d.textContent = t ?? '';
+    return d.innerHTML;
+}
+
+function pintarIncidentes(incidents) { 
+    const tbody = document.getElementById('soar-body');
+    if (!tbody) return;
+
+    tbody.textContent = '';
+
+    incidents.forEach(inc => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${esc(inc.incident_id)}</td>
+            <td>${esc(inc.alert_id)}</td>
+            <td><span class="sev ${esc(inc.severity || 'low')}">${esc(inc.status)}</span></td>
+            <td>${inc.applied_playbook ? esc(inc.applied_playbook) : 'Ninguno'}</td>
+        `; 
+        tbody.appendChild(tr);
+    });
+}
 
 async function initSOAR() {
-    try {
-        const incidents = await getSOARIncidents();
-        const tbody = document.getElementById('soar-body');
-        if (!tbody) return;
-
-        tbody.textContent = '';
-
-        if (!incidents || incidents.length === 0) {
-            tbody.textContent = '<tr><td colspan="4">No hay incidentes registrados.</td></tr>';
-            return;
-        }
-
-        incidents.forEach(inc => {
-            const tr = document.createElement('tr');
-            tr.textContent = `
-                <td>${inc.incident_id}</td>
-                <td>${inc.alert_id}</td>
-                <td><span class="sev ${inc.severity || 'low'}">${inc.status}</span></td>
-                <td>${inc.applied_playbook ? inc.applied_playbook : 'Ninguno'}</td>
-            `;
-            tbody.appendChild(tr);
-        });
-    } catch (error) {
-        console.error("Error al cargar incidentes SOAR:", error);
-        const errDiv = document.getElementById('error-soar');
-        if (errDiv) errDiv.style.display = 'block';
-    }
+    const resultado = await getSOARIncidents(); 
+    mostrarEstado(document.getElementById('error-soar'), resultado, pintarIncidentes); 
 }
 
 document.addEventListener('DOMContentLoaded', initSOAR);
