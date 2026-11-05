@@ -15,6 +15,7 @@ def health():
         "module": "04-escaner",
     }), 200
 
+@app.route("/events", methods=["GET"])
 @app.route("/scans", methods=["GET"])
 def listar_escaneos():
     escaneos = []
@@ -51,17 +52,6 @@ def scan_status(scan_id):
         return jsonify({"error": "scan no encontrado"}), 404
     return jsonify(public(job))
 
-
-@app.route("/events", methods=["GET"]) # metodo para ver el histórico  de escaneos
-def history():
-    result = []
-    for scan_id in JOBS:
-        j = public(get_job(scan_id))   # refresca el estado de cada uno
-        j.pop("events")
-        result.append(j)
-    return jsonify(result)
-
-
 @app.route("/diff", methods=["GET"])
 def diff():
     # Obtenemos los IDs de los escaneos a comparar por parámetros GET: /diff?base=ID1&target=ID2
@@ -77,6 +67,24 @@ def diff():
     if not job_base or not job_target:
         return jsonify({"error": "Uno o ambos escaneos no fueron encontrados"}), 404
 
+    # Solo podemos comparar dos escaneos terminados correctamente.
+    estados = [job_base.get("status"), job_target.get("status")]
+
+    if "failed" in estados:
+        return jsonify({
+            "error": "No se pueden comparar escaneos fallidos"
+        }), 409
+
+    if any(estado in ("pending", "running") for estado in estados):
+        return jsonify({
+            "error": "Ambos escaneos deben terminar antes de compararlos"
+        }), 409
+
+    if any(estado != "completed" for estado in estados):
+        return jsonify({
+            "error": "Uno de los escaneos tiene un estado no válido"
+        }), 500
+    
     # Extraemos los eventos de cada escaneo (asegurándonos de refrescar el job)
     events_base = job_base.get("events", [])
     events_target = job_target.get("events", [])
