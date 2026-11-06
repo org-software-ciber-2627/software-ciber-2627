@@ -240,4 +240,97 @@ class SiemHttpIntegrationTests {
         mapper.readTree(response.body()).get("event_id").asText()
         );
     }
+
+
+    @Test
+    void acceptsRealIdsBruteForceEvent() throws Exception {
+        String event = """
+                {
+                "event_id": "IDS-P004-181.25.206.27-20260329T141540Z",
+                "timestamp": "2026-03-29T14:15:52Z",
+                "source": "ids",
+                "event_type": "brute_force",
+                "severity": "medium",
+                "title": "Posible ataque de fuerza bruta",
+                "description": "La IP ha realizado 5 intentos fallidos de login.",
+                "details": {
+                    "rule_id": "P004",
+                    "source_ip": "181.25.206.27",
+                    "service": "sshd",
+                    "attempts": 5,
+                    "usernames": ["pi"],
+                    "window_seconds": 60,
+                    "first_attempt": "2026-03-29T14:15:40Z",
+                    "last_attempt": "2026-03-29T14:15:52Z",
+                    "login_success": false
+                }
+                }
+                """;
+
+        var response = request("/events", event, "application/json");
+
+        assertEquals(200, response.statusCode(), response.body());
+
+        var result = mapper.readTree(response.body());
+        assertEquals("success", result.get("status").asText());
+        assertEquals("Event received successfully", result.get("message").asText());
+        assertEquals("IDS-P004-181.25.206.27-20260329T141540Z",
+                result.get("event_id").asText());
+
+        var alert = alertRepository.findAll().stream()
+                .filter(a -> "IDS-P004-181.25.206.27-20260329T141540Z"
+                        .equals(a.get("event_id")))
+                .findFirst();
+
+        assertTrue(alert.isPresent());
+        assertEquals("ids", alert.get().get("source"));
+        assertEquals("brute_force", alert.get().get("event_type"));
+        assertNotNull(alert.get().get("alert_id"));
+    }
+
+    @Test
+    void acceptsIdsEndpointScanEvent() throws Exception {
+        String event = """
+                {
+                "event_id": "IDS-P005-TEST-001",
+                "timestamp": "2026-03-29T14:15:06Z",
+                "source": "ids",
+                "event_type": "endpoint_scan",
+                "severity": "medium",
+                "title": "Posible escaneo de endpoints",
+                "description": "Se han detectado conexiones a diferentes destinos.",
+                "details": {
+                    "rule_id": "P005",
+                    "source_ip": "203.0.113.10",
+                    "targets": 3,
+                    "target_ips": ["10.0.0.1", "10.0.0.2", "10.0.0.3"],
+                    "ports": [81, 82, 83],
+                    "connections": 3,
+                    "threshold": 3,
+                    "window_seconds": 60,
+                    "first_seen": "2026-03-29T14:15:00Z",
+                    "last_seen": "2026-03-29T14:15:06Z"
+                }
+                }
+                """;
+
+        var response = request("/events", event, "application/json");
+
+        assertEquals(200, response.statusCode(), response.body());
+
+        var result = mapper.readTree(response.body());
+        assertEquals("success", result.get("status").asText());
+        assertEquals("Event received successfully", result.get("message").asText());
+        assertEquals("IDS-P005-TEST-001", result.get("event_id").asText());
+
+        var alert = alertRepository.findAll().stream()
+                .filter(a -> "IDS-P005-TEST-001".equals(a.get("event_id")))
+                .findFirst();
+
+        assertTrue(alert.isPresent());
+        assertEquals("ids", alert.get().get("source"));
+        assertEquals("endpoint_scan", alert.get().get("event_type"));
+        assertNotNull(alert.get().get("alert_id"));
+    }
+
 }
