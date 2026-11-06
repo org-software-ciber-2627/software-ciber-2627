@@ -1,0 +1,6 @@
+{
+  "error": {
+    "codigo": "SCAN_NOT_FOUND",
+    "mensaje": "No existe un escaneo con ese identificador"
+  }
+}
