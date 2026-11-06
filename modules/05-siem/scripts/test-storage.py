@@ -99,6 +99,19 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                      "AND details='{}'::jsonb AND original_timestamp IS NULL")
         assert result == '1', 'Migration changed the existing event'
         passed('additive migration preserves an existing event and can be reapplied')
+        source_migration = (MODULE / 'db/init/003-allow-pentesting-source.sql').read_text()
+        sql(source_migration)
+        sql(source_migration)
+        assert sql("SELECT count(*) FROM events WHERE event_id='sem65-migration-check'") == '1', 'Source migration changed the existing event'
+        sql("INSERT INTO events (event_id, occurred_at, source, event_type, severity, title, description, details) "
+            "VALUES ('sem25-pentesting-check', '2026-11-04T12:00:00Z', 'pentesting', 'vulnerability_detected', "
+            "'medium', 'Pentesting check', 'Migrated source', '{}')")
+        rejected = subprocess.run(base + ['exec', '-T', 'siem-db', 'psql', '-X', '-U', 'siem', '-d', ENV['SIEM_DB_NAME'],
+                                          '-v', 'ON_ERROR_STOP=1', '-At'], cwd=ROOT, env=ENV, capture_output=True, text=True, timeout=120,
+                                  input="INSERT INTO events (event_id, occurred_at, source, event_type, severity, title, description, details) "
+                                        "VALUES ('sem25-unknown-check', '2026-11-04T12:00:00Z', 'unknown', 'x', 'low', 'x', 'x', '{}')")
+        assert rejected.returncode != 0 and 'events_source_check' in rejected.stderr, 'Unknown source was not rejected'
+        passed('source migration accepts pentesting, still rejects unknown sources and can be reapplied')
         test_env = ENV.copy()
         test_env['SIEM_TEST_DB_URL'] = 'jdbc:postgresql://127.0.0.1:' + ENV['SIEM_DB_PORT'] + '/' + ENV['SIEM_DB_NAME']
         test_env['SIEM_TEST_DB_USER'] = 'siem'

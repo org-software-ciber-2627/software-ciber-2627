@@ -138,6 +138,15 @@ class PostgresEventRepositoryTests {
     }
 
     @Test
+    void storesPentestingEventsAfterSourceMigration() {
+        Event input = new Event(prefix + "pentesting", "2026-11-04T12:00:00Z", "pentesting",
+            "vulnerability_detected", "medium", "Cross-Domain Misconfiguration", "Pentesting producer check",
+            new LinkedHashMap<>());
+        repository.save(input);
+        assertEquals(input, repository.findById("pentesting", input.event_id()).orElseThrow());
+    }
+
+    @Test
     void propagatesConstraintFailuresWithoutReportingSuccess() {
         Event invalid = event("invalid-source", "unknown", "2026-10-20T12:00:00Z");
         assertThrows(DataAccessException.class, () -> repository.save(invalid));

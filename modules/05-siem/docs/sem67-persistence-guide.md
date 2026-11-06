@@ -52,9 +52,10 @@ Resultado esperado: contenedor healthy y tabla `events` con clave `(source, even
 
 ```bash
 docker compose --env-file /dev/null exec -T siem-db psql -X -U siem -d siem_bd -v ON_ERROR_STOP=1 < modules/05-siem/db/init/002-add-original-timestamp.sql
+docker compose --env-file /dev/null exec -T siem-db psql -X -U siem -d siem_bd -v ON_ERROR_STOP=1 < modules/05-siem/db/init/003-allow-pentesting-source.sql
 ```
 
-Con un volumen nuevo, ambos scripts se aplican automáticamente. El puerto PostgreSQL se publica en `127.0.0.1:5433`; si se usa otro puerto, mantén el mismo `SIEM_DB_PORT` para Compose y Java.
+La 003 sustituye en una transacción la restricción `events_source_check` para aceptar `pentesting`; también es repetible. Con un volumen nuevo, los tres scripts se aplican automáticamente. El puerto PostgreSQL se publica en `127.0.0.1:5433`; si se usa otro puerto, mantén el mismo `SIEM_DB_PORT` para Compose y Java.
 
 Si el volumen ya contiene la base antigua `siem`, cambiar `SIEM_DB_NAME` no la renombra. Detén primero la aplicación, crea una copia de seguridad fuera del repositorio y confirma que `siem_bd` no existe y que `siem` no tiene sesiones activas. Después, desde la raíz del repositorio:
 
@@ -140,6 +141,7 @@ Esto conserva el volumen nombrado del mismo proyecto. No uses `down -v` ni borre
 | 503 con Java sin perfil | Activar `persistence` y proporcionar la configuración |
 | Error de autenticación PostgreSQL | Contraseña del volumen existente, sin imprimirla en logs |
 | Falta `original_timestamp` | Aplica la migración 002 al volumen existente |
+| Un evento `pentesting` falla con `events_source_check` | Aplica la migración 003 al volumen existente |
 | Puerto ocupado | Otro proceso o contenedor en 8005/5433; no detener procesos ajenos automáticamente |
 | 409 al repetir un ejemplo | El contenido guardado para esa clave difiere; no borrar datos para forzar 200 |
 | Pruebas PostgreSQL omitidas | Usar el ejecutor SEM-66 o una base exclusiva de pruebas configurada |

@@ -30,6 +30,7 @@ El ejecutor usa un proyecto Docker aleatorio, una contraseña efímera y puertos
 | Fallos | La caída o indisponibilidad del almacenamiento devuelve 503; la recuperación permite continuar |
 | Persistencia | Recrear el contenedor con el mismo volumen conserva las columnas y el contenido del evento |
 | Migración | La migración 002 se puede aplicar más de una vez y conserva filas existentes |
+| Migración de `source` | La migración 003 se puede aplicar más de una vez, conserva filas, acepta `pentesting` y sigue rechazando orígenes desconocidos |
 | Logs | Los controles se neutralizan al mostrar identificadores y no se registran datos privados ni errores de conexión |
 | Runner | Se rechazan comprobaciones Python desactivadas y resúmenes de éxito obsoletos |
 
