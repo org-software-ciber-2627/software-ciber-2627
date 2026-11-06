@@ -37,8 +37,9 @@ def scan():
     data = request.get_json(silent=True) or {}
     target = data.get("target")
     profile = data.get("profile", "vuln")
-    if not target:
+    if not isinstance(target, str) or not target.strip():
         return jsonify({"error": "falta 'target'"}), 400
+    target = target.strip()
     if profile not in get_profiles():
         return jsonify({"error": f"perfil no válido: {get_profiles()}"}), 400
 

@@ -19,7 +19,7 @@
       },
       "event_id": "cf66b792-8463-419f-8248-e059f545abb1",
       "event_type": "port_open",
-      "severity": "info",
+      "severity": "low",
       "source": "scanner",
       "timestamp": "2026-10-27T15:11:04Z",
       "title": "Puerto abierto: 3000"
@@ -43,7 +43,7 @@
       },
       "event_id": "9529f792-281b-460d-8b76-f8624294f373",
       "event_type": "service_detected",
-      "severity": "info",
+      "severity": "low",
       "source": "scanner",
       "timestamp": "2026-10-27T15:11:04Z",
       "title": "Servicio detectado: ppp"
@@ -67,7 +67,7 @@
       },
       "event_id": "117ef94b-0a23-4f80-9292-8046a7c7f707",
       "event_type": "port_open",
-      "severity": "info",
+      "severity": "low",
       "source": "scanner",
       "timestamp": "2026-10-27T15:11:04Z",
       "title": "Puerto abierto: 8000"
@@ -91,7 +91,7 @@
       },
       "event_id": "429a4276-3a47-4749-89d5-c841dfe4f02a",
       "event_type": "service_detected",
-      "severity": "info",
+      "severity": "low",
       "source": "scanner",
       "timestamp": "2026-10-27T15:11:04Z",
       "title": "Servicio detectado: tcpwrapped"
