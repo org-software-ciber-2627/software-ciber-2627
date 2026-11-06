@@ -17,8 +17,9 @@
     "event_id": {
       "type": "string",
       "minLength": 1,
-      "description": "Unique within source; stable on retries. UUID is not required.",
-      "pattern": "\\S"
+      "maxLength": 128,
+      "description": "Unique within source; stable on retries. UUID is not required. Letters, digits, dot, underscore, colon and hyphen only.",
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$"
     },
     "timestamp": {
       "type": "string",
@@ -31,7 +32,8 @@
       "enum": [
         "ids",
         "honeypot",
-        "scanner"
+        "scanner",
+        "pentesting"
       ]
     },
     "event_type": {

@@ -15,12 +15,16 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import com.ciberurjc.siem.services.AlertRepository;
 import static org.junit.jupiter.api.Assertions.*;
 
+@org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class SiemHttpIntegrationTests {
     @Autowired Environment environment;
     @Autowired ObjectMapper mapper;
+    @Autowired
+AlertRepository alertRepository;
     final HttpClient client = HttpClient.newHttpClient();
     String baseUrl;
 
@@ -44,9 +48,9 @@ class SiemHttpIntegrationTests {
     }
 
     @Test
-    void acceptsAllProducersWithoutChangingStaticAlerts() throws Exception {
-        String before = request("/alerts", null, null).body();
-        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json")) {
+    void acceptsAllProducersAndListsTheirStoredAlerts() throws Exception {
+        assertEquals(mapper.readTree("{\"alerts\":[]}"), mapper.readTree(request("/alerts", null, null).body()));
+        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json", "grupo_8_pentesting.json")) {
             String event = Files.readString(Path.of("contract/examples", filename));
             var response = request("/events", event, "application/json");
             assertEquals(200, response.statusCode(), response.body());
@@ -54,7 +58,44 @@ class SiemHttpIntegrationTests {
             assertEquals(mapper.readTree(event).get("event_id"), mapper.readTree(response.body()).get("event_id"));
             assertEquals(200, request("/events", event, "application/json").statusCode());
         }
-        assertEquals(mapper.readTree(before), mapper.readTree(request("/alerts", null, null).body()));
+        var listed = mapper.readTree(request("/alerts", null, null).body()).get("alerts");
+        assertEquals(4, listed.size());
+        for (var alert : listed) {
+            assertEquals(mapper.valueToTree(alertRepository.findById(alert.get("alert_id").asText()).orElseThrow()), alert);
+            var detail = request("/alerts/" + alert.get("alert_id").asText(), null, null);
+            assertEquals(200, detail.statusCode());
+            assertEquals(alert, mapper.readTree(detail.body()));
+        }
+    }
+
+    @Test
+    void listsAllStoredAlertsWithExactContractFields() throws Exception {
+        var converter = new com.ciberurjc.siem.services.AlertConverter();
+        var expected = new java.util.HashSet<String>();
+        for (int i = 0; i < 150; i++) {
+            var alert = converter.convert(new com.ciberurjc.siem.models.Event(
+                "http-query-" + i, "2026-11-03T12:00:00Z", "scanner", "finding", "low",
+                "Finding", "Scanner finding", Map.of("target", Map.of("ip", "192.0.2.20"))));
+            alertRepository.save(alert);
+            expected.add((String) alert.get("alert_id"));
+        }
+        var response = request("/alerts", null, null);
+        assertEquals(200, response.statusCode());
+        assertTrue(response.headers().firstValue("Content-Type").orElseThrow().startsWith("application/json"));
+        var body = mapper.readTree(response.body());
+        assertEquals(1, body.size());
+        var alerts = body.get("alerts");
+        assertTrue(alerts.isArray());
+        assertEquals(150, alerts.size());
+        var actual = new java.util.HashSet<String>();
+        for (var alert : alerts) {
+            assertEquals(11, alert.size());
+            String id = alert.get("alert_id").asText();
+            assertEquals(mapper.valueToTree(alertRepository.findById(id).orElseThrow()), alert);
+            assertTrue(alert.get("source_ip").isNull());
+            actual.add(id);
+        }
+        assertEquals(expected, actual);
     }
 
     @Test
@@ -88,20 +129,11 @@ class SiemHttpIntegrationTests {
     }
 
     @Test
-    void servesAllFixtureFieldsAndEachAlertDetail() throws Exception {
-        var expected = mapper.readTree(Files.readString(Path.of("mocks/alerts.json")));
+    void returnsEmptyListAndMissingDetailForEmptyStorage() throws Exception {
         var response = request("/alerts", null, null);
         assertEquals(200, response.statusCode());
-        assertEquals(expected, mapper.readTree(response.body()));
-        assertEquals(3, expected.get("alerts").size());
-        for (var alert : expected.get("alerts")) {
-            var detail = request("/alerts/" + alert.get("alert_id").asText(), null, null);
-            assertEquals(200, detail.statusCode());
-            assertEquals(alert, mapper.readTree(detail.body()));
-        }
-        var missing = request("/alerts/UNKNOWN", null, null);
-        assertEquals(404, missing.statusCode());
-        assertEquals("ALERT_NOT_FOUND", mapper.readTree(missing.body()).get("error").get("code").asText());
+        assertEquals(mapper.readTree("{\"alerts\":[]}"), mapper.readTree(response.body()));
+        assertEquals(404, request("/alerts/UNKNOWN", null, null).statusCode());
     }
 
     @Test
@@ -125,15 +157,51 @@ class SiemHttpIntegrationTests {
 
     @Test
     void preservesEveryProducerFieldAndReturnsExactReceipt() throws Exception {
-        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json")) {
+        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json", "grupo_8_pentesting.json")) {
             String input = Files.readString(Path.of("contract/examples", filename));
             var model = mapper.readValue(input, com.ciberurjc.siem.models.Event.class);
             assertEquals(mapper.readTree(input), mapper.readTree(mapper.writeValueAsString(model)), filename);
             var response = request("/events", input, "application/json");
             assertEquals(200, response.statusCode());
-            assertEquals(Map.of("status", "success", "message", "Event received successfully (mock)", "event_id", model.event_id()), mapper.readValue(response.body(), Map.class));
-        }
+            assertEquals(Map.of("status", "success", "message", "Event received successfully", "event_id", model.event_id()), mapper.readValue(response.body(), Map.class));        }
     }
+
+    @Test
+    void generatesAndStoresAlertFromReceivedEvent() throws Exception {
+
+        // 1. Leer un evento real de ejemplo del IDS
+        String event = Files.readString(
+            Path.of("contract/examples/grupo_2_ids_ejemplo_propuesto.json")
+        );
+
+        // 2. Obtener el identificador del evento
+        String eventId = mapper.readTree(event)
+            .get("event_id").asText();
+
+        // 3. Enviar el evento al SIEM
+        var response = request(
+            "/events",
+            event,
+            "application/json"
+        );
+
+        // 4. Comprobar que se ha recibido correctamente
+        assertEquals(200, response.statusCode());
+
+        // 5. Buscar la alerta generada en el repositorio
+        var alert = alertRepository.findAll().stream()
+            .filter(a -> eventId.equals(a.get("event_id")))
+            .findFirst();
+
+        // 6. Comprobar que la alerta existe
+        assertTrue(alert.isPresent());
+
+        // 7. Comprobar sus datos
+        assertEquals(eventId, alert.get().get("event_id"));
+        assertEquals("ids", alert.get().get("source"));
+        assertNotNull(alert.get().get("alert_id"));
+    }
+
     @Test
     void acceptsCurrentHoneypotPayloadAndPreservesDetails() throws Exception {
         String input = Files.readString(
@@ -162,5 +230,45 @@ class SiemHttpIntegrationTests {
         event.event_id(),
         mapper.readTree(response.body()).get("event_id").asText()
         );
+    }
+
+    @Test
+    void pentestingFindingBecomesQueryableAlertAndRetryDoesNotDuplicate() throws Exception {
+        String event = Files.readString(Path.of("contract/examples/grupo_8_pentesting.json"));
+        assertEquals(200, request("/events", event, "application/json").statusCode());
+        assertEquals(200, request("/events", event, "application/json").statusCode());
+        var alerts = mapper.readTree(request("/alerts", null, null).body()).get("alerts");
+        var matching = new java.util.ArrayList<tools.jackson.databind.JsonNode>();
+        for (var alert : alerts) {
+            if ("pentesting".equals(alert.get("source").asText()) && "pt-zap-0001".equals(alert.get("event_id").asText())) {
+                matching.add(alert);
+            }
+        }
+        assertEquals(1, matching.size());
+        var alert = matching.get(0);
+        assertTrue(alert.get("source_ip").isNull());
+        assertTrue(alert.get("target_ip").isNull());
+        assertEquals(mapper.readTree(event).get("details"), alert.get("details"));
+        var detail = request("/alerts/" + alert.get("alert_id").asText(), null, null);
+        assertEquals(200, detail.statusCode());
+        assertEquals(alert, mapper.readTree(detail.body()));
+        var changed = (tools.jackson.databind.node.ObjectNode) mapper.readTree(event);
+        changed.put("severity", "high");
+        assertEquals(409, request("/events", mapper.writeValueAsString(changed), "application/json").statusCode());
+    }
+
+    @Test
+    void rejectsPentestingEventsOutsideTheCommonFormat() throws Exception {
+        Map<String, Object> valid = mapper.readValue(Files.readString(Path.of("contract/examples/grupo_8_pentesting.json")), Map.class);
+        var topLevelTool = new LinkedHashMap<>(valid);
+        topLevelTool.put("tool", "OWASP ZAP");
+        assertEquals(400, request("/events", mapper.writeValueAsString(topLevelTool), "application/json").statusCode());
+        var upperSeverity = new LinkedHashMap<>(valid);
+        upperSeverity.put("severity", "MEDIUM");
+        assertEquals(400, request("/events", mapper.writeValueAsString(upperSeverity), "application/json").statusCode());
+        String originalProposal = """
+            {"tool":"OWASP ZAP","title":"Cross-Domain Misconfiguration","description":"CORS misconfiguration.","severity":"MEDIUM","target":"http://juice-shop:3000","details":{}}
+            """;
+        assertEquals(400, request("/events", originalProposal, "application/json").statusCode());
     }
 }

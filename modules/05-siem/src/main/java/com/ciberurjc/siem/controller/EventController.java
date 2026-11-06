@@ -20,7 +20,7 @@ public class EventController {
         eventService.processIncomingEvent(event);
         return Map.of(
             "status", "success",
-            "message", "Event received successfully (mock)",
+            "message", "Event received successfully",
             "event_id", event.event_id()
         );
     }

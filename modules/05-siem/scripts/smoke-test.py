@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the deployed SIEM mock using only the Python standard library."""
+"""Exercise the running SIEM alert flow using only the Python standard library."""
 import json
 import sys
 from pathlib import Path
@@ -24,16 +24,20 @@ def check(name, condition):
 
 status, body = request("/health")
 check("health identifies 05-siem", status == 200 and body == {"status":"ok", "module":"05-siem"})
-fixture = json.loads((root / "mocks/alerts.json").read_text())
 status, body = request("/alerts")
-check("three full static alerts", status == 200 and body == fixture and len(body["alerts"]) == 3)
+check("listing has an alerts array", status == 200 and isinstance(body.get("alerts"), list))
 for path in sorted((root / "contract/examples").glob("*.json")):
     event = json.loads(path.read_text())
     status, body = request("/events", path.read_text())
     check("POST " + event["source"], status == 200 and body["event_id"] == event["event_id"] and body["status"] == "success")
-for alert in fixture["alerts"]:
-    status, body = request("/alerts/" + alert["alert_id"])
-    check("detail " + alert["source"], status == 200 and body == alert)
+    status, body = request("/alerts")
+    matches = [a for a in body.get("alerts", []) if a.get("event_id") == event["event_id"] and a.get("source") == event["source"]]
+    check("stored event is listed: " + path.name, status == 200 and len(matches) == 1)
+    alert = matches[0]
+    check("original fields preserved: " + path.name, all(alert.get(k) == v for k, v in event.items()))
+    check("eleven alert fields: " + path.name, set(alert) == set(event) | {"alert_id", "source_ip", "target_ip"})
+    status, detail = request("/alerts/" + alert["alert_id"])
+    check("detail matches listing: " + path.name, status == 200 and detail == alert)
 status, body = request("/alerts/UNKNOWN")
 check("unknown alert returns JSON 404", status == 404 and body["error"]["code"] == "ALERT_NOT_FOUND")
 for invalid in ["{", "{}", "[]", "null"]:
@@ -41,6 +45,4 @@ for invalid in ["{", "{}", "[]", "null"]:
     check("invalid event " + invalid, status == 400 and "error" in body)
 status, body = request("/events", "test", "text/plain")
 check("unsupported content type", status == 415 and body["error"]["code"] == "UNSUPPORTED_MEDIA_TYPE")
-status, body = request("/alerts")
-check("POST does not mutate static alerts", status == 200 and body == fixture)
 print(json.dumps({"result":"PASS", "base_url":base, "checks":checks, "count":len(checks)}, ensure_ascii=False, indent=2))
