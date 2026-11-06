@@ -1,0 +1,2 @@
+# Los scripts .sh deben conservar saltos de linea LF aunque se clonen en Windows (si no, bash falla con "\r").
+scripts/*.sh text eol=lf
