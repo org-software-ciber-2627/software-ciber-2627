@@ -1,6 +1,6 @@
 # Ingesta persistente de eventos
 
-Este documento describe el comportamiento de la implementación de persistencia. El OpenAPI y el README de esta carpeta conservan el contrato histórico del mock Sprint 1.
+Este documento describe el comportamiento de la implementación de persistencia. El OpenAPI y el README de esta carpeta reflejan la ingesta persistente. La extensión de severidad informativa se describe en [scanner-events.md](scanner-events.md).
 
 No cambia el cuerpo de los productores ni los valores de `source`: `ids`, `honeypot`, `scanner`. Se mantienen los errores de validación existentes (400/415) y las alertas estáticas.
 
@@ -11,7 +11,7 @@ No cambia el cuerpo de los productores ni los valores de `source`: `ids`, `honey
 | Mismo `(source, event_id)` con contenido distinto | 409 `EVENT_ID_CONFLICT`, conservando el original |
 | Perfil `persistence` desactivado o fallo del almacenamiento durante la petición | 503 `STORAGE_UNAVAILABLE` |
 
-Los datos que PostgreSQL no puede representar reciben 400 `VALIDATION_ERROR` sin insertar la petición: caracteres nulos, Unicode incompleto y fechas o números fuera del rango de almacenamiento. El parser puede rechazar antes algunos valores con 400 `INVALID_JSON`. No se sustituyen caracteres silenciosamente. Este comportamiento no modifica el OpenAPI histórico ni añade fuentes o campos al contrato.
+Los datos que PostgreSQL no puede representar reciben 400 `VALIDATION_ERROR` sin insertar la petición: caracteres nulos, Unicode incompleto y fechas o números fuera del rango de almacenamiento. El parser puede rechazar antes algunos valores con 400 `INVALID_JSON`. No se sustituyen caracteres silenciosamente. Este comportamiento conserva las fuentes y campos del contrato. El catálogo de severidades de eventos incluye `info` al aplicar los scripts SQL actualizados o la migración 003.
 
 El acuse es el mismo para una inserción y un reenvío idéntico:
 

@@ -29,10 +29,14 @@ El ejecutor usa un proyecto Docker aleatorio, una contraseña efímera y puertos
 | Reenvíos | La misma clave y contenido devuelve 200 sin duplicar; contenido distinto devuelve 409 sin sobrescribir |
 | Fallos | La caída o indisponibilidad del almacenamiento devuelve 503; la recuperación permite continuar |
 | Persistencia | Recrear el contenedor con el mismo volumen conserva las columnas y el contenido del evento |
-| Migración | La migración 002 se puede aplicar más de una vez y conserva filas existentes |
-| Migración de `source` | La migración 003 se puede aplicar más de una vez, conserva filas, acepta `pentesting` y sigue rechazando orígenes desconocidos |
+| Migración | 002 conserva timestamps; 003 amplía severidades sin perder datos y puede reaplicarse después de insertar `info` |
+| Migración de `source` | La migración 004 se puede aplicar más de una vez, conserva filas, acepta `pentesting` y sigue rechazando orígenes desconocidos |
+| Instalación nueva | Los cuatro scripts de inicialización admiten `info` desde cero |
+| Escáner | Eventos informativos conservados, identidad/reenvíos y rechazo de formato antiguo o severidades desconocidas |
 | Logs | Los controles se neutralizan al mostrar identificadores y no se registran datos privados ni errores de conexión |
 | Runner | Se rechazan comprobaciones Python desactivadas y resúmenes de éxito obsoletos |
+
+La base desechable se inicia con `src/test/resources/db/legacy-events-before-info.sql` para probar una actualización real desde el catálogo antiguo. El runner comprueba el rechazo de `info` antes de 003, su aceptación después, la conservación de filas antiguas y nuevas al reaplicar, y el rechazo de severidades desconocidas. También crea y elimina un esquema desechable para comprobar la instalación nueva con los cuatro scripts actuales.
 
 Las pruebas de scripts se ejecutan antes de crear recursos Docker. El runner comprueba que las suites de repositorio, HTTP persistente y logs se ejecutan sin fallos, errores ni omisiones. Ejecutar Maven sin `SIEM_TEST_DB_URL` omite las pruebas PostgreSQL y no acredita persistencia.
 

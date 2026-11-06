@@ -43,7 +43,7 @@ def passed(name):
 def verify_java_reports():
     reports = list((MODULE / 'target/surefire-reports').glob('TEST-*.xml'))
     suites = {ET.parse(path).getroot().attrib['name']: ET.parse(path).getroot().attrib for path in reports}
-    for required in ('PostgresEventRepositoryTests', 'PersistentEventHttpTests', 'EventServiceLoggingTests'):
+    for required in ('PostgresEventRepositoryTests', 'PersistentEventHttpTests', 'ScannerEventHttpTests', 'EventServiceLoggingTests'):
         assert any(name.endswith('.' + required) and int(attributes['tests']) > 0
                    for name, attributes in suites.items()), 'Missing test suite: ' + required
     totals = {key: sum(int(attributes.get(key, 0)) for attributes in suites.values())
@@ -66,7 +66,7 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
     HERE = Path(directory)
     initial = HERE / 'init'
     initial.mkdir()
-    shutil.copyfile(MODULE / 'db/init/001-create-events.sql', initial / '001-create-events.sql')
+    shutil.copyfile(MODULE / 'src/test/resources/db/legacy-events-before-info.sql', initial / '001-create-events.sql')
     override = Path(directory) / 'override.json'
     override.write_text(json.dumps({'services': {'siem-db': {'volumes': [
         {'type': 'bind', 'source': str(initial), 'target': '/docker-entrypoint-initdb.d', 'read_only': True}
@@ -99,7 +99,7 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                      "AND details='{}'::jsonb AND original_timestamp IS NULL")
         assert result == '1', 'Migration changed the existing event'
         passed('additive migration preserves an existing event and can be reapplied')
-        source_migration = (MODULE / 'db/init/003-allow-pentesting-source.sql').read_text()
+        source_migration = (MODULE / 'db/init/004-allow-pentesting-source.sql').read_text()
         sql(source_migration)
         sql(source_migration)
         assert sql("SELECT count(*) FROM events WHERE event_id='sem65-migration-check'") == '1', 'Source migration changed the existing event'
@@ -112,6 +112,41 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                                         "VALUES ('sem25-unknown-check', '2026-11-04T12:00:00Z', 'unknown', 'x', 'low', 'x', 'x', '{}')")
         assert rejected.returncode != 0 and 'events_source_check' in rejected.stderr, 'Unknown source was not rejected'
         passed('source migration accepts pentesting, still rejects unknown sources and can be reapplied')
+        before_migration = sql("SELECT row_to_json(events)::text FROM events WHERE event_id='sem65-migration-check'")
+
+        def info_insert(identifier, severity):
+            # Both values are fixed test constants, never external input.
+            return ("INSERT INTO events (event_id, occurred_at, source, event_type, severity, title, description, details) "
+                    "VALUES ('" + identifier + "', '2026-11-01T12:00:00Z', 'scanner', 'service_detected', '" + severity +
+                    "', 'Service observed', 'Migration fixture', '{}')")
+
+        def reject_severity(statement):
+            try:
+                sql(statement)
+            except RuntimeError as error:
+                assert 'events_severity_check' in str(error), 'Unexpected SQL failure during severity check'
+            else:
+                raise AssertionError('Database accepted a severity that must be rejected')
+
+        reject_severity(info_insert('sem95-before-migration', 'info'))
+        passed('legacy database rejects info before migration')
+        severity_migration = (MODULE / 'db/init/003-allow-info-severity.sql').read_text()
+        sql(severity_migration)
+        sql(info_insert('sem95-migration-info', 'info'))
+        sql(severity_migration)
+        assert sql("SELECT row_to_json(events)::text FROM events WHERE event_id='sem65-migration-check'") == before_migration
+        assert sql("SELECT severity FROM events WHERE event_id='sem95-migration-info'") == 'info'
+        reject_severity(info_insert('sem95-unknown-severity', 'urgent'))
+        passed('severity migration preserves old and info rows, can be reapplied and rejects unknown values')
+        fresh_schema = "CREATE SCHEMA sem95_fresh; SET search_path TO sem95_fresh;\n"
+        for filename in ('001-create-events.sql', '002-add-original-timestamp.sql', '003-allow-info-severity.sql',
+                         '004-allow-pentesting-source.sql'):
+            fresh_schema += (MODULE / 'db/init' / filename).read_text() + '\n'
+        fresh_schema += info_insert('sem95-fresh-info', 'info') + "; SELECT severity FROM events WHERE event_id='sem95-fresh-info';"
+        assert sql(fresh_schema).splitlines()[-1] == 'info'
+        sql('DROP SCHEMA sem95_fresh CASCADE')
+        passed('fresh installation scripts accept info without a legacy upgrade')
+
         test_env = ENV.copy()
         test_env['SIEM_TEST_DB_URL'] = 'jdbc:postgresql://127.0.0.1:' + ENV['SIEM_DB_PORT'] + '/' + ENV['SIEM_DB_NAME']
         test_env['SIEM_TEST_DB_USER'] = 'siem'
@@ -179,6 +214,16 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                 event['title'] = 'Changed after database restart'
                 assert request('/events', event)[0] == 409
                 passed('recovery accepts identical replay with one row and rejects changed content')
+                info_event = json.loads((MODULE / 'contract/examples/grupo_4_scanner_info.json').read_text())
+                info_event['event_id'] = PROJECT + '-scanner-info'
+                status, receipt = request('/events', info_event)
+                assert status == 200 and receipt['event_id'] == info_event['event_id'], (status, receipt)
+                assert receipt['message'] == 'Event stored successfully'
+                assert sql("SELECT severity FROM events WHERE event_id='" + info_event['event_id'] + "'") == 'info'
+                assert request('/events', info_event)[0] == 200
+                assert sql("SELECT count(*) FROM events WHERE event_id='" + info_event['event_id'] + "'") == '1'
+                passed('packaged application stores scanner info and acknowledges an identical replay')
+
                 smoke = subprocess.run(['python3', str(MODULE / 'scripts/smoke-test.py'), base_url],
                                        capture_output=True, text=True, timeout=30)
                 (HERE / 'smoke-test.json').write_text(smoke.stdout)

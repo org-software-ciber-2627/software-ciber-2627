@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS events (
     occurred_at TIMESTAMPTZ NOT NULL,
     source TEXT NOT NULL CHECK (source IN ('ids', 'honeypot', 'scanner')),
     event_type TEXT NOT NULL CHECK (event_type ~ '[^[:space:]]'),
-    severity TEXT NOT NULL CHECK (severity IN ('low', 'medium', 'high', 'critical')),
+    severity TEXT NOT NULL CONSTRAINT events_severity_check
+        CHECK (severity IN ('info', 'low', 'medium', 'high', 'critical')),
     title TEXT NOT NULL CHECK (title ~ '[^[:space:]]'),
     description TEXT NOT NULL CHECK (description ~ '[^[:space:]]'),
     details JSONB NOT NULL CHECK (jsonb_typeof(details) = 'object'),

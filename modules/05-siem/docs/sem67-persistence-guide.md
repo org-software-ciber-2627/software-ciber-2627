@@ -48,14 +48,15 @@ docker compose --env-file /dev/null exec -T siem-db pg_isready -U siem -d siem_b
 docker compose --env-file /dev/null exec -T siem-db psql -X -U siem -d siem_bd -c '\d events'
 ```
 
-Resultado esperado: contenedor healthy y tabla `events` con clave `(source, event_id)`, `details` JSONB y `original_timestamp`. La contraseña debe ser no vacía al inicializar un volumen nuevo. Si el volumen ya existía antes de la migración 002, respáldalo antes de aplicar cambios. El script es aditivo y repetible:
+Resultado esperado: contenedor healthy y tabla `events` con clave `(source, event_id)`, `details` JSONB y `original_timestamp`. La contraseña debe ser no vacía al inicializar un volumen nuevo. Si el volumen ya existía antes de la migración 002, respáldalo antes de aplicar cambios. Aplica las migraciones necesarias en orden:
 
 ```bash
 docker compose --env-file /dev/null exec -T siem-db psql -X -U siem -d siem_bd -v ON_ERROR_STOP=1 < modules/05-siem/db/init/002-add-original-timestamp.sql
-docker compose --env-file /dev/null exec -T siem-db psql -X -U siem -d siem_bd -v ON_ERROR_STOP=1 < modules/05-siem/db/init/003-allow-pentesting-source.sql
+docker compose --env-file /dev/null exec -T siem-db psql -X -U siem -d siem_bd -v ON_ERROR_STOP=1 < modules/05-siem/db/init/003-allow-info-severity.sql
+docker compose --env-file /dev/null exec -T siem-db psql -X -U siem -d siem_bd -v ON_ERROR_STOP=1 < modules/05-siem/db/init/004-allow-pentesting-source.sql
 ```
 
-La 003 sustituye en una transacción la restricción `events_source_check` para aceptar `pentesting`; también es repetible. Con un volumen nuevo, los tres scripts se aplican automáticamente. El puerto PostgreSQL se publica en `127.0.0.1:5433`; si se usa otro puerto, mantén el mismo `SIEM_DB_PORT` para Compose y Java.
+Con un volumen nuevo, los cuatro scripts se aplican automáticamente. La migración 003 sustituye de forma transaccional la restricción de severidad para incluir `info`, conserva las filas existentes y puede reaplicarse. Requiere bloquear la tabla; usa un límite de cinco segundos para adquirir el bloqueo y falla sin dejar el cambio a medias si no puede obtenerlo. Aplícala con la aplicación detenida en una ventana de mantenimiento. Volver al catálogo anterior exige resolver explícitamente los eventos `info` ya almacenados; no se borran ni transforman automáticamente. La 004 sustituye en una transacción la restricción `events_source_check` para aceptar `pentesting`; también es repetible. El puerto PostgreSQL se publica en `127.0.0.1:5433`; si se usa otro puerto, mantén el mismo `SIEM_DB_PORT` para Compose y Java.
 
 Si el volumen ya contiene la base antigua `siem`, cambiar `SIEM_DB_NAME` no la renombra. Detén primero la aplicación, crea una copia de seguridad fuera del repositorio y confirma que `siem_bd` no existe y que `siem` no tiene sesiones activas. Después, desde la raíz del repositorio:
 
@@ -120,7 +121,7 @@ Los ocho campos del contrato son `event_id`, `timestamp`, `source`, `event_type`
 
 Con persistencia activa se rechazan con 400 los textos con caracteres nulos o Unicode incompleto, también dentro de `details`, y las fechas o números fuera del rango de almacenamiento. Se conserva el error genérico: no se devuelven SQL ni datos de conexión. Los fallos reales de PostgreSQL continúan produciendo 503. El Unicode válido, incluidos caracteres suplementarios, se guarda y reenvía sin sustituciones.
 
-Si PostgreSQL no está disponible al arrancar con `persistence`, la creación del pool puede impedir el arranque; no debe confundirse con un servidor arrancado que responde 503. El [comportamiento de ingesta](../contract/sem65-ingestion-proposal.md) describe 409 y 503; el OpenAPI histórico conserva las respuestas del mock anterior.
+Si PostgreSQL no está disponible al arrancar con `persistence`, la creación del pool puede impedir el arranque; no debe confundirse con un servidor arrancado que responde 503. El [comportamiento de ingesta](../contract/sem65-ingestion-proposal.md) describe 409 y 503; el OpenAPI refleja la ingesta persistente y su catálogo de eventos.
 
 La clave incluye `source`: el mismo ID de dos productores ocupa dos filas. Los reenvíos se comparan sin sobrescribir el evento. Los logs escapan controles y separadores solo al mostrarlos; el identificador original se conserva en almacenamiento y recibo.
 
@@ -141,7 +142,7 @@ Esto conserva el volumen nombrado del mismo proyecto. No uses `down -v` ni borre
 | 503 con Java sin perfil | Activar `persistence` y proporcionar la configuración |
 | Error de autenticación PostgreSQL | Contraseña del volumen existente, sin imprimirla en logs |
 | Falta `original_timestamp` | Aplica la migración 002 al volumen existente |
-| Un evento `pentesting` falla con `events_source_check` | Aplica la migración 003 al volumen existente |
+| Un evento `pentesting` falla con `events_source_check` | Aplica la migración 004 al volumen existente |
 | Puerto ocupado | Otro proceso o contenedor en 8005/5433; no detener procesos ajenos automáticamente |
 | 409 al repetir un ejemplo | El contenido guardado para esa clave difiere; no borrar datos para forzar 200 |
 | Pruebas PostgreSQL omitidas | Usar el ejecutor SEM-66 o una base exclusiva de pruebas configurada |

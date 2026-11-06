@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "SIEM · Contrato de integración (SEM-6)",
-    "version": "0.2.0-sprint1",
-    "description": "Sprint 1 mock contract for health, event receipt and static alerts. It does not specify persistent storage, alert correlation or authentication."
+    "title": "SIEM · Event ingestion and static alerts",
+    "version": "0.3.0-sprint2",
+    "description": "Persistent event ingestion supports info, low, medium, high and critical. Requires the persistence profile and database migrations. Alerts remain static fixtures with their existing four severity values. Authentication, authorization and alert correlation are not implemented."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -42,8 +42,8 @@
     "/events": {
       "post": {
         "operationId": "receiveEvent",
-        "summary": "Receive a mock security event",
-        "description": "One event per request. Returns 200 without persistence, deduplication or alert generation. Invalid event bodies return 400.",
+        "summary": "Store a security event",
+        "description": "One event per request. With persistence enabled, returns 200 only after storage or an identical replay. Identity is (source, event_id); changed content returns 409. Valid events return 503 when persistence is disabled or unavailable. PostgreSQL must be accessible at application startup with the profile enabled. Invalid or unrepresentable events return 400. Receiving info does not generate an alert.",
         "requestBody": {
           "required": true,
           "content": {
@@ -117,6 +117,33 @@
                       "cvss": null
                     }
                   }
+                },
+                "scannerInfo": {
+                  "summary": "Informational scanner observation; target address is a sanitized placeholder.",
+                  "value": {
+                    "event_id": "SCAN-INFO-EXAMPLE-001",
+                    "timestamp": "2026-09-29T10:30:00Z",
+                    "source": "scanner",
+                    "event_type": "service_detected",
+                    "severity": "info",
+                    "title": "Service detected: http",
+                    "description": "HTTP service detected on TCP port 80.",
+                    "details": {
+                      "target": {
+                        "ip": "192.168.X.X",
+                        "port": 80,
+                        "protocol": "tcp",
+                        "service": "http"
+                      },
+                      "scan_id": "SCAN-EXAMPLE-001",
+                      "tool": "nmap",
+                      "profile": "web",
+                      "script_id": null,
+                      "evidence": null,
+                      "cve": null,
+                      "cvss": null
+                    }
+                  }
                 }
               }
             }
@@ -124,7 +151,7 @@
         },
         "responses": {
           "200": {
-            "description": "Mock event received; nothing is stored.",
+            "description": "Event stored or identical replay acknowledged without inserting another row.",
             "content": {
               "application/json": {
                 "schema": {
@@ -132,7 +159,7 @@
                 },
                 "example": {
                   "status": "success",
-                  "message": "Event received successfully (mock)",
+                  "message": "Event stored successfully",
                   "event_id": "HP-981839239323"
                 }
               }
@@ -177,6 +204,38 @@
                   "error": {
                     "code": "UNSUPPORTED_MEDIA_TYPE",
                     "message": "Content-Type must be application/json"
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Same source and event_id with different content; the original is preserved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "EVENT_ID_CONFLICT",
+                    "message": "The event identifier already belongs to different content"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Persistence disabled or storage unavailable during the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "STORAGE_UNAVAILABLE",
+                    "message": "Event storage is temporarily unavailable"
                   }
                 }
               }
@@ -386,11 +445,13 @@
           "severity": {
             "type": "string",
             "enum": [
+              "info",
               "low",
               "medium",
               "high",
               "critical"
-            ]
+            ],
+            "description": "info denotes an informational observation; it does not imply a vulnerability or generate an alert."
           },
           "title": {
             "type": "string",
@@ -540,7 +601,9 @@
                   "UNSUPPORTED_MEDIA_TYPE",
                   "VALIDATION_ERROR",
                   "ALERT_NOT_FOUND",
-                  "INTERNAL_ERROR"
+                  "INTERNAL_ERROR",
+                  "EVENT_ID_CONFLICT",
+                  "STORAGE_UNAVAILABLE"
                 ]
               },
               "message": {
