@@ -1,0 +1,6 @@
+{
+  "error": {
+    "codigo": "INTERNAL_ERROR",
+    "mensaje": "No se pudo recuperar el informe"
+  }
+}
