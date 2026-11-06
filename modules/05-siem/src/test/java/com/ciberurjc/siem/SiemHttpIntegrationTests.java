@@ -153,12 +153,10 @@ class SiemHttpIntegrationTests {
     assertTrue(event.details().containsKey("command"));
     assertNull(event.details().get("command"));
 
+    // Without storage the SIEM never confirms receipt; PersistentEventHttpTests checks the 200.
     var response = request("/events", input, "application/json");
 
-    assertEquals(200, response.statusCode(), response.body());
-    assertEquals(
-        event.event_id(),
-        mapper.readTree(response.body()).get("event_id").asText()
-        );
+    assertEquals(503, response.statusCode(), response.body());
+    assertEquals("STORAGE_UNAVAILABLE", mapper.readTree(response.body()).get("error").get("code").asText());
     }
 }

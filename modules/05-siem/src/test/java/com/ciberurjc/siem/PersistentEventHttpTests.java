@@ -81,7 +81,8 @@ class PersistentEventHttpTests {
     void storesEveryProducerBeforeReturningReceiptAndLeavesAlertsUnchanged() throws Exception {
         var alertsRequest = HttpRequest.newBuilder(URI.create(baseUrl + "/alerts")).GET().build();
         String before = client.send(alertsRequest, HttpResponse.BodyHandlers.ofString()).body();
-        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json")) {
+        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json",
+                "grupo_3_honeypot_actual.json", "grupo_4_scanner.json")) {
             var input = event(filename);
             var response = post(input);
             assertEquals(200, response.statusCode(), response.body());
@@ -91,7 +92,7 @@ class PersistentEventHttpTests {
             assertEquals(mapper.readTree(mapper.writeValueAsString(input)), mapper.readTree(mapper.writeValueAsString(stored)));
             assertEquals(200, post(input).statusCode());
         }
-        assertEquals(3, count());
+        assertEquals(4, count());
         assertEquals(before, client.send(alertsRequest, HttpResponse.BodyHandlers.ofString()).body());
     }
 
