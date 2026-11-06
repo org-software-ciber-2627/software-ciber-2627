@@ -2,6 +2,10 @@
 """Check local event examples and alert preservation with JSON Schema."""
 import json
 from pathlib import Path
+
+if not __debug__:
+    raise SystemExit("Run without Python optimization; these checks require assertions.")
+
 from jsonschema import Draft7Validator, Draft202012Validator, FormatChecker
 
 root = Path(__file__).resolve().parents[1]

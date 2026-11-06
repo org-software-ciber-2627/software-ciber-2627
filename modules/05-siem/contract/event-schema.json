@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "SIEM Sprint 1 security event candidate",
+  "title": "SIEM Sprint 1 security event",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -37,7 +37,7 @@
     "event_type": {
       "type": "string",
       "minLength": 1,
-      "description": "Shared catalog pending; existing examples retained.",
+      "description": "Event type reported by the producer.",
       "pattern": "\\S"
     },
     "severity": {
@@ -62,7 +62,7 @@
     "details": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Producer-specific data; internal validation pending agreement."
+      "description": "Producer-specific event attributes."
     }
   }
 }
