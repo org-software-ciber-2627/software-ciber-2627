@@ -4,9 +4,18 @@
 
 ## Ingesta
 
-POST /events acepta un evento JSON con event_id, timestamp UTC terminado en Z, source, event_type, severity, title, description y details. Fuentes: ids, honeypot y scanner. Severidades: low, medium, high y critical. Devuelve 200 con status success, message "Event received successfully" y event_id. Los cuerpos inválidos producen 400; un Content-Type incompatible, 415. event_id admite solo letras, dígitos, punto, guion bajo, dos puntos y guion (1-128 caracteres), lo que impide inyectar saltos de línea en los logs.
+POST /events acepta un evento JSON con event_id, timestamp UTC terminado en Z, source, event_type, severity, title, description y details. Fuentes: ids, honeypot, scanner y pentesting. Severidades: low, medium, high y critical. Devuelve 200 con status success, message "Event received successfully" y event_id. Los cuerpos inválidos producen 400; un Content-Type incompatible, 415. event_id admite solo letras, dígitos, punto, guion bajo, dos puntos y guion (1-128 caracteres), lo que impide inyectar saltos de línea en los logs.
 
 Un reintento idéntico (misma source y event_id, mismo contenido) devuelve 200 sin duplicar la alerta ni volver a notificarla. Un reenvío con la misma source y event_id pero contenido distinto devuelve 409 EVENT_CONFLICT y la alerta almacenada no se modifica. Un cuerpo mayor que siem.events.max-body-bytes (65536 por defecto, variable SIEM_EVENTS_MAX_BODY_BYTES) devuelve 413 PAYLOAD_TOO_LARGE, también en envíos chunked. Con el almacén lleno (siem.alerts.max-stored, 10000 por defecto, variable SIEM_ALERTS_MAX_STORED) las alertas nuevas devuelven 507 STORAGE_FULL.
+
+| Grupo | source | Ejemplo de datos específicos en details |
+| --- | --- | --- |
+| G2 IDS | ids | `rule_id`, `source_ip`, `target_ip`, `protocol`, `distinct_ports_count`, `window_seconds` |
+| G3 Honeypot | honeypot | `source_ip`, `service`, `username`, `credential`, `command` |
+| G4 Escáner | scanner | `target`, `scan_id`, `tool`, `profile`, `script_id`, `evidence`, `cve`, `cvss` |
+| G8 Pentesting | pentesting | `tool`, `target`, `instances`, `solution` |
+
+Las alertas de pentesting tienen source_ip y target_ip null: G8 identifica el objetivo con una URL, que se conserva en details.target.
 
 Esta rama genera y guarda una alerta en memoria por evento aceptado. No incorpora la persistencia de eventos de HU8 ni garantiza entrega externa de notificaciones.
 

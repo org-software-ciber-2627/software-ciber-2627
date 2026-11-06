@@ -50,7 +50,7 @@ AlertRepository alertRepository;
     @Test
     void acceptsAllProducersAndListsTheirStoredAlerts() throws Exception {
         assertEquals(mapper.readTree("{\"alerts\":[]}"), mapper.readTree(request("/alerts", null, null).body()));
-        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json")) {
+        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json", "grupo_8_pentesting.json")) {
             String event = Files.readString(Path.of("contract/examples", filename));
             var response = request("/events", event, "application/json");
             assertEquals(200, response.statusCode(), response.body());
@@ -59,7 +59,7 @@ AlertRepository alertRepository;
             assertEquals(200, request("/events", event, "application/json").statusCode());
         }
         var listed = mapper.readTree(request("/alerts", null, null).body()).get("alerts");
-        assertEquals(3, listed.size());
+        assertEquals(4, listed.size());
         for (var alert : listed) {
             assertEquals(mapper.valueToTree(alertRepository.findById(alert.get("alert_id").asText()).orElseThrow()), alert);
             var detail = request("/alerts/" + alert.get("alert_id").asText(), null, null);
@@ -157,7 +157,7 @@ AlertRepository alertRepository;
 
     @Test
     void preservesEveryProducerFieldAndReturnsExactReceipt() throws Exception {
-        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json")) {
+        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json", "grupo_8_pentesting.json")) {
             String input = Files.readString(Path.of("contract/examples", filename));
             var model = mapper.readValue(input, com.ciberurjc.siem.models.Event.class);
             assertEquals(mapper.readTree(input), mapper.readTree(mapper.writeValueAsString(model)), filename);
@@ -230,5 +230,45 @@ AlertRepository alertRepository;
         event.event_id(),
         mapper.readTree(response.body()).get("event_id").asText()
         );
+    }
+
+    @Test
+    void pentestingFindingBecomesQueryableAlertAndRetryDoesNotDuplicate() throws Exception {
+        String event = Files.readString(Path.of("contract/examples/grupo_8_pentesting.json"));
+        assertEquals(200, request("/events", event, "application/json").statusCode());
+        assertEquals(200, request("/events", event, "application/json").statusCode());
+        var alerts = mapper.readTree(request("/alerts", null, null).body()).get("alerts");
+        var matching = new java.util.ArrayList<tools.jackson.databind.JsonNode>();
+        for (var alert : alerts) {
+            if ("pentesting".equals(alert.get("source").asText()) && "pt-zap-0001".equals(alert.get("event_id").asText())) {
+                matching.add(alert);
+            }
+        }
+        assertEquals(1, matching.size());
+        var alert = matching.get(0);
+        assertTrue(alert.get("source_ip").isNull());
+        assertTrue(alert.get("target_ip").isNull());
+        assertEquals(mapper.readTree(event).get("details"), alert.get("details"));
+        var detail = request("/alerts/" + alert.get("alert_id").asText(), null, null);
+        assertEquals(200, detail.statusCode());
+        assertEquals(alert, mapper.readTree(detail.body()));
+        var changed = (tools.jackson.databind.node.ObjectNode) mapper.readTree(event);
+        changed.put("severity", "high");
+        assertEquals(409, request("/events", mapper.writeValueAsString(changed), "application/json").statusCode());
+    }
+
+    @Test
+    void rejectsPentestingEventsOutsideTheCommonFormat() throws Exception {
+        Map<String, Object> valid = mapper.readValue(Files.readString(Path.of("contract/examples/grupo_8_pentesting.json")), Map.class);
+        var topLevelTool = new LinkedHashMap<>(valid);
+        topLevelTool.put("tool", "OWASP ZAP");
+        assertEquals(400, request("/events", mapper.writeValueAsString(topLevelTool), "application/json").statusCode());
+        var upperSeverity = new LinkedHashMap<>(valid);
+        upperSeverity.put("severity", "MEDIUM");
+        assertEquals(400, request("/events", mapper.writeValueAsString(upperSeverity), "application/json").statusCode());
+        String originalProposal = """
+            {"tool":"OWASP ZAP","title":"Cross-Domain Misconfiguration","description":"CORS misconfiguration.","severity":"MEDIUM","target":"http://juice-shop:3000","details":{}}
+            """;
+        assertEquals(400, request("/events", originalProposal, "application/json").statusCode());
     }
 }

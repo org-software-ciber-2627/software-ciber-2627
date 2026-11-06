@@ -25,14 +25,14 @@ curl -i http://localhost:8005/alerts
 python3 modules/05-siem/scripts/smoke-test.py http://localhost:8005
 ```
 
-El script envía los ejemplos de los productores, comprueba que aparecen en el listado y que el detalle coincide. Modifica el almacén de la instancia indicada; usar una instancia de desarrollo. No presupone que el almacén esté vacío ni identifica las alertas por posición.
+El script envía los ejemplos de los productores (G2 IDS, G3 Honeypot, G4 Escáner y G8 Pentesting en contract/examples), comprueba que aparecen en el listado y que el detalle coincide. Modifica el almacén de la instancia indicada; usar una instancia de desarrollo. No presupone que el almacén esté vacío ni identifica las alertas por posición.
 
 ## API
 
 | Ruta | Resultado |
 | --- | --- |
 | GET /health | 200, status ok y module 05-siem |
-| POST /events | 200 con acuse; 400 para evento inválido; 415 para tipo de contenido incorrecto |
+| POST /events | 200 con acuse (también en reintento idéntico); 400 para evento inválido; 409 EVENT_CONFLICT si se reenvía el mismo source y event_id con otro contenido; 413 PAYLOAD_TOO_LARGE; 415 para tipo de contenido incorrecto; 507 STORAGE_FULL |
 | GET /alerts | 200 con alerts: array completo; vacío si no hay alertas |
 | GET /alerts/{id} | 200 con la alerta; 404 ALERT_NOT_FOUND si no existe |
 | Ambas consultas de alertas | 503 STORAGE_UNAVAILABLE para indisponibilidad identificada; 500 INTERNAL_ERROR para fallo inesperado |
@@ -43,7 +43,7 @@ Los once campos son alert_id, event_id, timestamp, source, event_type, severity,
 
 ## Alcance y límites
 
-Las alertas se pierden al reiniciar. La rama todavía no incorpora HU8 de persistencia de eventos. Cada evento aceptado produce una alerta; no se implementan aquí nuevas reglas de correlación. Un reenvío conserva el identificador y sobrescribe la entrada, pero puede volver a emitir la notificación interna. No se acredita entrega externa de notificaciones a SOAR ni autenticación real.
+Las alertas se pierden al reiniciar. La rama todavía no incorpora HU8 de persistencia de eventos. Cada evento aceptado produce una alerta; no se implementan aquí nuevas reglas de correlación. Un reintento idéntico no duplica la alerta ni la vuelve a notificar; un reenvío con contenido distinto se rechaza con 409 y no modifica la alerta guardada. No se acredita entrega externa de notificaciones a SOAR ni autenticación real.
 
 El detalle de Claudio se integra como dependencia; los errores comunes se aplican mediante AlertErrorHandler. La interfaz antigua repositories.AlertRepository permanece sin uso y no es el almacén activo.
 

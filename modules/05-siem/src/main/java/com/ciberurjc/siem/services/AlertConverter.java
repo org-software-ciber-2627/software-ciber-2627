@@ -37,6 +37,10 @@ public class AlertConverter {
                 }
             }
 
+            case "pentesting" -> {
+                // G8 identifies its target with a URL; it stays in details.target.
+            }
+
             default -> throw new IllegalArgumentException(
                 "Unknown event source"
             );

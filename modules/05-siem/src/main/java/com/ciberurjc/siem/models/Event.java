@@ -8,7 +8,7 @@ import java.util.Map;
 public record Event(
     @NotBlank @Pattern(regexp = "[A-Za-z0-9._:-]{1,128}") String event_id,
     @NotBlank String timestamp,
-    @NotNull @Pattern(regexp = "ids|honeypot|scanner") String source,
+    @NotNull @Pattern(regexp = "ids|honeypot|scanner|pentesting") String source,
     @NotBlank String event_type,
     @NotNull @Pattern(regexp = "low|medium|high|critical") String severity,
     @NotBlank String title,

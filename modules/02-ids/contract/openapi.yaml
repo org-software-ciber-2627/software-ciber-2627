@@ -1,0 +1,140 @@
+openapi: 3.0.3
+
+info:
+  title: IDS · Contrato de entrega de logs
+  version: 1.0.0
+  description: >
+    Interfaz que utiliza el grupo 1 (Identidad) para entregar al IDS lotes de
+    líneas syslog. El IDS conserva las líneas originales para analizarlas con
+    su parser.
+
+servers:
+  - url: http://localhost:8002
+    description: Acceso local
+  - url: http://ids:80
+    description: Red Docker ciberurjc
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Estado del IDS
+      responses:
+        '200':
+          description: Servicio operativo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+
+  /logs:
+    post:
+      operationId: receiveLogs
+      summary: Recibir un lote de logs de G1
+      description: >
+        Recibe entre 1 y 1000 líneas syslog. Las entradas repetidas se cuentan
+        como duplicados mediante su identificador estable y no se procesan dos
+        veces.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogBatch'
+            example:
+              source: 01-identidad
+              logs:
+                - id: g1-log-00000001
+                  raw_line: 'Mar 27 13:08:09 ip-10-77-20-248 sshd[1361]: Accepted publickey for ubuntu from 85.245.107.41 port 54259 ssh2'
+      responses:
+        '202':
+          description: Lote aceptado para análisis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogReceipt'
+        '400':
+          description: Cuerpo inválido o línea sin raw_line
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Lote demasiado grande
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '415':
+          description: Content-Type no admitido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    Health:
+      type: object
+      required: [status, module]
+      properties:
+        status:
+          type: string
+          example: ok
+        module:
+          type: string
+          example: 02-ids
+
+    LogBatch:
+      type: object
+      additionalProperties: false
+      required: [source, logs]
+      properties:
+        source:
+          type: string
+          enum: [01-identidad]
+        logs:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/LogEntry'
+
+    LogEntry:
+      type: object
+      additionalProperties: false
+      required: [id, raw_line]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          pattern: '\S'
+          example: g1-log-00000001
+        raw_line:
+          type: string
+          minLength: 1
+          pattern: '\S'
+          description: Línea syslog completa, sin salto de línea final.
+          example: 'Mar 27 13:08:09 ip-10-77-20-248 sshd[1361]: Accepted publickey for ubuntu from 85.245.107.41 port 54259 ssh2'
+
+    LogReceipt:
+      type: object
+      required: [status, accepted, duplicates]
+      properties:
+        status:
+          type: string
+          enum: [accepted]
+        accepted:
+          type: integer
+          minimum: 0
+        duplicates:
+          type: integer
+          minimum: 0
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: The request does not match the log batch schema

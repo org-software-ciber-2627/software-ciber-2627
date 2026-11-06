@@ -489,7 +489,8 @@
             "enum": [
               "ids",
               "honeypot",
-              "scanner"
+              "scanner",
+              "pentesting"
             ]
           },
           "event_type": {
@@ -557,7 +558,8 @@
             "enum": [
               "ids",
               "honeypot",
-              "scanner"
+              "scanner",
+              "pentesting"
             ]
           },
           "event_type": {
