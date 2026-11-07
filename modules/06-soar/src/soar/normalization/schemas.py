@@ -1,8 +1,9 @@
-import uuid
 import ipaddress
 from datetime import datetime
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field, field_validator, ConfigDict
+
+from soar.models.incident import Incident
 
 #creamos un DTO para la alerta cruda que se recibe del SIEM, con validaciones de campos y mapeo a un incidente del SOAR
 
@@ -49,7 +50,5 @@ class AlertPayloadDTO(BaseModel):
         return v.lower()
 
 
-class IncidentEntity(AlertPayloadDTO):
-    incident_id: str = Field(default_factory=lambda: f"INC-{uuid.uuid4().hex[:6].upper()}")
-    status: str = Field(default="open") 
-    resolved_at: Optional[datetime] = None
+# El incidente normalizado es el modelo único del SOAR
+IncidentEntity = Incident

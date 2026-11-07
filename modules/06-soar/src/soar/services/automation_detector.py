@@ -4,6 +4,7 @@ from soar.models.incident import Incident
 
 AUTOMATABLE_PLAYBOOKS = {
     "fuerza_bruta": "brute_force",
+    "brute_force": "brute_force",
 }
 
 

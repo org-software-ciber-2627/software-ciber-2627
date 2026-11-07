@@ -1,5 +1,6 @@
 from typing import Dict, Any
 from soar.models.alert_priority import PriorityLevel, SEVERITY_MAPPING, CRITICAL_EVENT_TYPES
+from soar.models.incident import Incident
 
 
 def calculate_priority(incident_data: Dict[str, Any]) -> PriorityLevel:
@@ -28,3 +29,9 @@ def prioritize_incident(incident: Dict[str, Any]) -> Dict[str, Any]:
     updated_incident = incident.copy()
     updated_incident["priority"] = calculate_priority(updated_incident).value
     return updated_incident
+
+def prioritize(incident: Incident) -> Incident:
+    """
+    Devuelve una copia del Incident con el campo 'priority' calculado.
+    """
+    return incident.model_copy(update={"priority": calculate_priority(incident.model_dump()).value})
