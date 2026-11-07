@@ -43,18 +43,20 @@ Ejemplo no automatizable:
 
 ## Reglas Sprint 2
 
-| event_type | Requisito adicional | Automatizable | Playbook |
-|---|---|---|---|
-| `fuerza_bruta` | `source_ip` presente | Sí | `brute_force` |
-| `fuerza_bruta` | `source_ip` ausente | No | — |
-| cualquier otro tipo | — | No | — |
+| event_type | Productor | Requisito adicional | Automatizable | Playbook |
+|---|---|---|---|---|
+| `fuerza_bruta` | Honeypot | `source_ip` presente | Sí | `brute_force` |
+| `brute_force` | IDS | `source_ip` presente | Sí | `brute_force` |
+| `fuerza_bruta` | Honeypot | `source_ip` ausente | No | — |
+| `brute_force` | IDS | `source_ip` ausente | No | — |
+| cualquier otro tipo | Cualquier productor | — | No | — |
 
 ## Motivos (`reason`) exactos
 
 | Caso | `reason` |
 |---|---|
 | `event_type` sin playbook | `No existe un playbook para el tipo de evento '<event_type>'` |
-| `fuerza_bruta` sin `source_ip` | `El incidente no contiene una IP de origen` |
+| `fuerza_bruta` o `brute_force` sin `source_ip` | `El incidente no contiene una IP de origen` |
 | Automatizable | `Incidente compatible con automatizacion` |
 
 ## Límites

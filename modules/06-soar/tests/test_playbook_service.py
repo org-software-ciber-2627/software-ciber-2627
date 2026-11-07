@@ -54,7 +54,21 @@ class TestPlaybookInput(unittest.TestCase):
         self.assertEqual(playbook_input.source_ip, "192.168.1.50")
         self.assertEqual(playbook_input.service, "ssh")
         self.assertEqual(playbook_input.username, "root")
+        self.assertEqual(playbook_input.usernames, ["root"])
         self.assertEqual(playbook_input.failed_attempts, 7)
+
+    def test_from_incident_maps_ids_fields(self):
+        incident = create_incident(
+            event_type="brute_force",
+            source="ids",
+            details={"service": "sshd", "attempts": 12, "usernames": ["root", "admin"]},
+        )
+
+        playbook_input = BruteForcePlaybookInput.from_incident(incident)
+
+        self.assertEqual(playbook_input.failed_attempts, 12)
+        self.assertEqual(playbook_input.usernames, ["root", "admin"])
+        self.assertEqual(playbook_input.username, "root")
 
     def test_incident_that_is_not_brute_force_is_rejected(self):
         with self.assertRaises(ValueError):
@@ -93,10 +107,31 @@ class TestPlaybookService(unittest.TestCase):
             "severity": "high",
             "priority": "high",
             "source_ip": "192.168.1.50",
+            "service": "ssh",
+            "username": "root",
+            "usernames": ["root"],
+            "failed_attempts": 7,
             "playbook": "brute_force",
             "reason": "Incidente compatible con automatizacion",
             "detected_at": "2026-11-03T11:59:00+00:00",
         })
+
+    def test_notify_includes_ids_attempts_and_usernames(self):
+        http_post = FakeHttpPost(status_code=200)
+        incident = create_incident(
+            event_type="brute_force",
+            source="ids",
+            details={"service": "sshd", "attempts": 12, "usernames": ["root", "admin"]},
+        )
+        playbook_input = BruteForcePlaybookInput.from_incident(incident)
+
+        PlaybookService(
+            notify_url=NOTIFY_URL, http_post=http_post, clock=lambda: FIXED_TIME
+        ).execute_brute_force_playbook(playbook_input)
+
+        self.assertEqual(http_post.calls[0][1]["failed_attempts"], 12)
+        self.assertEqual(http_post.calls[0][1]["usernames"], ["root", "admin"])
+        self.assertEqual(http_post.calls[0][1]["username"], "root")
 
     def test_notify_with_http_error_fails(self):
         error = urllib.error.HTTPError(NOTIFY_URL, 503, "Service Unavailable", {}, None)

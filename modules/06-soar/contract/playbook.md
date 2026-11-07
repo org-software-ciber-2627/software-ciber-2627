@@ -2,20 +2,20 @@
 
 ## Objetivo
 
-Ejecutar la respuesta automática de un incidente de tipo `fuerza_bruta` que HU13 ha marcado como
-automatizable (`playbook = "brute_force"`).
+Ejecutar la respuesta automática de un incidente de tipo `fuerza_bruta` (honeypot) o
+`brute_force` (IDS) que HU13 ha marcado como automatizable (`playbook = "brute_force"`).
 
 ## Entrada: `BruteForcePlaybookInput`
 
 Se construye con `BruteForcePlaybookInput.from_incident(incident)` a partir del `Incident` único.
-Si `event_type` no es `fuerza_bruta`, lanza `ValueError`.
+Si `event_type` no es `fuerza_bruta` ni `brute_force`, lanza `ValueError`.
 
 | Campo | Origen |
 |---|---|
 | `incident_id`, `source_ip`, `target_ip` | El incidente |
 | `service` | `details.service` (por defecto `unknown`) |
-| `username` | `details.username` |
-| `failed_attempts` | `details.failed_attempts` (por defecto `1`) |
+| `username`, `usernames` | Honeypot: `details.username`; IDS: `details.usernames` (lista). `username` es el primero para compatibilidad |
+| `failed_attempts` | IDS: `details.attempts`; si falta, `details.failed_attempts`; si falta, `1`. Honeypot: `details.failed_attempts` y, si falta, `1` |
 | `event_type`, `severity`, `priority` | El incidente |
 | `detected_at` | `created_at` del incidente |
 
@@ -65,6 +65,10 @@ Cuerpo enviado (**provisional, pendiente de confirmar con el grupo 7**):
   "severity": "medium",
   "priority": "medium",
   "source_ip": "192.168.1.50",
+  "service": "ssh",
+  "username": "root",
+  "usernames": ["root"],
+  "failed_attempts": 1,
   "playbook": "brute_force",
   "reason": "Incidente compatible con automatizacion",
   "detected_at": "2026-11-03T11:59:58+00:00"
