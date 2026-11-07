@@ -5,6 +5,14 @@ services:
       - "8001:80"
     networks:
       - ciberurjc
+    environment:
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
+      AES_KEY: ${AES_KEY:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      SERVICE_PASSWORD: ${SERVICE_PASSWORD:-}
+      SECRET_DB_PASSWORD: ${SECRET_DB_PASSWORD:-}
+      SECRET_API_KEY: ${SECRET_API_KEY:-}
+      SECRET_JWT_SECRET: ${SECRET_JWT_SECRET:-}
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
       interval: 10s

@@ -1,0 +1,22 @@
+{
+  "result": "PASS",
+  "base_url": "http://localhost:8005",
+  "checks": [
+    "health identifies 05-siem",
+    "three full static alerts",
+    "POST ids",
+    "POST honeypot",
+    "POST scanner",
+    "detail ids",
+    "detail honeypot",
+    "detail scanner",
+    "unknown alert returns JSON 404",
+    "invalid event {",
+    "invalid event {}",
+    "invalid event []",
+    "invalid event null",
+    "unsupported content type",
+    "POST does not mutate static alerts"
+  ],
+  "count": 15
+}

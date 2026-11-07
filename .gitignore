@@ -7,3 +7,9 @@ node_modules/
 .vscode/
 target/
 dist/
+
+*.db
+instance/
+__pycache__/
+.venv/
+.DS_Store

@@ -1,11 +1,3 @@
-/modules/01-identidad/   @org-software-ciber-2627/equipo-08-pentesting
-/modules/02-ids/         @org-software-ciber-2627/equipo-01-identidad
-/modules/03-honeypot/    @org-software-ciber-2627/equipo-02-ids
-/modules/04-escaner/     @org-software-ciber-2627/equipo-03-honeypot
-/modules/05-siem/        @org-software-ciber-2627/equipo-04-escaner
-/modules/06-soar/        @org-software-ciber-2627/equipo-05-siem
-/modules/07-dashboard/   @org-software-ciber-2627/equipo-06-soar
-/modules/08-pentesting/  @org-software-ciber-2627/equipo-07-dashboard
-/docker-compose.yml      @org-software-ciber-2627/equipo-06-soar
-/.github/                @org-software-ciber-2627/equipo-06-soar
-/shared/                 @org-software-ciber-2627/equipo-05-siem @org-software-ciber-2627/equipo-01-identidad
+# Solo los representantes de equipo aprueban PRs, de cualquier módulo.
+# Un rep no puede aprobar su propio PR (regla de GitHub).
+*    @org-software-ciber-2627/reps

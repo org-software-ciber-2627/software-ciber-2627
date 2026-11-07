@@ -54,3 +54,27 @@ jobs:
             exit 0
           fi
           check-jsonschema --schemafile shared/event-schema.json "${files[@]}"
+
+  test-identidad:
+    name: test-identidad
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r modules/01-identidad/src/requirements.txt
+          pip install PyJWT
+
+      - name: Run unit tests
+        env:
+          JWT_SECRET_KEY: "dummy-secret-for-tests"
+          AES_KEY: "0123456789abcdef0123456789abcdef"
+        run: |
+          python -m unittest discover -s modules/01-identidad/tests -p 'test_*.py'

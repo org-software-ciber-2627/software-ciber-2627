@@ -1,0 +1,588 @@
+openapi: 3.0.3
+info:
+  title: Identidad y secretos
+  version: 1.1.0
+  description: |
+    API de autenticación, gestión de usuarios, acceso a secretos y consulta del registro de auditoría.
+
+    **Token.** `POST /auth/login` y `POST /auth/register` devuelven un JWT firmado con HS256
+    (claims: `sub` = nombre de usuario, `role`, `user_id`, `iat`, `exp`). Caducidad: 30 minutos
+    (valor del Sprint 1; cualquier cambio se avisará por Pull Request y por Teams).
+
+    **Cómo validar desde otro módulo.** No decodifiquéis ni verifiquéis el token por vuestra
+    cuenta: llamad a `GET /auth/validate` con la cabecera `Authorization: Bearer <token>`.
+
+    **Roles.** `admin`, `analista` y `servicio`. Los usuarios registrados por `POST /auth/register`
+    nacen con rol `analista`; las cuentas `admin` y `servicio` se precargan en el Sprint 1.
+
+    **Secretos.** `GET /secrets/{clave}` solo está permitido al rol `servicio`.
+
+    **Auditoría (novedad 1.1.0).** El módulo registra los intentos de login (`login_ok`,
+    `login_failed`, `invalid_user`) y los accesos a secretos (`secret_read`, `secret_denied`).
+    `GET /audit` permite consultarlos y solo está permitido al rol `admin`. El registro nunca
+    contiene contraseñas, tokens ni valores de secretos.
+
+    **Salud.** `GET /health` lo usan el CI y el docker-compose del monorepo.
+
+    Resumen de formato de error: `{ "error": "<mensaje>" }` (y `{ "valid": false, "error": "<mensaje>" }`
+    en `/auth/validate`).
+
+    **Historial.** 1.1.0: se añade `GET /audit` (cambio compatible, no modifica los endpoints existentes).
+  contact:
+    name: CypherGate
+servers:
+  - url: http://localhost:8001
+    description: Entorno local con docker compose
+paths:
+  /health:
+    get:
+      summary: Estado del servicio
+      description: Lo consultan el CI y el docker-compose. Debe responder 200 en el puerto interno 80.
+      operationId: health
+      security: []
+      responses:
+        '200':
+          description: Servicio operativo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /auth/register:
+    post:
+      summary: Registro de un usuario
+      description: Registra una nueva cuenta de usuario con rol analista y devuelve un JWT.
+      operationId: register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Usuario registrado con éxito
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+        '400':
+          description: Datos de entrada no válidos o incompletos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: El usuario o el email ya existen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Error no esperado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /auth/login:
+    post:
+      summary: Login
+      description: Autentica a un usuario con nombre de usuario y contraseña y devuelve un JWT. Cada intento queda en el registro de auditoría.
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Usuario y contraseña correctos. Devuelve un JWT.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Falta el nombre de usuario o la contraseña
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Usuario o contraseña incorrectos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Error no esperado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /auth/validate:
+    get:
+      summary: Validar JWT
+      description: Comprueba si el token JWT proporcionado es válido y devuelve la información del usuario y su rol.
+      operationId: validateToken
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Token válido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidateResponse'
+        '401':
+          description: Token inválido, expirado o no autorizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidateError'
+        '500':
+          description: Error no esperado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /secrets/{clave}:
+    get:
+      summary: Obtener secreto
+      description: >
+        Obtiene el secreto asociado a la clave proporcionada. Requiere un token JWT válido
+        y que el usuario esté autenticado con el rol servicio. El acceso (concedido o denegado)
+        queda en el registro de auditoría.
+      operationId: getSecret
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: clave
+          in: path
+          required: true
+          description: Clave del secreto que se desea obtener
+          schema:
+            type: string
+          example: api_key
+      responses:
+        '200':
+          description: Secreto obtenido correctamente
+          headers:
+            Cache-Control:
+              description: Siempre no-store; la respuesta no debe almacenarse en caché.
+              schema:
+                type: string
+                example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretResponse'
+        '400':
+          description: Clave no válida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token inválido, expirado o no autorizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Token válido, pero el rol no es servicio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No se encontró un secreto para la clave proporcionada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Error no esperado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /audit:
+    get:
+      summary: Consultar el registro de auditoría
+      description: >
+        Devuelve los eventos de auditoría (intentos de login y accesos a secretos), del más
+        reciente al más antiguo, con paginación y filtros opcionales. Requiere un token JWT
+        válido con rol admin. Nunca incluye contraseñas, tokens ni valores de secretos.
+        Si no hay eventos que cumplan los filtros devuelve 200 con logs vacío y total 0.
+      operationId: getAudit
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: event_type
+          in: query
+          required: false
+          description: Filtra por tipo de evento
+          schema:
+            $ref: '#/components/schemas/AuditEventType'
+        - name: result
+          in: query
+          required: false
+          description: Filtra por resultado
+          schema:
+            $ref: '#/components/schemas/AuditResult'
+        - name: username
+          in: query
+          required: false
+          description: Filtra por nombre de usuario (coincidencia exacta)
+          schema:
+            type: string
+            maxLength: 50
+        - name: from
+          in: query
+          required: false
+          description: Solo eventos desde esta fecha (incluida), en UTC
+          schema:
+            type: string
+            format: date-time
+          example: '2026-10-22T00:00:00Z'
+        - name: to
+          in: query
+          required: false
+          description: Solo eventos hasta esta fecha (incluida), en UTC
+          schema:
+            type: string
+            format: date-time
+          example: '2026-10-22T23:59:59Z'
+        - name: limit
+          in: query
+          required: false
+          description: Número máximo de eventos por página
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          description: Número de eventos que se saltan (para paginar)
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Lista de eventos (puede estar vacía)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditListResponse'
+        '400':
+          description: Parámetro de consulta no válido (tipo desconocido, fecha mal formada, limit fuera de rango...)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token inválido, expirado o no autorizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Token válido, pero el rol no es admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Error no esperado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - module
+      properties:
+        status:
+          type: string
+          description: Estado del servicio
+          example: ok
+        module:
+          type: string
+          description: Identificador del módulo
+          example: 01-identidad
+    RegisterRequest:
+      type: object
+      required:
+        - username
+        - password
+        - email
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          description: Nombre de usuario
+          example: usuario.ejemplo
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 128
+          description: Contraseña del usuario (nunca se almacena en claro)
+          example: '<tu-contraseña>'
+        email:
+          type: string
+          format: email
+          description: Email del usuario
+          example: usuario.ejemplo@ciberurjc.local
+    RegisterResponse:
+      type: object
+      required:
+        - token
+        - user
+      properties:
+        token:
+          type: string
+          description: Token JWT
+          example: eyJhbGciOiJIUzI1NiIs...
+        user:
+          $ref: '#/components/schemas/UserResponse'
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          description: Nombre de usuario
+          example: usuario.ejemplo
+        password:
+          type: string
+          format: password
+          description: Contraseña del usuario
+          example: '<tu-contraseña>'
+    LoginResponse:
+      type: object
+      required:
+        - token
+        - user
+      properties:
+        token:
+          type: string
+          description: Token de acceso JWT
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        user:
+          $ref: '#/components/schemas/UserResponse'
+    UserResponse:
+      type: object
+      required:
+        - id
+        - username
+        - email
+        - role
+      properties:
+        id:
+          type: integer
+          description: Identificador del usuario
+          example: 1
+        username:
+          type: string
+          description: Nombre de usuario
+          example: usuario.ejemplo
+        email:
+          type: string
+          format: email
+          description: Email del usuario
+          example: usuario.ejemplo@ciberurjc.local
+        role:
+          $ref: '#/components/schemas/Role'
+    Role:
+      type: string
+      enum:
+        - analista
+        - admin
+        - servicio
+      description: Rol del usuario
+      example: analista
+    ValidateResponse:
+      type: object
+      required:
+        - valid
+        - user_id
+        - username
+        - role
+      properties:
+        valid:
+          type: boolean
+          description: Indica si el token es válido
+          example: true
+        user_id:
+          type: integer
+          description: Identificador del usuario (el mismo que `UserResponse.id`)
+          example: 1
+        username:
+          type: string
+          description: Nombre de usuario
+          example: usuario.ejemplo
+        role:
+          $ref: '#/components/schemas/Role'
+    ValidateError:
+      type: object
+      required:
+        - error
+        - valid
+      properties:
+        error:
+          type: string
+          description: Motivo del fallo en la validación del token
+          example: Token inválido, expirado o ausente
+        valid:
+          type: boolean
+          description: Siempre `false`
+          example: false
+    SecretResponse:
+      type: object
+      required:
+        - clave
+        - valor
+      properties:
+        clave:
+          type: string
+          description: Clave del secreto
+          example: api_key
+        valor:
+          type: string
+          description: Valor del secreto descifrado
+          example: '<valor-del-secreto>'
+    AuditEventType:
+      type: string
+      enum:
+        - login_ok
+        - login_failed
+        - invalid_user
+        - secret_read
+        - secret_denied
+      description: >
+        login_ok / login_failed: intento de login con usuario existente. invalid_user: el usuario
+        no existe. secret_read: lectura concedida de un secreto. secret_denied: lectura denegada
+        (rol sin permiso o clave inexistente).
+    AuditResult:
+      type: string
+      enum:
+        - ok
+        - fail
+    AuditDetails:
+      type: object
+      required:
+        - username
+        - role
+        - source_port
+        - clave
+      description: Las claves siempre están presentes; valen null cuando no aplican.
+      properties:
+        username:
+          type: string
+          nullable: true
+          description: Usuario si se conoce. En invalid_user es el nombre que se intentó (la cuenta no existe).
+          example: analista1
+        role:
+          type: string
+          nullable: true
+          enum:
+            - analista
+            - admin
+            - servicio
+            - null
+        source_port:
+          type: integer
+          nullable: true
+          description: Puerto de origen. null si no está disponible.
+          example: 51234
+        clave:
+          type: string
+          nullable: true
+          description: Nombre lógico del secreto consultado (nunca su valor). Solo en secret_read y secret_denied.
+          example: db_password
+    AuditEvent:
+      type: object
+      required:
+        - event_id
+        - timestamp
+        - source
+        - event_type
+        - result
+        - source_ip
+        - details
+      properties:
+        event_id:
+          type: string
+          pattern: '^g1-log-[0-9]+-[0-9]+$'
+          description: Identificador estable del evento (no se repite ni tras reiniciar)
+          example: g1-log-1792681201000-1
+        timestamp:
+          type: string
+          format: date-time
+          description: UTC, formato AAAA-MM-DDThh:mm:ssZ
+          example: '2026-10-22T15:00:01Z'
+        source:
+          type: string
+          enum:
+            - identity
+          description: Módulo que genera el evento
+        event_type:
+          $ref: '#/components/schemas/AuditEventType'
+        result:
+          $ref: '#/components/schemas/AuditResult'
+        source_ip:
+          type: string
+          description: IP de la conexión (no se lee X-Forwarded-For)
+          example: 10.0.0.15
+        details:
+          $ref: '#/components/schemas/AuditDetails'
+    AuditListResponse:
+      type: object
+      required:
+        - logs
+        - total
+        - limit
+        - offset
+      properties:
+        logs:
+          type: array
+          description: Eventos de la página, del más reciente al más antiguo
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        total:
+          type: integer
+          description: Eventos que cumplen los filtros (sin contar la paginación)
+          example: 6
+        limit:
+          type: integer
+          example: 50
+        offset:
+          type: integer
+          example: 0
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Mensaje de error
+          example: Usuario o contraseña incorrectos

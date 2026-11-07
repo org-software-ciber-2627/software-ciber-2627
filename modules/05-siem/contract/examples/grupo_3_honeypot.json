@@ -1,0 +1,16 @@
+{
+  "event_id": "HP-981839239323",
+  "timestamp": "2026-09-22T18:30:15Z",
+  "source": "honeypot",
+  "event_type": "fuerza_bruta",
+  "severity": "medium",
+  "title": "Intento de fuerza bruta en el honeypot",
+  "description": "El honeypot ha registrado un evento clasificado como fuerza bruta sobre SSH.",
+  "details": {
+    "source_ip": "192.168.1.50",
+    "service": "ssh",
+    "username": "root",
+    "credential": "123456",
+    "command": null
+  }
+}
