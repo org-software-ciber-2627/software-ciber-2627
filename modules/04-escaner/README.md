@@ -1,7 +1,7 @@
 # Módulo 4 · Escáner de vulnerabilidades
 
 Equipo: `equipo-04-escaner`  
-Puerto externo: `8004`
+Puerto externo: `80` (o `8004` para pruebas en local)
 
 API Flask que ejecuta Nmap en segundo plano y permite consultar
 los escaneos y sus informes.
