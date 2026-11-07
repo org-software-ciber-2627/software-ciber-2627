@@ -24,16 +24,16 @@ Sprint 1: página estática (nginx) que lista las alertas del SIEM ordenadas por
 | DASHG7-22 · Listado de alertas del SIEM | Tabla con severidad, título, módulo y hora, ordenada por severidad y fecha. Muestra un mensaje de error si no hay datos. | En el Sprint 1 leía el mock `mocks/siem-alerts.json`; desde el Sprint 2 lee el SIEM real a través del proxy de nginx. |
 | DASHG7-25 · Refresco periódico de datos | Vuelve a pedir las alertas cada 30 s y muestra la hora de la última actualización. | Refresco simple (sin websockets), como indica el enunciado. |
 
-Avance parcial (maqueta, **no** es la historia DASHG7-19 terminada): `login.html` con formulario de usuario y contraseña (DASHG7-46) y un botón «Cerrar Sesión» en la página principal. El login **no consulta a Identidad**: acepta cualquier usuario y contraseña y guarda un token de prueba en `sessionStorage`. Es solo una protección de interfaz, no autenticación real.
+Avance de la historia DASHG7-19: `login.html` contiene el formulario de usuario y contraseña y consulta al servicio Identidad para autenticar al usuario. El token JWT recibido se guarda en `sessionStorage`. El Dashboard valida la sesión mediante Identidad antes de mostrar la página principal. Ya no se utiliza el token de prueba de la maqueta inicial.
 
-Pendiente para el Sprint 2: login real contra Identidad (DASHG7-19 y DASHG7-47) con expiración del token (DASHG7-20), detalle de alerta, hallazgos del escáner y aviso de datos no actualizados.
+Pendiente para el Sprint 2: completar la gestión de expiración del token durante el uso del Dashboard (DASHG7-20), detalle de alerta, hallazgos del escáner y aviso de datos no actualizados.
 
 ## Cómo probarlo
 ```bash
 cp .env.example .env
 docker compose up --build dashboard
 ```
-Abrid `http://localhost:8007`: redirige a `login.html`; entrad con cualquier usuario y contraseña y se mostrarán las alertas. Comprobad también `curl -f http://localhost:8007/health`.
+Abrid `http://localhost:8007`: si no existe una sesión válida, redirige a `login.html`. Iniciad sesión con una cuenta válida del servicio Identidad para acceder a las alertas. Comprobad también `curl -f http://localhost:8007/health`.
 
 Para hacerlo todo de una vez (arranca, comprueba y limpia al terminar, sin tocar vuestro `.env`), con Docker en marcha:
 

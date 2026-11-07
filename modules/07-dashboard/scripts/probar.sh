@@ -267,7 +267,7 @@ fi
 echo
 if [ "$FAIL" = 0 ]; then printf '\033[32mTODO CORRECTO\033[0m\n'; else printf '\033[31mHAY FALLOS (arriba)\033[0m\n'; fi
 echo
-echo "Prueba visual: abre http://localhost:8007. Te lleva al login: entra con cualquier usuario y contraseña."
+echo "Prueba visual: abre http://localhost:8007. Te lleva al login: inicia sesión con una cuenta válida del servicio Identidad."
 echo "Después deberías ver las alertas reales del SIEM ordenadas por severidad (si el SIEM no tiene ninguna,"
 echo "la lista sale vacía), la hora real en 'Última actualización' (cambia sola cada 30 s) y el botón"
 echo "'Cerrar Sesión', que te devuelve al login."
