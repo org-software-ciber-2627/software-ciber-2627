@@ -41,3 +41,14 @@ Para hacerlo todo de una vez (arranca, comprueba y limpia al terminar, sin tocar
 |---|---|
 | Linux y macOS | `bash modules/07-dashboard/scripts/probar.sh` |
 | Windows (PowerShell) | `powershell -ExecutionPolicy Bypass -File modules\07-dashboard\scripts\probar.ps1` |
+
+**Nota:** Las opciones de los scripts se escriben por separado (`-s -m`, no `-sm`). En PowerShell se utilizan igual.
+
+| Opción | Qué hace |
+|---|---|
+| `-s` | No reconstruye las imágenes: usa las existentes. Tras un `git pull` con cambios, ejecuta antes sin opciones. |
+| `-m` | Al terminar deja todo levantado, sin esperar a Enter. |
+| `-c` | Solo comprueba lo que ya está corriendo, sin arrancar nada. |
+| `-p` | Para y borra lo que dejó `-m`. No hace pruebas. |
+| `-n` | No arranca ni comprueba los mocks de SOAR y Escáner. |
+| `-h` | Muestra la ayuda. |
