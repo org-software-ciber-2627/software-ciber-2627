@@ -1,4 +1,4 @@
-"""Módulo 1 · Identidad y secretos: servicio HTTP completo en un único fichero (contrato v1.0.2).
+"""Módulo 1 · Identidad y secretos: servicio HTTP completo en un único fichero (contrato v1.3.0).
 
 Sprint 1: GET /health, POST /auth/register (AAA-18), POST /auth/login (AAA-3) y emisión del
 token (AAA-19). Además incluye GET /auth/validate (adelanta AAA-20) y GET /secrets/{clave}
@@ -14,6 +14,9 @@ Variables de entorno:
   DATABASE_URL        opcional; por defecto sqlite:///identidad.db
   TRUSTED_PROXY_HOPS  opcional; nº de proxies de confianza delante (0 = ninguno, por defecto)
   JWT_EXPIRES_SECONDS opcional; por defecto 1800 (30 minutos, como dice el contrato)
+  IDS_URL             opcional; destino del envío de logs (por defecto http://ids/logs)
+  IDS_RETRY_SECONDS   opcional; espera base entre reintentos de envío al IDS (por defecto 30)
+  IDS_REINTENTOS      opcional; "0" desactiva el hilo de reintentos (lo usan los tests)
   ADMIN_PASSWORD      opcional; si existe se crea la cuenta "admin"
   SERVICE_PASSWORD    opcional; si existe se crea la cuenta "servicio"
   SECRET_DB_PASSWORD, SECRET_API_KEY, SECRET_JWT_SECRET
@@ -21,9 +24,14 @@ Variables de entorno:
 """
 import base64
 import os
+import math
 import re
-from datetime import datetime, timezone
+import tempfile
+import threading
+import time
+from datetime import datetime, timedelta, timezone
 
+import requests as http_client
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_jwt_extended import (JWTManager, create_access_token, decode_token,
@@ -37,6 +45,11 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from crypto import decrypt, encrypt
+
+try:
+    import fcntl  # solo Linux/macOS (el contenedor); en Windows no existe
+except ImportError:
+    fcntl = None
 
 
 class ConfigError(RuntimeError):
@@ -74,10 +87,13 @@ if TRUSTED_PROXY_HOPS > 0:
 db  = SQLAlchemy(app)
 jwt = JWTManager(app)
 
-# CORS restringido al dashboard (puerto 8007). Solo los endpoints de autenticación lo necesitan.
+# CORS restringido al dashboard (puerto 8007). Solo los endpoints de autenticación que llama
+# el navegador lo necesitan: login, registro, validación de sesión y cierre de sesión.
 CORS(app, resources={
     r"/auth/login":    {"origins": "http://localhost:8007"},
     r"/auth/register": {"origins": "http://localhost:8007"},
+    r"/auth/validate": {"origins": "http://localhost:8007"},
+    r"/auth/logout":   {"origins": "http://localhost:8007"},
 })
 
 # Roles del contrato (shared/auth-contract.md). Los usuarios registrados nacen como "analista".
@@ -85,7 +101,24 @@ ROLES = ("admin", "analista", "servicio")
 DEFAULT_ROLE = "analista"
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 CLAVE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
-EVENTOS = ("login_ok", "login_failed", "invalid_user", "secret_read", "secret_denied")
+EVENTOS = ("login_ok", "login_failed", "invalid_user", "secret_read", "secret_denied", "limit_exceeded")
+
+IDS_URL   = os.environ.get("IDS_URL", "http://ids/logs")
+_LOG_HOST = "identidad"  # fijo: el contenido de raw_line debe ser idéntico en cada reintento
+ids_lock  = threading.Lock()
+
+IDS_RETRY_SECONDS = int(os.environ.get("IDS_RETRY_SECONDS", "30"))  # espera base entre reintentos
+IDS_RETRY_MIN_AGE = 10  # un evento pendiente solo cuenta como fallo si tiene más de 10 s
+_LOCK_PATH = os.path.join(tempfile.gettempdir(), "identidad-ids-reintentos.lock")
+
+
+# Caracteres que rompen el formato key=value en syslog: controles, espacio y '='
+_LOG_UNSAFE = re.compile(r'[\x00-\x1f\x7f =]')
+
+
+def _sanitize_log_field(value):
+    """Percent-encodes space, '=' y controles para evitar inyección de campos en syslog."""
+    return _LOG_UNSAFE.sub(lambda m: f"%{ord(m.group()):02X}", value)
 
 
 # ── Modelos ───────────────────────────────────────────────────────────────────
@@ -213,11 +246,176 @@ def get_aes_key():
     return key
 
 
+def _format_raw_line(log):
+    """Línea syslog al estilo OpenSSH para que el IDS active las reglas (P004, etc.).
+
+    Mapeo de eventos a mensajes reconocidos por log_parser.py del IDS:
+      login_failed  → Failed password for <user> from <ip> port <port> ssh2
+      invalid_user  → Failed password for invalid user <user> from <ip> port <port> ssh2
+      login_ok      → Accepted password for <user> from <ip> port <port> ssh2
+      limit_exceeded→ authentication attempts exceeded from <ip> port <port>
+      otros         → mensaje genérico (secret_read, secret_denied, …)
+    """
+    ts = log.timestamp
+    prefix = ts.strftime("%b") + " " + str(ts.day).rjust(2) + ts.strftime(" %H:%M:%S")
+
+    ip = _sanitize_log_field(log.source_ip or "unknown")
+    port_part = f" port {log.source_port}" if log.source_port else ""
+    user = _sanitize_log_field(log.username) if log.username else "unknown"
+
+    if log.event_type == "login_ok":
+        message = f"Accepted password for {user} from {ip}{port_part} ssh2"
+    elif log.event_type == "login_failed":
+        message = f"Failed password for {user} from {ip}{port_part} ssh2"
+    elif log.event_type == "invalid_user":
+        # "Failed password for invalid user" activa event_type=failed_login en el IDS
+        # y hace que P004 cuente también los intentos con usuario inexistente.
+        message = f"Failed password for invalid user {user} from {ip}{port_part} ssh2"
+    elif log.event_type == "limit_exceeded":
+        message = f"authentication attempts exceeded from {ip}{port_part}"
+    else:
+        # secret_read, secret_denied: sin equivalente OpenSSH → mensaje informativo genérico
+        # Todo valor que pueda venir del usuario se sanea (la clave de un secreto denegado llega
+        # sin validar): sin espacios ni saltos de línea no puede fabricar una línea de login falsa.
+        parts = [f"event={_sanitize_log_field(log.event_type)}", f"result={_sanitize_log_field(log.result)}"]
+        if log.username:
+            parts.append(f"user={_sanitize_log_field(log.username)}")
+        parts.append(f"from={ip}")
+        if log.clave:
+            parts.append(f"clave={_sanitize_log_field(log.clave)}")
+        message = " ".join(parts)
+
+    # host fijo y "pid" = id de la fila: así la misma línea sale igual tras reiniciar el servicio.
+    return f"{prefix} {_LOG_HOST} identidad[{log.id}]: {message}"
+
+
+def enviar_lote_al_ids():
+    """Consulta los registros pendientes y los envía en lotes al IDS (AAA-84)."""
+    if not ids_lock.acquire(blocking=False):
+        return 0
+
+    try:
+        total_enviados = 0
+        while True:
+            pendientes = (
+                AuditLog.query
+                .filter_by(enviado=False)
+                .order_by(AuditLog.timestamp.asc(), AuditLog.id.asc())
+                .limit(200)
+                .all()
+            )
+            if not pendientes:
+                break
+
+            payload = {
+                "source": "01-identidad",
+                "logs": [
+                    {"id": log.log_id, "raw_line": _format_raw_line(log)}
+                    for log in pendientes
+                ],
+            }
+            try:
+                resp = http_client.post(IDS_URL, json=payload, timeout=2)
+                # El contrato del IDS define 202 como único éxito. Un 200 no lo es: puede ser un
+                # servidor equivocado (p. ej. el contenedor placeholder) que descarta los logs.
+                if resp.status_code == 202:
+                    for log in pendientes:
+                        log.enviado = True
+                    db.session.commit()
+                    total_enviados += len(pendientes)
+                else:
+                    if resp.status_code in (400, 413, 415):
+                        tipo = "rechazo permanente (hay que corregir el payload; reintentar no lo arregla)"
+                    else:
+                        tipo = "respuesta inesperada o error temporal (se reintentará)"
+                    app.logger.error(f"IDS: {tipo}: {resp.status_code} - {resp.text}")
+                    break
+            except Exception as e:
+                db.session.rollback()
+                app.logger.error(f"Error de red conectando al IDS: {e}")
+                break
+        return total_enviados
+    finally:
+        ids_lock.release()
+
+
+
+def _enviar_al_ids(_log=None):
+    """Dispara el envío del lote pendiente al IDS en segundo plano sin bloquear el endpoint."""
+    def _send():
+        with app.app_context():
+            enviar_lote_al_ids()
+
+    threading.Thread(target=_send, daemon=True).start()
+
+def _espera_reintento(fallos):
+    return min(IDS_RETRY_SECONDS * 2 ** fallos, 300)  # 30, 60, 120, 240, 300 s
+
+
+def _hay_pendientes_antiguos():
+    limite = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=IDS_RETRY_MIN_AGE)
+    return db.session.query(AuditLog.id).filter(
+        AuditLog.enviado.is_(False), AuditLog.timestamp <= limite
+    ).first() is not None
+
+
+def _con_candado(funcion):
+    """Ejecuta funcion() solo si ningún otro proceso del contenedor está reintentando.
+    Devuelve None si otro proceso tiene el candado."""
+    if fcntl is None:
+        return funcion()
+    with open(_LOCK_PATH, "a+") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return None
+        try:
+            return funcion()
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def _ciclo_reintento():
+    """Un intento de vaciar la cola. True si no queda nada pendiente (o ya lo hace otro proceso)."""
+    with app.app_context():
+        if _con_candado(enviar_lote_al_ids) is None:
+            return True
+        return not _hay_pendientes_antiguos()
+
+
+def _bucle_reintentos():
+    fallos = 0
+    while True:
+        time.sleep(_espera_reintento(fallos))
+        try:
+            ok = _ciclo_reintento()
+        except Exception:
+            ok = False
+        fallos = 0 if ok else min(fallos + 1, 4)  # IDS caído: espera cada vez mayor
+
+
+_reintentos_pid = None
+_reintentos_lock = threading.Lock()
+
+
+@app.before_request
+def _arrancar_reintentos_en_este_proceso():
+    """Arranca el hilo de reintentos una vez por proceso (con gunicorn --preload, uno por worker)."""
+    global _reintentos_pid
+    if os.environ.get("IDS_REINTENTOS", "1") != "1" or _reintentos_pid == os.getpid():
+        return
+    with _reintentos_lock:
+        if _reintentos_pid != os.getpid():
+            _reintentos_pid = os.getpid()
+            threading.Thread(target=_bucle_reintentos, daemon=True, name="ids-reintentos").start()
+
+
+
 def registrar_evento(event_type, result, username=None, role=None, clave=None):
-    """Guarda un evento de auditoría. Un fallo aquí nunca debe tumbar el endpoint."""
+    """Guarda un evento de auditoría y lo reenvía al IDS. Un fallo aquí nunca debe tumbar el endpoint."""
     try:
         puerto = request.environ.get("REMOTE_PORT")
-        db.session.add(AuditLog(
+        log = AuditLog(
             event_type=event_type, result=result,
             username=username[:50] if username else None, role=role, clave=clave,
             # Con TRUSTED_PROXY_HOPS>0, ProxyFix ya resolvió request.remote_addr a la IP
@@ -225,11 +423,33 @@ def registrar_evento(event_type, result, username=None, role=None, clave=None):
             # IP de la conexión TCP directa y X-Forwarded-For se ignora (no es falsificable).
             source_ip=request.remote_addr or "unknown",
             source_port=int(puerto) if puerto and str(puerto).isdigit() and not TRUSTED_PROXY_HOPS else None,
-        ))
+        )
+        db.session.add(log)
         db.session.commit()
+        _enviar_al_ids(log)
     except Exception:
         db.session.rollback()
 
+def registrar_evento_login(event_type, result, username=None, role=None, ip=None):
+    """Registra un evento de login; propaga los errores de persistencia."""
+    puerto = request.environ.get("REMOTE_PORT")
+    log = AuditLog(
+        event_type=event_type,
+        result=result,
+        username=username[:50] if username else None,
+        role=role,
+        source_ip=ip or request.remote_addr or "unknown",
+        source_port=(
+            int(puerto)
+            if puerto and str(puerto).isdigit() and not TRUSTED_PROXY_HOPS
+            else None
+        ),
+    )
+    db.session.add(log)
+    # Si falla, la excepción llega al endpoint,
+    # se evita que puedas autenticarte sin registrar los fallos
+    db.session.commit()
+    _enviar_al_ids(log)
 
 def crear_token(user):
     """JWT HS256 con sub (nombre de usuario), role, user_id, iat y exp (30 min por defecto)."""
@@ -267,6 +487,33 @@ def check_auth(required_roles=None):
         return None, ("El rol no tiene permiso para este recurso", 403)
     return claims, None
 
+MAX_LOGIN_FAILURES = 5
+LOGIN_WINDOW = timedelta(minutes=15)
+
+def obtener_bloqueo_login(username, ip):
+    """Calcula cuánto tiempo queda de bloqueo para una pareja usuario + IP."""
+    ahora = datetime.now(timezone.utc).replace(tzinfo=None)
+    desde = ahora - LOGIN_WINDOW
+    fallos = (
+        AuditLog.query
+        .filter(
+            AuditLog.username == username[:50],
+            AuditLog.source_ip == ip,
+            AuditLog.result == "fail",
+            AuditLog.event_type.in_(("login_failed", "invalid_user")),
+            AuditLog.timestamp >= desde,
+            AuditLog.timestamp <= ahora,
+        )
+        .order_by(AuditLog.timestamp.desc())
+        .limit(MAX_LOGIN_FAILURES)
+        .all()
+    )
+    if len(fallos) < MAX_LOGIN_FAILURES:
+        return 0
+    # El fallo más antiguo de los cinco más recientes determina cuándo vuelve a haber menos de cinco fallos en la ventana.
+    expiracion = fallos[-1].timestamp + LOGIN_WINDOW
+    restante = math.ceil((expiracion - ahora).total_seconds())
+    return max(0, restante)
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -296,32 +543,52 @@ def login():
     password = data.get("password") if isinstance(data, dict) else None
     if not (isinstance(username, str) and username and isinstance(password, str) and password):
         return jsonify(error="Falta el nombre de usuario o la contraseña"), 400
-    user = User.query.filter_by(username=username).first()
-    if user is None:
-        check_password_hash(_DUMMY_HASH, password)  # tiempo parecido exista o no la cuenta
-        registrar_evento("invalid_user", "fail", username=username)
+    ip = request.remote_addr or "unknown"
+    try:
+        # Consultar el bloqueo ANTES de verificar la contraseña.
+        espera = obtener_bloqueo_login(username, ip)
+        if espera > 0:
+            # El bloqueo ya está activo: no registrar otro limit_exceeded.
+            respuesta = jsonify(error="Demasiados intentos. Inténtalo más tarde.")
+            respuesta.headers["Retry-After"] = str(espera)
+            return respuesta, 429
+        user = User.query.filter_by(username=username).first()
+        if user is None:
+            check_password_hash(_DUMMY_HASH, password)  # tiempo parecido exista o no la cuenta
+            registrar_evento_login("invalid_user", "fail", username=username,ip=ip)
+        elif not user.check_password(password):
+            registrar_evento_login("login_failed", "fail", username=user.username, role=user.role,ip=ip)
+        else:
+            registrar_evento_login("login_ok", "ok", username=user.username, role=user.role,ip=ip)
+            return jsonify(token=crear_token(user), user=user.to_dict()), 200
+        # Tras registrar el fallo, comprobar si acaba de alcanzarse el límite.
+        espera = obtener_bloqueo_login(username, ip)
+        if espera > 0:
+            registrar_evento_login("limit_exceeded", "fail", username=username, ip=ip)
+            respuesta = jsonify(error="Demasiados intentos. Inténtalo más tarde.")
+            respuesta.headers["Retry-After"] = str(espera)
+            return respuesta, 429
         return jsonify(error="Usuario o contraseña incorrectos"), 401
-    if not user.check_password(password):
-        registrar_evento("login_failed", "fail", username=user.username, role=user.role)
-        return jsonify(error="Usuario o contraseña incorrectos"), 401
-    registrar_evento("login_ok", "ok", username=user.username, role=user.role)
-    return jsonify(token=crear_token(user), user=user.to_dict()), 200
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Error al procesar el login")
+        return jsonify(error="Error no esperado"), 500
+    
 
 
 @app.post("/auth/logout")
 def logout():
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return jsonify(error="Token inválido, expirado o ausente"), 401
-    raw_token = auth_header.split(" ", 1)[1].strip()
-    try:
-        decoded = decode_token(raw_token)
-    except Exception:
-        return jsonify(error="Token inválido, expirado o ausente"), 401
-    jti = decoded["jti"]
+    """Revoca el token actual insertando su JTI en la blocklist."""
+    claims, err = check_auth()
+    if err:
+        return jsonify(error=err[0]), err[1]
+
+    jti = claims["jti"]
+    # Solo lo insertamos si no existe ya (evita errores de integridad)
     if not TokenBlocklist.query.filter_by(jti=jti).first():
         db.session.add(TokenBlocklist(jti=jti))
         db.session.commit()
+
     return jsonify(message="Token revocado"), 200
 
 
@@ -359,22 +626,6 @@ def leer_secreto(clave):
     respuesta = jsonify(clave=clave, valor=valor)
     respuesta.headers["Cache-Control"] = "no-store"  # contrato: nunca en caché
     return respuesta
-
-
-# ── Logs ─────────────────────────────────────────────────────────────────────
-
-@app.get("/logs")
-def get_logs():
-    claims, err = check_auth(required_roles=["admin", "servicio"])
-    if err:
-        return jsonify(error=err[0]), err[1]
-    logs = (
-        AuditLog.query
-        .order_by(AuditLog.timestamp.desc())
-        .limit(50)
-        .all()
-    )
-    return jsonify(logs=[l.to_dict() for l in logs], total=len(logs))
 
 
 # ── Salud y errores ───────────────────────────────────────────────────────────

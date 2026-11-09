@@ -6,6 +6,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   build-and-health:
     name: build-and-health
@@ -78,3 +81,43 @@ jobs:
           AES_KEY: "0123456789abcdef0123456789abcdef"
         run: |
           python -m unittest discover -s modules/01-identidad/tests -p 'test_*.py'
+
+  test-ids:
+    name: test-ids
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r modules/02-ids/src/requirements.txt
+      
+      - name: Run tests
+        run: python -m unittest discover -s modules/02-ids/src/tests -p '*.py'
+
+  dashboard-tests:
+    name: dashboard-tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modules/07-dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: modules/07-dashboard/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run dashboard tests
+        run: npm test

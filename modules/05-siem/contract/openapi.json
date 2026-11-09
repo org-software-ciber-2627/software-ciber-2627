@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "SIEM · Contrato de integración (SEM-6)",
-    "version": "0.2.0-sprint1-review",
-    "description": "Sprint 1 mock candidate aligned with the communicated 200/400 behavior. Intergroup ratification and PO acceptance are pending. No persistence, correlation or authentication is implemented."
+    "title": "SIEM · Event ingestion and static alerts",
+    "version": "0.3.0-sprint2",
+    "description": "Persistent event ingestion, paginated event history and real alert queries."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -16,8 +16,6 @@
       "description": "Docker network ciberurjc"
     }
   ],
-  "x-status": "draft-pending-agreement",
-  "x-authentication-status": "Pending Identity contract: admin, analista, servicio roles exist; credential format and SIEM endpoint permissions unspecified. No public-access policy is established.",
   "paths": {
     "/health": {
       "get": {
@@ -25,7 +23,7 @@
         "summary": "Salud del módulo",
         "responses": {
           "200": {
-            "description": "Respuesta de salud confirmada en la configuración del placeholder.",
+            "description": "Service health response.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44,8 +42,8 @@
     "/events": {
       "post": {
         "operationId": "receiveEvent",
-        "summary": "Receive a mock security event",
-        "description": "One event per request. Returns 200 without persistence, deduplication or alert generation. Invalid event bodies return 400.",
+        "summary": "Store a security event",
+        "description": "Stores validated events before acknowledging them. Non-informational events generate alerts.",
         "requestBody": {
           "required": true,
           "content": {
@@ -55,7 +53,7 @@
               },
               "examples": {
                 "ids": {
-                  "summary": "Simulado, pendiente de grupo 2",
+                  "summary": "Example IDS event",
                   "value": {
                     "event_id": "IDS-EJEMPLO-001",
                     "timestamp": "2026-09-22T18:30:15Z",
@@ -75,7 +73,7 @@
                   }
                 },
                 "honeypot": {
-                  "summary": "Ejemplo adaptado disponible",
+                  "summary": "Example honeypot event",
                   "value": {
                     "event_id": "HP-981839239323",
                     "timestamp": "2026-09-22T18:30:15Z",
@@ -94,7 +92,7 @@
                   }
                 },
                 "scanner": {
-                  "summary": "Ejemplo adaptado disponible",
+                  "summary": "Example scanner event",
                   "value": {
                     "event_id": "b52ee782-265f-4ec7-a719-484460628ef9",
                     "timestamp": "2026-09-29T10:30:00Z",
@@ -119,6 +117,51 @@
                       "cvss": null
                     }
                   }
+                },
+                "scannerInfo": {
+                  "summary": "Informational scanner observation; target address is a sanitized placeholder.",
+                  "value": {
+                    "event_id": "SCAN-INFO-EXAMPLE-001",
+                    "timestamp": "2026-09-29T10:30:00Z",
+                    "source": "scanner",
+                    "event_type": "service_detected",
+                    "severity": "info",
+                    "title": "Service detected: http",
+                    "description": "HTTP service detected on TCP port 80.",
+                    "details": {
+                      "target": {
+                        "ip": "192.168.X.X",
+                        "port": 80,
+                        "protocol": "tcp",
+                        "service": "http"
+                      },
+                      "scan_id": "SCAN-EXAMPLE-001",
+                      "tool": "nmap",
+                      "profile": "web",
+                      "script_id": null,
+                      "evidence": null,
+                      "cve": null,
+                      "cvss": null
+                    }
+                  }
+                },
+                "pentesting": {
+                  "summary": "Pentesting finding",
+                  "value": {
+                    "event_id": "pt-zap-0001",
+                    "timestamp": "2026-11-04T12:00:00Z",
+                    "source": "pentesting",
+                    "event_type": "vulnerability_detected",
+                    "severity": "medium",
+                    "title": "Cross-Domain Misconfiguration",
+                    "description": "CORS misconfiguration permits cross-domain read requests from arbitrary origins.",
+                    "details": {
+                      "tool": "OWASP ZAP",
+                      "target": "http://juice-shop:3000",
+                      "instances": 15,
+                      "solution": "Configure Access-Control-Allow-Origin to a restrictive set of domains."
+                    }
+                  }
                 }
               }
             }
@@ -126,7 +169,7 @@
         },
         "responses": {
           "200": {
-            "description": "Mock event received; nothing is stored.",
+            "description": "Event stored or identical replay acknowledged without inserting another row.",
             "content": {
               "application/json": {
                 "schema": {
@@ -134,7 +177,7 @@
                 },
                 "example": {
                   "status": "success",
-                  "message": "Event received successfully (mock)",
+                  "message": "Event stored successfully",
                   "event_id": "HP-981839239323"
                 }
               }
@@ -183,6 +226,305 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Same source and event_id with different content; the original is preserved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "EVENT_ID_CONFLICT",
+                    "message": "The event identifier already belongs to different content"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Persistence disabled or storage unavailable during the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "STORAGE_UNAVAILABLE",
+                    "message": "Event storage is temporarily unavailable"
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body exceeds the configured limit (default 65536 bytes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "PAYLOAD_TOO_LARGE",
+                    "message": "The request body exceeds the maximum allowed size"
+                  }
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Alert capacity reached. The event is stored and its alert may be retried.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "STORAGE_FULL",
+                    "message": "Alert storage has reached its capacity"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listEventHistory",
+        "summary": "List stored security events",
+        "description": "Requires persistence. Fixed order: occurred_at DESC, source ASC, event_id ASC; timestamp retains original_timestamp when available, otherwise UTC occurred_at. limit+1 rows detect continuation without counting the table. Only limit and offset are accepted, each at most once, as 1 to 19 ASCII decimal digits without signs or whitespace. Values must fit a Java long and offset <= 9223372036854775807 - limit. Blank, duplicate and unknown parameters return 400. OFFSET is not a snapshot: concurrent inserts can repeat or skip rows, and large offsets can be costly. The row limit does not bound response bytes. History reads configure a 5-second JDBC statement timeout, not a request deadline. No filters or IAM protection are implemented. next includes the Servlet context; an extra public proxy prefix requires deployment configuration.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum returned events. Integer value represented using 1 to 19 ASCII digits.",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            },
+            "example": 100
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Rows skipped in fixed order. Integer value represented using 1 to 19 ASCII digits. Must also satisfy offset <= 9223372036854775807 - limit.",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0,
+              "maximum": 9223372036854775806,
+              "default": 0
+            },
+            "example": 0
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Persisted events in fixed order; empty collections return 200. No total count.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Prevents caching event data and handled history errors.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventHistoryResponse"
+                },
+                "examples": {
+                  "empty": {
+                    "value": {
+                      "events": [],
+                      "next_offset": null,
+                      "next": null
+                    }
+                  },
+                  "lastPage": {
+                    "value": {
+                      "events": [
+                        {
+                          "event_id": "HISTORY-EXAMPLE-001",
+                          "timestamp": "2026-10-29T12:00:00.123456789Z",
+                          "source": "scanner",
+                          "event_type": "vulnerability_detected",
+                          "severity": "low",
+                          "title": "History example",
+                          "description": "Synthetic history contract fixture",
+                          "details": {
+                            "nested": [
+                              null,
+                              true,
+                              42
+                            ],
+                            "decimal": 1.25
+                          }
+                        }
+                      ],
+                      "next_offset": null,
+                      "next": null
+                    }
+                  },
+                  "continuation": {
+                    "value": {
+                      "events": [
+                        {
+                          "event_id": "HISTORY-EXAMPLE-001",
+                          "timestamp": "2026-10-29T12:00:00.123456789Z",
+                          "source": "scanner",
+                          "event_type": "vulnerability_detected",
+                          "severity": "low",
+                          "title": "History example",
+                          "description": "Synthetic history contract fixture",
+                          "details": {
+                            "nested": [
+                              null,
+                              true,
+                              42
+                            ],
+                            "decimal": 1.25
+                          }
+                        }
+                      ],
+                      "next_offset": 1,
+                      "next": "/events?limit=1&offset=1"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid, duplicate, unknown or unsafe query parameters.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Prevents caching event data and handled history errors.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "properties": {
+                            "code": {
+                              "const": "VALIDATION_ERROR"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Invalid history query parameters"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Persistence disabled, unavailable storage or query timeout.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Prevents caching event data and handled history errors.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "properties": {
+                            "code": {
+                              "const": "STORAGE_UNAVAILABLE"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                "example": {
+                  "error": {
+                    "code": "STORAGE_UNAVAILABLE",
+                    "message": "Event storage is temporarily unavailable"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected history execution error; internal details are not exposed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Prevents caching event data and handled history errors.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "properties": {
+                            "code": {
+                              "const": "INTERNAL_ERROR"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Event history could not be retrieved"
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -191,7 +533,7 @@
       "get": {
         "operationId": "listAlerts",
         "summary": "Consultar alertas",
-        "description": "Sin filtros, paginación ni orden garantizado en esta propuesta. Lista vacía: {\"alerts\": []}. El mock contiene una alerta por evento.",
+        "description": "All currently stored alerts without filtering, pagination, truncation or guaranteed order. Empty result: {\"alerts\": []}. In-memory storage is lost on restart.",
         "responses": {
           "200": {
             "description": "Lista de alertas.",
@@ -272,6 +614,38 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Alert storage is temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "STORAGE_UNAVAILABLE",
+                    "message": "Alert storage is temporarily unavailable"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unexpected error occurred",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "An unexpected error occurred"
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -338,6 +712,38 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Alert storage is temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "STORAGE_UNAVAILABLE",
+                    "message": "Alert storage is temporarily unavailable"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unexpected error occurred",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "An unexpected error occurred"
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -362,8 +768,9 @@
           "event_id": {
             "type": "string",
             "minLength": 1,
-            "description": "Unique within source; stable on retries. UUID is not required.",
-            "pattern": "\\S"
+            "maxLength": 128,
+            "description": "Unique within source; stable on retries. UUID is not required. Letters, digits, dot, underscore, colon and hyphen only.",
+            "pattern": "^[A-Za-z0-9._:-]{1,128}$"
           },
           "timestamp": {
             "type": "string",
@@ -376,23 +783,26 @@
             "enum": [
               "ids",
               "honeypot",
-              "scanner"
+              "scanner",
+              "pentesting"
             ]
           },
           "event_type": {
             "type": "string",
             "minLength": 1,
-            "description": "Shared catalog pending; existing examples retained.",
+            "description": "Event type reported by the producer.",
             "pattern": "\\S"
           },
           "severity": {
             "type": "string",
             "enum": [
+              "info",
               "low",
               "medium",
               "high",
               "critical"
-            ]
+            ],
+            "description": "info denotes an informational observation; it does not imply a vulnerability or generate an alert."
           },
           "title": {
             "type": "string",
@@ -407,7 +817,7 @@
           "details": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Producer-specific data; internal validation pending agreement."
+            "description": "Producer-specific event attributes."
           }
         }
       },
@@ -444,7 +854,8 @@
             "enum": [
               "ids",
               "honeypot",
-              "scanner"
+              "scanner",
+              "pentesting"
             ]
           },
           "event_type": {
@@ -542,7 +953,11 @@
                   "UNSUPPORTED_MEDIA_TYPE",
                   "VALIDATION_ERROR",
                   "ALERT_NOT_FOUND",
-                  "INTERNAL_ERROR"
+                  "INTERNAL_ERROR",
+                  "EVENT_ID_CONFLICT",
+                  "STORAGE_UNAVAILABLE",
+                  "PAYLOAD_TOO_LARGE",
+                  "STORAGE_FULL"
                 ]
               },
               "message": {
@@ -585,6 +1000,68 @@
             }
           }
         }
+      },
+      "EventHistoryResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "events",
+          "next_offset",
+          "next"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/SecurityEvent"
+            }
+          },
+          "next_offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 9223372036854775807
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri-reference",
+            "pattern": "^/(?:[^/?#\\\\]+/)*events\\?limit=[0-9]+&offset=[0-9]+$",
+            "description": "Origin-relative continuation reference preserving the Servlet context and requested limit. Resolve against the API origin; no scheme or host is included."
+          }
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "next_offset": {
+                "type": "null"
+              },
+              "next": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "next_offset": {
+                "type": "integer"
+              },
+              "next": {
+                "type": "string"
+              },
+              "events": {
+                "minItems": 1
+              }
+            }
+          }
+        ],
+        "description": "At most the requested limit events; next and next_offset are both null at the end. Continuation observes the extra row at query time and does not provide a snapshot."
       }
     }
   }

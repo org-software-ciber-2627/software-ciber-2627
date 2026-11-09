@@ -29,8 +29,8 @@ Cada módulo responde en `http://localhost:80NN/health` con `{"status":"ok","mod
 1. Cada equipo trabaja en su propia rama (`equipo-NN-nombre`).
 2. Los cambios llegan a `main` solo mediante **Pull Request**.
 3. El CI (`build-and-health` y `event-schema`) debe estar en verde.
-4. La revisión es cruzada y rotatoria, en anillo: el equipo N revisa los PRs del equipo N+1, y el equipo 8 revisa los del equipo 1 (ver `.github/CODEOWNERS`).
-5. Con al menos una aprobación y CI verde, se fusiona a `main`.
+4. Solo aprueban los representantes de equipo (grupo `@org-software-ciber-2627/reps`, ver `.github/CODEOWNERS`). Un representante no puede aprobar su propio PR, así que pedid la revisión al representante de otro equipo.
+5. Con al menos una aprobación de un representante y CI verde, se fusiona a `main`.
 
 El equipo de Dashboard (`equipo-07-dashboard`) mantiene el CI y la infraestructura compartida (este `docker-compose.yml` y `.github/`), pero **no aprueba ni bloquea el trabajo de los demás equipos**.
 
@@ -45,11 +45,13 @@ Cada módulo arranca hoy como un contenedor `nginx:alpine` mínimo que solo resp
 
 ## Convención de nombres
 
-Las claves de Jira van en el nombre de rama y en los mensajes de commit, por ejemplo:
+Las claves de Jira deben incluirse en el nombre de la rama y en los mensajes de commit. Respetad el prefijo correspondiente a vuestro equipo o historia; en este repositorio se utilizan, entre otros, `DASHG7-nn`, `AAA-nn`, `SEM-nn`, `SB-nn` y `LV8-nn`.
 
-```
-git checkout -b equipo-07-dashboard/DSH-12-vista-alertas
-git commit -m "feat: vista de alertas (DSH-12)"
+Por ejemplo, para una tarea del Dashboard:
+
+```bash
+git checkout -b equipo-07-dashboard-DASHG7-117-actualizar-readmes
+git commit -m "docs: actualiza los README (DASHG7-117)"
 ```
 
 ## Recursos compartidos
