@@ -237,11 +237,13 @@ try {
     if ((Get-Text 'http://localhost:8007/health') -match '"ok"') { Ok 'dashboard: /health responde 200 (lo que exige el CI)' } else { Bad 'dashboard: /health' }
     if ((Get-Text 'http://localhost:8007/') -match 'Dashboard Principal') { Ok 'dashboard: la pagina principal se sirve' } else { Bad 'dashboard: pagina principal' }
 
-    # Login (maqueta): la pagina existe y la principal esta protegida y tiene boton de cierre de sesion.
-    # OJO: es una maqueta, no consulta a Identidad; aqui solo se comprueba que los ficheros estan.
+    # Login: la pagina existe, la principal exige sesion (requireSession) y tiene boton de cierre de sesion,
+    # y auth-client.js redirige a login.html. Solo se comprueba que los ficheros estan; el login real
+    # contra Identidad se prueba a mano en el navegador.
     if ((Get-Text 'http://localhost:8007/login.html') -match 'Acceso CiberURJC') { Ok 'login: login.html se sirve' } else { Bad 'login: falta login.html' }
     $principal = Get-Text 'http://localhost:8007/'
-    if (($principal -match 'login\.html') -and ($principal -match 'logout')) {
+    $cliente = Get-Text 'http://localhost:8007/auth-client.js'
+    if (($principal -match 'requireSession') -and ($principal -match 'logout-btn') -and ($cliente -match 'login\.html')) {
         Ok 'login: la pagina principal redirige al login si no hay sesion y tiene cierre de sesion'
     } else {
         Bad 'login: la pagina principal no tiene la proteccion o el boton de cerrar sesion'

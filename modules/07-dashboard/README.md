@@ -54,3 +54,20 @@ Para hacerlo todo de una vez (arranca, comprueba y limpia al terminar, sin tocar
 | `-p` | Para y borra lo que dejó `-m`. No hace pruebas. |
 | `-n` | No arranca ni comprueba los mocks de SOAR y Escáner. |
 | `-h` | Muestra la ayuda. |
+
+## Pruebas automáticas (DASHG7-66)
+Las pruebas del front usan el ejecutor integrado de Node (`node --test`) y `jsdom` para simular el navegador. El Dashboard sigue siendo estático: `package.json` solo existe para las pruebas y no entra en la imagen de Docker.
+
+| Fichero | Qué comprueba |
+|---|---|
+| `tests/siem-client.test.js` | Cliente del SIEM: envía el token como `Bearer`, devuelve siempre `{ estado, datos, mensaje }` (ok, vacío, error o sin permiso), y ante un 401 borra el token y redirige al login. |
+| `tests/siem-alert.test.js` | Tabla de alertas sobre el `index.html` real: orden por severidad y fecha, escapado de HTML, estado de error, refresco cada 30 s. |
+| `tests/mock-siem.test.js` | El mock `mocks/siem-alerts.json` mantiene los campos y valores que el Dashboard necesita. |
+
+Para ejecutarlas en local hace falta Node 20 o superior (no hace falta Docker):
+```bash
+cd modules/07-dashboard
+npm ci      # la primera vez
+npm test
+```
+En el CI se ejecutan en el job `dashboard-tests` de `.github/workflows/ci.yml` en cada Pull Request a `main`.
