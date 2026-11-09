@@ -57,7 +57,7 @@ export function storageEnMemoria(inicial = {}) {
  * Monta index.html (sin scripts) en jsdom y deja document/sessionStorage como globales,
  * para poder importar SIEM-alert.js tal cual. Devuelve los temporizadores registrados.
  */
-export function montarPagina({ fetchImpl, token } = {}) {
+export function montarPagina({ fetchImpl, token = "token-valido", validateImpl } = {}) {
   const html = readFileSync(fileURLToPath(new URL("index.html", SRC)), "utf8")
     .replace(/<script[\s\S]*?<\/script>/g, "");
   const dom = new JSDOM(html, { url: "http://localhost:8007/index.html" });
@@ -69,7 +69,14 @@ export function montarPagina({ fetchImpl, token } = {}) {
     "sessionStorage",
     storageEnMemoria(token ? { token } : {})
   );
-  definirGlobal("fetch", fetchImpl);
+  // cargar() valida la sesión con GET /auth/validate antes de pedir las alertas: se responde aparte
+  // (por defecto, sesión válida) para que fetchImpl solo vea las peticiones de datos.
+  definirGlobal("fetch", async (url, opciones) => {
+    if (String(url).includes("/auth/validate")) {
+      return validateImpl ?? respuesta(200, { valid: true, user_id: 1, username: "u", role: "analista" });
+    }
+    return fetchImpl(url, opciones);
+  });
   // SIEM-alert.js hace setInterval al importarse: lo capturamos para que no deje el proceso abierto.
   definirGlobal("setInterval", (fn, ms) => {
     temporizadores.push({ fn, ms });

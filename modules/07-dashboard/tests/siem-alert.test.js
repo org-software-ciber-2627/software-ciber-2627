@@ -156,3 +156,37 @@ test("tras un error, el siguiente refresco recupera la tabla", async () => {
   assert.equal(visible(dom, "tabla"), true);
   assert.equal(filasTabla(dom).length, 1);
 });
+
+// DASHG7-85 / DASHG7-20: cargar() valida la sesión en cada refresco. jsdom escribe
+// "Not implemented: navigation" al redirigir al login; es normal y no afecta al resultado.
+test("con la sesión caducada (validate 401) borra el token y no pide las alertas", async () => {
+  let peticionesDatos = 0;
+  const { dom } = montarPagina({
+    token: "caducado",
+    validateImpl: respuesta(401, { valid: false }),
+    fetchImpl: async () => {
+      peticionesDatos++;
+      return respuesta(200, { alerts: [alerta()] });
+    },
+  });
+  await cargarSiemAlert();
+
+  assert.equal(sessionStorage.getItem("token"), null);
+  assert.equal(peticionesDatos, 0);
+  assert.equal(filasTabla(dom).length, 0);
+});
+
+test("con Identidad caída (validate 500) no pide las alertas", async () => {
+  let peticionesDatos = 0;
+  const { dom } = montarPagina({
+    validateImpl: respuesta(500, {}),
+    fetchImpl: async () => {
+      peticionesDatos++;
+      return respuesta(200, { alerts: [alerta()] });
+    },
+  });
+  await cargarSiemAlert();
+
+  assert.equal(peticionesDatos, 0);
+  assert.equal(filasTabla(dom).length, 0);
+});
