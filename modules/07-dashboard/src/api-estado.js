@@ -21,7 +21,7 @@ export async function pedirLista(url, extraer = (d) => d, nombre = "el servicio"
 
     let datos;
     try { datos = extraer(await r.json()); } catch { datos = null; }
-    if (!Array.isArray(datos)) return { estado: "error", datos: [], mensaje: `Respuesta inesperada de ${nombre}.` };
+    if (!Array.isArray(datos)) return { estado: "error", datos: [], mensaje: `Respuesta inesperada al consultar ${nombre}.` };
 
     return datos.length === 0
         ? { estado: "vacio", datos, mensaje: "Sin datos." }
