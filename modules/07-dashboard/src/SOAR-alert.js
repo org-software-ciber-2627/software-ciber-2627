@@ -4,7 +4,8 @@ import { pintar as mostrarEstado } from './api-estado.js';
 function esc(t) { 
     const d = document.createElement('div');
     d.textContent = t ?? '';
-    return d.innerHTML;
+    // innerHTML no escapa las comillas y el valor se usa también dentro de class="..."
+    return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function pintarIncidentes(incidents) { 
