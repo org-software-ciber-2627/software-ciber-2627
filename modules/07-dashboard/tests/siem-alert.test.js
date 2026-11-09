@@ -104,7 +104,7 @@ test("si el SIEM falla muestra el mensaje de error y oculta la tabla", async () 
 
   assert.equal(visible(dom, "error"), true);
   assert.equal(visible(dom, "tabla"), false);
-  assert.match(dom.window.document.getElementById("error").textContent, /No se pudo conectar con el SIEM/);
+  assert.match(dom.window.document.getElementById("error").textContent, /Error al consultar el SIEM \(código 500\)/);
 });
 
 test("si no hay conexión (fetch rechaza) también muestra el error", async () => {
