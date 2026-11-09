@@ -108,7 +108,9 @@
             <h2>Últimas Alertas (Consumidas desde SIEM)</h2>
         </div>
         <div>
-            <button class="logout-btn" onclick="logout()">Cerrar Sesión</button>
+            <button class="logout-btn" id="logout-btn" data-action="logout" type="button">
+                Cerrar Sesión
+            </button>
         </div>
     </div>
     <p>Última actualización: <strong><span id="hora-actualizacion">Cargando...</span></strong></p>
@@ -136,13 +138,6 @@
         <div id="contenido-detalle"></div>
     </section>
 
-    <script>
-        function logout() {
-            sessionStorage.removeItem("logged_in");
-            sessionStorage.removeItem("token");
-            window.location.href = "login.html";
-        }
-    </script>
     <script type="module" src="SIEM-alert.js"></script>
 
     <!-- SECCIÓN SOAR (DASHG7-26) -->

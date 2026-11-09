@@ -1,6 +1,18 @@
 import { getAlerts, getAlertById } from "./SIEM-client.js";
-import { validate } from "./auth-client.js";
+import { logout, validate } from "./auth-client.js";
 import { pintar as mostrarEstado } from "./api-estado.js";
+
+const botonLogout = document.getElementById("logout-btn");
+
+botonLogout.addEventListener("click", async () => {
+    botonLogout.disabled = true;
+
+    try {
+        await logout();
+    } finally {
+        window.location.replace("login.html");
+    }
+});
 
 const PESO = { critical: 4, high: 3, medium: 2, low: 1 };
 const TIEMPO_REFRESCO = 30000;
