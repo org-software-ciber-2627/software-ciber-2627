@@ -18,22 +18,24 @@ Este equipo mantiene la infraestructura de integración compartida: el `docker-c
 ## Estado
 Sprint 1: página estática (nginx) que lista las alertas del SIEM ordenadas por severidad y las refresca cada 30 s. En el Sprint 1 leía el mock `mocks/siem-alerts.json`. Desde el Sprint 2 (DASHG7-103 y DASHG7-104) pide las alertas al propio Dashboard en `/api/siem/alerts`, y el nginx las reenvía al SIEM real (`http://siem:80/alerts`, solo GET). Se usa el proxy porque el SIEM no tiene CORS. Si el SIEM no está levantado, la web muestra su mensaje de error. `GET /health` responde `200`.
 
-## Historias implementadas (Sprint 1)
+## Historias implementadas
 | Historia | Qué hace | Limitaciones |
 |---|---|---|
-| DASHG7-22 · Listado de alertas del SIEM | Tabla con severidad, título, módulo y hora, ordenada por severidad y fecha. Muestra un mensaje de error si no hay datos. | En el Sprint 1 leía el mock `mocks/siem-alerts.json`; desde el Sprint 2 lee el SIEM real a través del proxy de nginx. |
+| DASHG7-22 · Listado de alertas del SIEM | Tabla con severidad, título, módulo y hora, ordenada por severidad y fecha. | En el Sprint 1 leía el mock `mocks/siem-alerts.json`; desde el Sprint 2 lee el SIEM real a través del proxy de nginx. |
 | DASHG7-25 · Refresco periódico de datos | Vuelve a pedir las alertas cada 30 s y muestra la hora de la última actualización. | Refresco simple (sin websockets), como indica el enunciado. |
+| DASHG7-23 · Detalle de una alerta | «Ver detalle» en cada fila muestra todos los campos de la alerta (`GET /alerts/{id}` del SIEM, también por el proxy). | El SIEM no ofrece eventos relacionados, así que el detalle se limita a los campos de la alerta. |
+| DASHG7-26 · Listado de incidentes | Tabla «Incidentes del SOAR» con identificador, alerta de origen, estado y playbook aplicado. | Lee el mock `mocks/soar-incidents.json`, no el SOAR real: hace falta un proxy de nginx hacia el SOAR cuando su API llegue a `main`. |
+| DASHG7-67 · Estados de error y de datos vacíos | Cada tabla muestra un aviso distinto si el servicio no responde, no hay datos, no hay permiso o la respuesta no tiene el formato esperado. | El aviso de datos no actualizados (DASHG7-36) queda para el Sprint 3. |
+| DASHG7-19 / DASHG7-47 · Login contra Identidad | `login.html` consulta a Identidad (`POST /auth/login`) a través del proxy `/api/identidad/` de nginx, que solo deja pasar login, validate y logout. El token JWT se guarda en `sessionStorage` y se valida con `GET /auth/validate` al abrir el Dashboard; sin sesión válida, o con Identidad caída, redirige al login. Gestiona el 429 con cuenta atrás. | El botón «Cerrar Sesión» solo borra el token del navegador: todavía no lo revoca en Identidad. |
 
-Avance parcial (maqueta, **no** es la historia DASHG7-19 terminada): `login.html` con formulario de usuario y contraseña (DASHG7-46) y un botón «Cerrar Sesión» en la página principal. El login **no consulta a Identidad**: acepta cualquier usuario y contraseña y guarda un token de prueba en `sessionStorage`. Es solo una protección de interfaz, no autenticación real.
-
-Pendiente para el Sprint 2: login real contra Identidad (DASHG7-19 y DASHG7-47) con expiración del token (DASHG7-20), detalle de alerta, hallazgos del escáner y aviso de datos no actualizados.
+Pendiente: cierre de sesión contra Identidad, detección de un token caducado mientras se usa el Dashboard (DASHG7-20), hallazgos del escáner y aviso de datos no actualizados.
 
 ## Cómo probarlo
 ```bash
 cp .env.example .env
 docker compose up --build dashboard
 ```
-Abrid `http://localhost:8007`: redirige a `login.html`; entrad con cualquier usuario y contraseña y se mostrarán las alertas. Comprobad también `curl -f http://localhost:8007/health`.
+Abrid `http://localhost:8007`: si no existe una sesión válida, redirige a `login.html`. Iniciad sesión con una cuenta válida del servicio Identidad para acceder a las alertas. Comprobad también `curl -f http://localhost:8007/health`.
 
 Para hacerlo todo de una vez (arranca, comprueba y limpia al terminar, sin tocar vuestro `.env`), con Docker en marcha:
 
@@ -41,3 +43,14 @@ Para hacerlo todo de una vez (arranca, comprueba y limpia al terminar, sin tocar
 |---|---|
 | Linux y macOS | `bash modules/07-dashboard/scripts/probar.sh` |
 | Windows (PowerShell) | `powershell -ExecutionPolicy Bypass -File modules\07-dashboard\scripts\probar.ps1` |
+
+**Nota:** Las opciones de los scripts se escriben por separado (`-s -m`, no `-sm`). En PowerShell se utilizan igual.
+
+| Opción | Qué hace |
+|---|---|
+| `-s` | No reconstruye las imágenes: usa las existentes. Tras un `git pull` con cambios, ejecuta antes sin opciones. |
+| `-m` | Al terminar deja todo levantado, sin esperar a Enter. |
+| `-c` | Solo comprueba lo que ya está corriendo, sin arrancar nada. |
+| `-p` | Para y borra lo que dejó `-m`. No hace pruebas. |
+| `-n` | No arranca ni comprueba los mocks de SOAR y Escáner. |
+| `-h` | Muestra la ayuda. |

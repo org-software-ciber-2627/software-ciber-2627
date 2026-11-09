@@ -1,5 +1,6 @@
 import { getAlerts, getAlertById } from "./SIEM-client.js";
 import { logout } from "./auth-client.js";
+import { pintar as mostrarEstado } from "./api-estado.js";
 
 const botonLogout = document.getElementById("logout-btn");
 
@@ -89,6 +90,7 @@ async function abrirDetalle(id) {
         : e.message === "ALERT_NOT_FOUND"
           ? "Alerta no encontrada."
           : "No se pudo cargar el detalle de la alerta.";
+    error.className = "aviso-error";
     error.style.display = "block";
   }
 }
@@ -100,7 +102,7 @@ document.querySelector("#tabla tbody").addEventListener("click", e => {
 
 document.getElementById("volver-alertas").addEventListener("click", () => {
   document.getElementById("detalle-alerta").style.display = "none";
-  document.getElementById("tabla").style.display = "";
+  //document.getElementById("tabla").style.display = "";
   document.getElementById("hora-actualizacion").parentElement.parentElement.style.display = "";
   document.getElementById("error").style.display = "none";
   cargar();
@@ -111,19 +113,13 @@ async function cargar() {
     return;
   }
 
-  try {
-    pintar(await getAlerts());
-    document.getElementById("error").style.display = "none";
-    document.getElementById("tabla").style.display = "";
+  const resultado = await getAlerts(); 
+  mostrarEstado(document.getElementById("error"), resultado, pintar); 
+  document.getElementById("tabla").style.display = resultado.estado === "ok" ? "" : "none";
+
+  if (resultado.estado === "ok" || resultado.estado === "vacio") {
     document.getElementById("hora-actualizacion").textContent =
       new Date().toLocaleTimeString();
-  } catch (e) {
-    document.getElementById("tabla").style.display = "none";
-    document.getElementById("error").textContent =
-      e.message === "Sin permiso"
-        ? "No tienes permiso para consultar las alertas."
-        : "No se pudo conectar con el SIEM.";
-    document.getElementById("error").style.display = "block";
   }
 }
 

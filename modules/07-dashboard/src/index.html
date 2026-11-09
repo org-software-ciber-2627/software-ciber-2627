@@ -71,6 +71,22 @@
         .logout-btn:hover {
             background-color: #991b1b;
         }
+
+        .aviso-error {
+            color: #b91c1c;
+            background: #fee2e2;
+            padding: 8px;
+            border-radius: 4px;
+            margin-top: 12px;
+        }
+
+        .aviso-vacio {
+            color: #555;
+            background: #f2f2f2;
+            padding: 8px;
+            border-radius: 4px;
+            margin-top: 12px;
+        }
     </style>
     <style id="guard-style">
         body {
@@ -97,9 +113,6 @@
             </button>
         </div>
     </div>
-
-    <div id="error" style="display:none;color:#b91c1c">No se pudo conectar con el SIEM.</div>
-
     <p>Última actualización: <strong><span id="hora-actualizacion">Cargando...</span></strong></p>
 
     <table id="tabla">
@@ -116,6 +129,9 @@
         </tbody>
     </table>
 
+    <div id="error" style="display:none;color:#b91c1c"></div>
+
+
     <section id="detalle-alerta" style="display:none; margin-top:24px;">
         <h2>Detalle de la alerta</h2>
         <button id="volver-alertas" type="button">Volver a las alertas</button>
@@ -123,6 +139,29 @@
     </section>
 
     <script type="module" src="SIEM-alert.js"></script>
+
+    <!-- SECCIÓN SOAR (DASHG7-26) -->
+    <h2 style="margin-top: 40px;">Incidentes del SOAR</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>ID Incidente</th>
+                <th>Alerta Origen</th>
+                <th>Estado</th>
+                <th>Playbook Aplicado</th>
+            </tr>
+        </thead>
+        <tbody id="soar-body">
+        </tbody>
+    </table>
+
+    <div id="error-soar" style="display:none;color:#b91c1c"></div>
+
+
+    <!-- Al final del body, junto al script del SIEM -->
+    <script type="module" src="SOAR-alert.js"></script>
+
+
 </body>
 
 </html>
