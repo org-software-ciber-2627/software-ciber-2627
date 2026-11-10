@@ -6,6 +6,7 @@ import com.honeypot.honeypot.repository.LoginAttemptRepository;
 import com.honeypot.honeypot.service.ClasificadorAtaquesService;
 import com.honeypot.honeypot.service.EventoMapper;
 import com.honeypot.honeypot.service.IpRateLimiterService;
+import com.honeypot.honeypot.service.RechazoResumenService;
 import com.honeypot.honeypot.service.SiemSenderService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
@@ -32,19 +33,22 @@ public class HoneyPotController {
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
     private final IpRateLimiterService ipRateLimiterService;
     private final ClasificadorAtaquesService clasificadorAtaquesService;
+    private final RechazoResumenService rechazoResumenService;
 
     public HoneyPotController(
             LoginAttemptRepository loginAttemptRepository,
             EventoMapper eventoMapper,
             SiemSenderService siemSenderService,
             IpRateLimiterService ipRateLimiterService,
-            ClasificadorAtaquesService clasificadorAtaquesService
+            ClasificadorAtaquesService clasificadorAtaquesService,
+            RechazoResumenService rechazoResumenService
     ) {
         this.loginAttemptRepository = loginAttemptRepository;
         this.eventoMapper = eventoMapper;
         this.siemSenderService = siemSenderService;
         this.ipRateLimiterService = ipRateLimiterService;
         this.clasificadorAtaquesService = clasificadorAtaquesService;
+        this.rechazoResumenService = rechazoResumenService;
     }
 
     @GetMapping({"/", "/login"})
@@ -64,8 +68,9 @@ public class HoneyPotController {
         if (!allowed) {
             response.setStatus(429);
             model.addAttribute("message", "Demasiadas peticiones. Inténtalo de nuevo más tarde.");
-            // No guardar en BD, no clasificar y no enviar al SIEM.
-            // No registrar cada rechazo para evitar inundar los logs.
+            // No se guarda como intento, no se clasifica y no se envía al SIEM.
+            // Solo se suma al resumen de esa IP en ese minuto (HP-88), para no llenar la BD ni los logs.
+            rechazoResumenService.registrarRechazo(ip, "honeypot-web", Instant.now());
             return "login";
         }
 
