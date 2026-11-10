@@ -29,6 +29,14 @@ class TestAutomationDetector(unittest.TestCase):
         self.assertTrue(decision.automatable)
         self.assertEqual(decision.playbook, "brute_force")
 
+    def test_ids_brute_force_with_source_ip_is_automatable(self):
+        incident = self.create_incident(event_type="brute_force")
+
+        decision = evaluate_automation(incident)
+
+        self.assertTrue(decision.automatable)
+        self.assertEqual(decision.playbook, "brute_force")
+
     def test_brute_force_without_source_ip_is_not_automatable(self):
         incident = self.create_incident(source_ip=None)
 
