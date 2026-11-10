@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "SIEM Sprint 1 security event candidate",
+  "title": "SIEM security event",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -17,8 +17,9 @@
     "event_id": {
       "type": "string",
       "minLength": 1,
-      "description": "Unique within source; stable on retries. UUID is not required.",
-      "pattern": "\\S"
+      "maxLength": 128,
+      "description": "Unique within source; stable on retries. UUID is not required. Letters, digits, dot, underscore, colon and hyphen only.",
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$"
     },
     "timestamp": {
       "type": "string",
@@ -31,23 +32,26 @@
       "enum": [
         "ids",
         "honeypot",
-        "scanner"
+        "scanner",
+        "pentesting"
       ]
     },
     "event_type": {
       "type": "string",
       "minLength": 1,
-      "description": "Shared catalog pending; existing examples retained.",
+      "description": "Event type reported by the producer.",
       "pattern": "\\S"
     },
     "severity": {
       "type": "string",
       "enum": [
+        "info",
         "low",
         "medium",
         "high",
         "critical"
-      ]
+      ],
+      "description": "info denotes an informational observation; it does not imply a vulnerability or generate an alert."
     },
     "title": {
       "type": "string",
@@ -62,7 +66,7 @@
     "details": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Producer-specific data; internal validation pending agreement."
+      "description": "Producer-specific event attributes."
     }
   }
 }

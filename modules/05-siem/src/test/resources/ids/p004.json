@@ -1,0 +1,20 @@
+{
+  "event_id": "IDS-P004-122.5.240.60-20260420T135010Z",
+  "timestamp": "2026-04-20T13:51:02Z",
+  "source": "ids",
+  "event_type": "brute_force",
+  "severity": "medium",
+  "title": "Posible ataque de fuerza bruta",
+  "description": "La IP 122.5.240.60 ha realizado 12 intentos fallidos de login contra 2 usuario(s) entre 2026-04-20T13:50:10Z y 2026-04-20T13:51:02Z.",
+  "details": {
+    "rule_id": "P004",
+    "source_ip": "122.5.240.60",
+    "service": "sshd",
+    "attempts": 12,
+    "usernames": ["root", "admin"],
+    "window_seconds": 60,
+    "first_attempt": "2026-04-20T13:50:10Z",
+    "last_attempt": "2026-04-20T13:51:02Z",
+    "login_success": false
+  }
+}

@@ -23,10 +23,15 @@ VARIABLES = (
 )
 for _var in VARIABLES:
     os.environ.pop(_var, None)
+# El hilo de reintentos al IDS no debe arrancar durante las pruebas: dispararía envíos a mitad de un test.
+os.environ["IDS_REINTENTOS"] = "0"
  
 import app as app_module  # noqa: E402
 from app import Secret, User, app, db  # noqa: E402
 from crypto import encrypt, decrypt  # noqa: E402
+
+# El envío real al IDS, tal como lo define app.py (BaseTest lo sustituye por un mock en cada prueba).
+_ENVIAR_AL_IDS_REAL = app_module._enviar_al_ids
  
 USUARIO = {
     "username": "usuario.ejemplo",
@@ -560,98 +565,30 @@ class TestCors(BaseTest):
     def test_6_secrets_no_expone_cabecera_cors(self):
         response = self.client.get("/secrets/api_key",headers={"Origin": self.ORIGEN_PERMITIDO})
         self.assertIsNone(response.headers.get("Access-Control-Allow-Origin"))
-         
-class TestLogs(BaseTest):
-    def setUp(self):
-        super().setUp()
-        self.crear_usuario("cuenta.admin", "admin")
-        self.crear_usuario("cuenta.servicio", "servicio")
-        self.crear_usuario("cuenta.analista", "analista")
-        # Tokens pre-obtenidos para no contaminar el AuditLog durante los tests
-        self.token_admin    = self.token_de("cuenta.admin")
-        self.token_servicio = self.token_de("cuenta.servicio")
-        self.token_analista = self.token_de("cuenta.analista")
-        with app.app_context():
-            app_module.AuditLog.query.delete()
-            db.session.commit()
 
-    def get_logs(self, token=None):
-        cabeceras = self.con_token(token) if token else {}
-        return self.client.get("/logs", headers=cabeceras)
+    def test_7_validate_y_logout_permiten_origen_configurado_con_cabecera_authorization(self):
+        for ruta, metodo in (("/auth/validate", "GET"), ("/auth/logout", "POST")):
+            with self.subTest(ruta=ruta):
+                response = self.client.options(ruta, headers={
+                    "Origin": self.ORIGEN_PERMITIDO,
+                    "Access-Control-Request-Method": metodo,
+                    "Access-Control-Request-Headers": "Authorization",
+                })
+                self.assertEqual(response.headers.get("Access-Control-Allow-Origin"), self.ORIGEN_PERMITIDO)
+                self.assertIn("authorization", response.headers.get("Access-Control-Allow-Headers", "").lower())
 
-    def _insertar_eventos(self, n, event_type="login_ok", result="ok"):
-        with app.app_context():
-            for _ in range(n):
-                db.session.add(app_module.AuditLog(
-                    event_type=event_type, result=result,
-                    username="cuenta.admin", source_ip="127.0.0.1",
-                ))
-            db.session.commit()
+    def test_8_validate_y_logout_rechazan_origen_no_configurado(self):
+        for ruta in ("/auth/validate", "/auth/logout"):
+            with self.subTest(ruta=ruta):
+                response = self.comprobar_preflight(ruta, self.ORIGEN_NO_PERMITIDO)
+                self.assertIsNone(response.headers.get("Access-Control-Allow-Origin"))
 
-    def test_1_admin_obtiene_200_con_logs_y_total(self):
-        r = self.get_logs(token=self.token_admin)
+    def test_9_la_respuesta_real_de_validate_lleva_la_cabecera_cors(self):
+        token = self.registrar().get_json()["token"]
+        r = self.client.get("/auth/validate", headers={**self.con_token(token), "Origin": self.ORIGEN_PERMITIDO})
         self.assertEqual(r.status_code, 200)
-        cuerpo = r.get_json()
-        self.assertIn("logs", cuerpo)
-        self.assertIn("total", cuerpo)
-        self.assertIsInstance(cuerpo["logs"], list)
-        self.assertIsInstance(cuerpo["total"], int)
+        self.assertEqual(r.headers.get("Access-Control-Allow-Origin"), self.ORIGEN_PERMITIDO)
 
-    def test_2_servicio_obtiene_200(self):
-        r = self.get_logs(token=self.token_servicio)
-        self.assertEqual(r.status_code, 200)
-        self.assertIn("logs", r.get_json())
-
-    def test_3_analista_obtiene_403(self):
-        r = self.get_logs(token=self.token_analista)
-        self.assertEqual(r.status_code, 403)
-        self.assertIn("error", r.get_json())
-
-    def test_4_sin_token_401(self):
-        r = self.get_logs()
-        self.assertEqual(r.status_code, 401)
-        self.assertIn("error", r.get_json())
-
-    def test_5_token_manipulado_401(self):
-        r = self.get_logs(token=self.token_admin[:-3] + "abc")
-        self.assertEqual(r.status_code, 401)
-
-    def test_6_estructura_de_cada_entrada(self):
-        self._insertar_eventos(1)
-        logs = self.get_logs(token=self.token_admin).get_json()["logs"]
-        self.assertEqual(len(logs), 1)
-        for campo in ("id", "timestamp", "event_type", "result", "username",
-                      "role", "source_ip", "source_port", "clave", "enviado"):
-            with self.subTest(campo=campo):
-                self.assertIn(campo, logs[0])
-
-    def test_7_sin_logs_devuelve_lista_vacia_con_total_cero(self):
-        cuerpo = self.get_logs(token=self.token_admin).get_json()
-        self.assertEqual(cuerpo["logs"], [])
-        self.assertEqual(cuerpo["total"], 0)
-
-    def test_8_total_coincide_con_longitud_de_logs(self):
-        self._insertar_eventos(5)
-        cuerpo = self.get_logs(token=self.token_admin).get_json()
-        self.assertEqual(cuerpo["total"], len(cuerpo["logs"]))
-
-    def test_9_maximo_50_entradas(self):
-        self._insertar_eventos(60)
-        r = self.get_logs(token=self.token_admin)
-        self.assertLessEqual(len(r.get_json()["logs"]), 50)
-
-    def test_10_orden_descendente_por_timestamp(self):
-        ahora = datetime.now(timezone.utc).replace(tzinfo=None)
-        with app.app_context():
-            for delta in (120, 60, 0):
-                db.session.add(app_module.AuditLog(
-                    event_type="login_ok", result="ok",
-                    username="cuenta.admin", source_ip="127.0.0.1",
-                    timestamp=ahora - timedelta(seconds=delta),
-                ))
-            db.session.commit()
-        timestamps = [l["timestamp"] for l in self.get_logs(token=self.token_admin).get_json()["logs"]]
-        self.assertEqual(timestamps, sorted(timestamps, reverse=True))
 
 class TestMinimoPrivilegio(BaseTest):  # AAA-25
     VALOR = "valor-de-prueba-del-secreto"
@@ -695,34 +632,30 @@ class TestMinimoPrivilegio(BaseTest):  # AAA-25
             self.assertEqual(evento.clave, "api_key")
             self.assertNotIn(self.VALOR, str(evento.to_dict()))
 
-    def test_5_el_registro_de_auditoria_solo_lo_leen_admin_y_servicio(self):
-        self.assertEqual(self.get("/logs", "cuenta.admin").status_code, 200)
-        self.assertEqual(self.get("/logs", "cuenta.servicio").status_code, 200)
-        self.assertEqual(self.get("/logs", "cuenta.analista").status_code, 403)
-        self.assertEqual(self.get("/logs").status_code, 401)
-
     def test_6_el_registro_no_permite_elegirse_el_rol(self):
         r = self.registrar(role="admin")
         self.assertEqual(r.status_code, 201)
         self.assertEqual(r.get_json()["user"]["role"], "analista")
         token = r.get_json()["token"]
         self.assertEqual(self.decodificar(token)["role"], "analista")
-        self.assertEqual(self.client.get("/logs", headers=self.con_token(token)).status_code, 403)
+        self.assertEqual(self.client.get("/secrets/api_key", headers=self.con_token(token)).status_code, 403)
 
-    def test_7_el_admin_ve_el_nombre_del_secreto_pero_nunca_su_valor(self):
+    def test_7_la_lectura_de_un_secreto_se_audita_con_el_nombre_pero_nunca_el_valor(self):
         self.assertEqual(self.get("/secrets/api_key", "cuenta.servicio").status_code, 200)
-        r = self.get("/logs", "cuenta.admin")
-        self.assertEqual(r.status_code, 200)
-        texto = r.get_data(as_text=True)
-        self.assertIn("api_key", texto)
-        self.assertNotIn(self.VALOR, texto)
+        with app.app_context():
+            evento = app_module.AuditLog.query.filter_by(event_type="secret_read").first()
+            self.assertIsNotNone(evento)
+            self.assertEqual(evento.username, "cuenta.servicio")
+            self.assertEqual(evento.clave, "api_key")
+            self.assertNotIn(self.VALOR, str(evento.to_dict()))
+            self.assertNotIn(self.VALOR, app_module._format_raw_line(evento))
 
-    def test_8_el_servicio_tampoco_ve_el_valor_de_los_secretos_en_los_logs(self):
-        self.assertEqual(self.get("/secrets/api_key", "cuenta.servicio").status_code, 200)
-        r = self.get("/logs", "cuenta.servicio")
-        self.assertEqual(r.status_code, 200)
-        self.assertNotIn(self.VALOR, r.get_data(as_text=True))
-        
+    def test_8_ya_no_hay_endpoints_de_consulta_de_auditoria(self):
+        for ruta in ("/logs", "/audit"):
+            with self.subTest(ruta=ruta):
+                self.assertEqual(self.get(ruta, "cuenta.admin").status_code, 404)
+
+
 class TestAlmacenamientoCifrado(BaseTest):  # AAA-75
     VALOR = "valor-de-prueba-del-secreto"
 
@@ -822,16 +755,14 @@ class TestIDSClient(BaseTest):#AAA-86
             db.session.commit()
 
     @patch("app.http_client.post")
-    def test_1_envio_exitoso_marca_enviados_con_200_o_202(self, mock_post):
-        # Prueba con 200
-        mock_post.return_value.status_code = 200
+    def test_1_envio_exitoso_marca_enviados_con_202(self, mock_post):
+        mock_post.return_value.status_code = 202
         self._insertar_eventos(2)
         with app.app_context():
             app_module.enviar_lote_al_ids()
             self.assertEqual(app_module.AuditLog.query.filter_by(enviado=False).count(), 0)
 
-        # Prueba con 202
-        mock_post.return_value.status_code = 202
+        # Más eventos después: se envían en otra tanda
         self._insertar_eventos(3)
         with app.app_context():
             app_module.enviar_lote_al_ids()
@@ -962,6 +893,245 @@ class TestIDSClient(BaseTest):#AAA-86
             _, kwargs = mock_post.call_args
             self.assertIn("json", kwargs)
             self.assertEqual(kwargs["timeout"], 2)
+
+class TestReintentosIDS(BaseTest):  # AAA-85
+    def _evento(self, antiguedad_segundos, enviado=False):
+        with app.app_context():
+            db.session.add(app_module.AuditLog(
+                event_type="login_failed", result="fail", username="intruso", source_ip="10.0.0.1",
+                timestamp=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=antiguedad_segundos),
+                enviado=enviado,
+            ))
+            db.session.commit()
+
+    def _pendientes(self):
+        with app.app_context():
+            return app_module.AuditLog.query.filter_by(enviado=False).count()
+
+    def test_1_la_espera_entre_reintentos_crece_y_tiene_tope(self):
+        with patch.object(app_module, "IDS_RETRY_SECONDS", 30):
+            esperas = [app_module._espera_reintento(fallos) for fallos in range(6)]
+        self.assertEqual(esperas, [30, 60, 120, 240, 300, 300])
+
+    def test_2_solo_cuentan_los_pendientes_con_mas_de_diez_segundos(self):
+        self._evento(1)
+        with app.app_context():
+            self.assertFalse(app_module._hay_pendientes_antiguos())
+        self._evento(60)
+        with app.app_context():
+            self.assertTrue(app_module._hay_pendientes_antiguos())
+
+    def test_3_un_evento_ya_enviado_no_cuenta_como_pendiente(self):
+        self._evento(60, enviado=True)
+        with app.app_context():
+            self.assertFalse(app_module._hay_pendientes_antiguos())
+
+    @patch("app.http_client.post")
+    def test_4_si_el_ids_responde_el_ciclo_vacia_la_cola(self, mock_post):
+        mock_post.return_value.status_code = 202
+        self._evento(60)
+        self.assertTrue(app_module._ciclo_reintento())
+        self.assertEqual(self._pendientes(), 0)
+
+    @patch("app.http_client.post")
+    def test_5_si_el_ids_cae_el_evento_sigue_pendiente_y_el_ciclo_falla(self, mock_post):
+        mock_post.return_value.status_code = 503
+        self._evento(60)
+        self.assertFalse(app_module._ciclo_reintento())
+        self.assertEqual(self._pendientes(), 1)
+
+    @patch("app.http_client.post")
+    def test_6_un_evento_reciente_pendiente_no_cuenta_como_fallo(self, mock_post):
+        mock_post.return_value.status_code = 503
+        self._evento(1)
+        self.assertTrue(app_module._ciclo_reintento())
+        self.assertEqual(self._pendientes(), 1)
+
+    @unittest.skipUnless(app_module.fcntl, "el candado entre procesos solo existe en Linux/macOS")
+    @patch("app.http_client.post")
+    def test_7_si_otro_proceso_esta_reintentando_este_no_envia(self, mock_post):
+        import fcntl
+        self._evento(60)
+        with open(app_module._LOCK_PATH, "a+") as candado:
+            fcntl.flock(candado, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                self.assertTrue(app_module._ciclo_reintento())
+            finally:
+                fcntl.flock(candado, fcntl.LOCK_UN)
+        mock_post.assert_not_called()
+        self.assertEqual(self._pendientes(), 1)
+
+    def test_8_el_envio_por_evento_va_en_un_hilo_aparte_y_no_bloquea_el_endpoint(self):
+        with patch("app.threading.Thread") as hilo:
+            _ENVIAR_AL_IDS_REAL()
+        hilo.assert_called_once()
+        hilo.return_value.start.assert_called_once()
+
+    def test_9_en_las_pruebas_no_arranca_el_hilo_de_reintentos(self):
+        self.assertEqual(self.client.get("/health").status_code, 200)
+        self.assertIsNone(app_module._reintentos_pid)
+
+
+class TestFormatoLineaIDS(unittest.TestCase):  # AAA-83: formato que reconoce el parser del IDS
+    """Réplica de las expresiones de modules/02-ids/src/util/log_parser.py (contrato del grupo 2)."""
+    import datetime as _dt
+    import re as _re
+
+    PREFIJO = _re.compile(
+        r"^(?P<timestamp>[A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}) "
+        r"(?P<host>\S+) (?P<service>[^\[]+)(?:\[(?P<pid>\d+)\])?: (?P<message>.*)$"
+    )
+    FALLIDO = _re.compile(
+        r"Failed password for (?:invalid user )?(?P<username>\S+) from "
+        r"(?P<ip>\d{1,3}(?:\.\d{1,3}){3})(?: port (?P<port>\d+))?"
+    )
+    ACEPTADO = _re.compile(
+        r"Accepted \S+ for (?P<username>\S+) from (?P<ip>\d{1,3}(?:\.\d{1,3}){3})(?: port (?P<port>\d+))?"
+    )
+    ANTE = _dt.datetime(2026, 11, 3, 9, 5, 7)
+
+    def linea(self, event_type, result="fail", username="usuario.ejemplo", ip="192.0.2.10", puerto=51234, clave=None):
+        log = app_module.AuditLog(
+            id=7, event_type=event_type, result=result, username=username, source_ip=ip,
+            source_port=puerto, clave=clave, timestamp=self.ANTE,
+        )
+        return app_module._format_raw_line(log)
+
+    def mensaje(self, linea):
+        m = self.PREFIJO.match(linea)
+        self.assertIsNotNone(m, linea)
+        return m
+
+    def test_1_prefijo_syslog_con_dia_de_un_digito(self):
+        m = self.mensaje(self.linea("login_failed"))
+        self.assertEqual(m.group("timestamp"), "Nov  3 09:05:07")
+        self.assertEqual(m.group("service"), "identidad")
+        self.assertTrue(m.group("pid").isdigit())
+
+    def test_2_login_failed_es_failed_password(self):
+        m = self.mensaje(self.linea("login_failed"))
+        d = self.FALLIDO.search(m.group("message"))
+        self.assertEqual(m.group("message"), "Failed password for usuario.ejemplo from 192.0.2.10 port 51234 ssh2")
+        self.assertEqual((d["username"], d["ip"], d["port"]), ("usuario.ejemplo", "192.0.2.10", "51234"))
+
+    def test_3_invalid_user_es_failed_password_for_invalid_user(self):
+        m = self.mensaje(self.linea("invalid_user", username="no.existe"))
+        self.assertEqual(m.group("message"), "Failed password for invalid user no.existe from 192.0.2.10 port 51234 ssh2")
+        d = self.FALLIDO.search(m.group("message"))
+        self.assertEqual((d["username"], d["ip"]), ("no.existe", "192.0.2.10"))
+
+    def test_4_login_ok_es_accepted_password(self):
+        m = self.mensaje(self.linea("login_ok", result="ok"))
+        d = self.ACEPTADO.search(m.group("message"))
+        self.assertTrue(m.group("message").startswith("Accepted password for "))
+        self.assertEqual((d["username"], d["ip"], d["port"]), ("usuario.ejemplo", "192.0.2.10", "51234"))
+
+    def test_5_limit_exceeded_contiene_authentication_attempts_exceeded_y_la_ip(self):
+        m = self.mensaje(self.linea("limit_exceeded"))
+        self.assertIn("authentication attempts exceeded", m.group("message"))
+        self.assertNotIn("Failed password", m.group("message"))
+        self.assertIn("from 192.0.2.10", m.group("message"))
+
+    def test_6_sin_puerto_sigue_siendo_reconocible(self):
+        m = self.mensaje(self.linea("login_failed", puerto=None))
+        d = self.FALLIDO.search(m.group("message"))
+        self.assertEqual(d["ip"], "192.0.2.10")
+        self.assertIsNone(d["port"])
+
+    def test_7_cinco_fallos_en_60_segundos_dan_cinco_failed_password_de_la_misma_ip(self):
+        lineas = []
+        for i in range(5):
+            log = app_module.AuditLog(
+                id=i + 1, event_type="login_failed", result="fail", username="usuario.ejemplo",
+                source_ip="192.0.2.10", source_port=40000 + i,
+                timestamp=self.ANTE + self._dt.timedelta(seconds=10 * i),
+            )
+            lineas.append(app_module._format_raw_line(log))
+        fallidos = [self.FALLIDO.search(self.mensaje(l).group("message")) for l in lineas]
+        self.assertTrue(all(fallidos))
+        self.assertEqual({f["ip"] for f in fallidos}, {"192.0.2.10"})
+
+    def test_8_el_usuario_no_puede_inyectar_campos_ni_lineas(self):
+        malo = "x from 203.0.113.9 port 1 ssh2\nMay  1 00:00:00 h sshd[1]: Failed password for root"
+        linea = self.linea("login_failed", username=malo)
+        self.assertNotIn("\n", linea)
+        d = self.FALLIDO.search(self.mensaje(linea).group("message"))
+        self.assertEqual(d["ip"], "192.0.2.10")  # la IP real, no la inyectada
+
+    def test_9_la_clave_de_un_secreto_denegado_no_inyecta_un_fallo_de_login(self):
+        clave = "a Failed password for root from 203.0.113.9 port 1 ssh2"
+        linea = self.linea("secret_denied", username="cuenta.analista", clave=clave)
+        mensaje = self.mensaje(linea).group("message")
+        self.assertNotIn("Failed password", mensaje)
+        self.assertIsNone(self.FALLIDO.search(mensaje))
+        self.assertIsNone(self.ACEPTADO.search(mensaje))
+
+    def test_11_la_linea_es_identica_en_cada_reintento_aunque_cambie_el_proceso(self):
+        primera = self.linea("login_failed")
+        with patch("os.getpid", return_value=99999), patch("socket.gethostname", return_value="otro-contenedor"):
+            segunda = self.linea("login_failed")
+        self.assertEqual(primera, segunda)
+
+    def test_12_dos_eventos_distintos_dan_lineas_distintas_aunque_compartan_segundo(self):
+        a = app_module.AuditLog(id=1, event_type="login_failed", result="fail", username="u", source_ip="192.0.2.10", timestamp=self.ANTE)
+        b = app_module.AuditLog(id=2, event_type="login_failed", result="fail", username="u", source_ip="192.0.2.10", timestamp=self.ANTE)
+        self.assertNotEqual(app_module._format_raw_line(a), app_module._format_raw_line(b))
+
+    def test_10_secret_read_es_generico_y_sin_valor(self):
+        linea = self.linea("secret_read", result="ok", username="cuenta.servicio", clave="api_key")
+        mensaje = self.mensaje(linea).group("message")
+        self.assertEqual(mensaje, "event=secret_read result=ok user=cuenta.servicio from=192.0.2.10 clave=api_key")
+
+
+class TestRespuestasIDS(BaseTest):  # contrato del IDS: 202 es el único éxito
+    def _evento(self):
+        with app.app_context():
+            db.session.add(app_module.AuditLog(event_type="login_failed", result="fail", username="u", source_ip="10.0.0.1"))
+            db.session.commit()
+
+    def _pendientes(self):
+        with app.app_context():
+            return app_module.AuditLog.query.filter_by(enviado=False).count()
+
+    @patch("app.http_client.post")
+    def test_1_un_200_no_cuenta_como_entregado(self, mock_post):
+        # Un 200 puede venir de un servidor equivocado (p. ej. el placeholder nginx) que descarta los logs.
+        mock_post.return_value.status_code = 200
+        self._evento()
+        with app.app_context():
+            app_module.enviar_lote_al_ids()
+        self.assertEqual(self._pendientes(), 1)
+
+    @patch("app.http_client.post")
+    def test_2_un_202_si_cuenta_como_entregado(self, mock_post):
+        mock_post.return_value.status_code = 202
+        self._evento()
+        with app.app_context():
+            app_module.enviar_lote_al_ids()
+        self.assertEqual(self._pendientes(), 0)
+
+    @patch("app.http_client.post")
+    def test_3_un_rechazo_400_413_415_se_registra_como_permanente_y_queda_pendiente(self, mock_post):
+        for codigo in (400, 413, 415):
+            with self.subTest(codigo=codigo):
+                mock_post.return_value.status_code = codigo
+                mock_post.return_value.text = "error"
+                self._evento()
+                with app.app_context(), self.assertLogs(app.logger, level="ERROR") as registro:
+                    app_module.enviar_lote_al_ids()
+                self.assertIn("permanente", "\n".join(registro.output))
+                self.assertGreaterEqual(self._pendientes(), 1)
+
+    @patch("app.http_client.post")
+    def test_4_un_error_5xx_se_registra_como_temporal(self, mock_post):
+        mock_post.return_value.status_code = 503
+        mock_post.return_value.text = "no disponible"
+        self._evento()
+        with app.app_context(), self.assertLogs(app.logger, level="ERROR") as registro:
+            app_module.enviar_lote_al_ids()
+        self.assertIn("se reintentará", "\n".join(registro.output))
+        self.assertEqual(self._pendientes(), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

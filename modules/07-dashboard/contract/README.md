@@ -15,7 +15,7 @@ Nada.
 
 ### Identidad (`equipo-01-identidad`)
 
-Contrato de origen: `modules/01-identidad/contract/openapi.yaml` y `shared/auth-contract.md` (v1.2.0). Si este documento y el suyo difieren, manda el de Identidad. Servicio en `http://localhost:8001`.
+Contrato de origen: `modules/01-identidad/contract/openapi.yaml` y `shared/auth-contract.md` (v1.3.0). Si este documento y el suyo difieren, manda el de Identidad. Servicio en `http://localhost:8001`.
 
 **`POST /auth/login`** (publicado)
 - Campos de petición: `username` (string, requerido), `password` (string, requerido).
@@ -46,9 +46,9 @@ Contrato de origen: `modules/01-identidad/contract/openapi.yaml` y `shared/auth-
 - Respuesta 200: `{"message": "Token revocado"}`. A partir de ahí ese token deja de valer: `GET /auth/validate` responde 401 con él.
 - Respuesta 401: token inválido, expirado, revocado o ausente (también si ya se había cerrado la sesión con él).
 
-**CORS** (publicado el 27/10): solo se permite el origen `http://localhost:8007`, y solo en `POST /auth/login` y `POST /auth/register`. `GET /auth/validate` y `POST /auth/logout` no están en esa lista, así que una llamada directa desde el navegador a esos dos endpoints se bloquea. Hay que pedir a Equipo 1 que los añada o llamarlos a través de un proxy del nginx del Dashboard (como se hace con el SIEM).
+**CORS** (v1.3.0, publicado el 06/11): solo se permite el origen `http://localhost:8007`, en `POST /auth/login`, `POST /auth/register`, `GET /auth/validate` y `POST /auth/logout`, con la cabecera `Authorization`. El Dashboard puede llamarlos directamente desde el navegador; el login del Sprint 2 (DASHG7-82) está previsto a través de un proxy del nginx del Dashboard (`/api/identidad/`), así que no depende de este CORS.
 
-**No lo consume el Dashboard en el Sprint 2:** `GET /audit` (solo `admin`). Su contrato lo documenta, pero el código de Identidad expone `GET /logs`; la diferencia ya se la hemos comunicado a Equipo 1.
+**Retirados en v1.3.0:** `GET /audit` (nunca se implementó) y `GET /logs` (existía en el código, pero no lo usa ningún módulo). Ya no hay endpoint de consulta de auditoría en Identidad: si el Dashboard necesitara ver eventos de seguridad, tendría que salir del SIEM.
 
 ### SIEM (`equipo-05-siem`)
 

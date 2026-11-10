@@ -1,0 +1,392 @@
+package com.ciberurjc.siem;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.core.env.Environment;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
+import java.io.ByteArrayInputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import static org.junit.jupiter.api.Assertions.*;
+
+@Import(InMemoryEventTestConfiguration.class)
+@org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "server.address=127.0.0.1")
+class EventValidationHttpTests {
+    private static final String SENSITIVE_VALUE = "SEM24_SECRET_DO_NOT_ECHO";
+    // Change this single expectation when EventController adopts SEM-72's non-mock receipt.
+    private static final String RECEIPT_MESSAGE = "Event stored successfully";
+    private static final String UNKNOWN_FIELD_MESSAGE = "The event contains an unknown field; allowed fields are: "
+        + "event_id, timestamp, source, event_type, severity, title, description, details";
+    @Autowired Environment environment;
+    @Autowired ObjectMapper mapper;
+    final HttpClient client = HttpClient.newHttpClient();
+    String baseUrl;
+
+    @BeforeEach
+    void configureUrl() {
+        baseUrl = "http://127.0.0.1:" + environment.getProperty("local.server.port");
+    }
+
+    HttpResponse<String> request(String path, String body, String contentType) throws Exception {
+        var builder = HttpRequest.newBuilder(URI.create(baseUrl + path));
+        if (body == null) builder.GET();
+        else builder.header("Content-Type", contentType).POST(HttpRequest.BodyPublishers.ofString(body));
+        return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
+    void healthIdentifiesTheModule() throws Exception {
+        var response = request("/health", null, null);
+        assertEquals(200, response.statusCode());
+        assertEquals(Map.of("status", "ok", "module", "05-siem"), mapper.readValue(response.body(), Map.class));
+    }
+
+    @Test
+    void rejectsMissingFieldsAndInvalidValues() throws Exception {
+        Map<String, Object> valid = mapper.readValue(Files.readString(Path.of("contract/examples/grupo_3_honeypot.json")), Map.class);
+        for (String field : valid.keySet()) {
+            var missing = new LinkedHashMap<>(valid);
+            missing.remove(field);
+            assertEquals(400, request("/events", mapper.writeValueAsString(missing), "application/json").statusCode(), field);
+        }
+        for (String field : List.of("event_id", "title", "description", "event_type")) {
+            var blank = new LinkedHashMap<>(valid);
+            blank.put(field, " ");
+            assertEquals(400, request("/events", mapper.writeValueAsString(blank), "application/json").statusCode(), field);
+        }
+        for (var invalid : List.of(Map.entry("source", "soar"), Map.entry("severity", "urgent"),
+                Map.entry("timestamp", "2026-02-30T18:30:15Z"), Map.entry("timestamp", "2026-09-22T18:30:15+00:00"))) {
+            var event = new LinkedHashMap<>(valid);
+            event.put(invalid.getKey(), invalid.getValue());
+            assertEquals(400, request("/events", mapper.writeValueAsString(event), "application/json").statusCode());
+        }
+        var extra = new LinkedHashMap<>(valid);
+        extra.put("source_module", "honeypot");
+        assertEquals(400, request("/events", mapper.writeValueAsString(extra), "application/json").statusCode());
+        for (String body : List.of("{", "[]", "null", "", "{\"events\":[]}")) {
+            var response = request("/events", body, "application/json");
+            assertEquals(400, response.statusCode(), body);
+            assertTrue(mapper.readTree(response.body()).has("error"));
+        }
+        assertEquals(415, request("/events", "test", "text/plain").statusCode());
+    }
+
+    @Test
+    void rejectsWrongTypesWithoutCoercingStringFields() throws Exception {
+        Map<String, Object> valid = mapper.readValue(Files.readString(Path.of("contract/examples/grupo_3_honeypot.json")), Map.class);
+        for (String field : List.of("event_id", "timestamp", "source", "event_type", "severity", "title", "description")) {
+            for (Object value : java.util.Arrays.asList(42, 4.2, true, List.of("value"), Map.of("value", "text"), null)) {
+                var invalid = new LinkedHashMap<>(valid);
+                invalid.put(field, value);
+                var response = request("/events", mapper.writeValueAsString(invalid), "application/json");
+                assertEquals(400, response.statusCode(), field + ": " + value);
+                assertTrue(mapper.readTree(response.body()).has("error"));
+            }
+        }
+        for (Object value : java.util.Arrays.asList(42, 4.2, true, "text", List.of(), null)) {
+            var invalid = new LinkedHashMap<>(valid);
+            invalid.put("details", value);
+            assertEquals(400, request("/events", mapper.writeValueAsString(invalid), "application/json").statusCode(), "details: " + value);
+        }
+    }
+
+    @Test
+    void preservesEveryProducerFieldAndReturnsExactReceipt() throws Exception {
+        for (String filename : List.of("grupo_2_ids_ejemplo_propuesto.json", "grupo_3_honeypot.json", "grupo_4_scanner.json")) {
+            String input = Files.readString(Path.of("contract/examples", filename));
+            var model = mapper.readValue(input, com.ciberurjc.siem.models.Event.class);
+            assertEquals(mapper.readTree(input), mapper.readTree(mapper.writeValueAsString(model)), filename);
+            var response = request("/events", input, "application/json");
+            assertEquals(200, response.statusCode());
+            assertEventReceipt(response, model.event_id());
+        }
+    }
+
+    @Test
+    void explainsMissingAndNullRequiredFields() throws Exception {
+        var expectedReasons = Map.of(
+            "event_id", "is required and must not be blank",
+            "timestamp", "is required and must not be blank",
+            "source", "is required",
+            "event_type", "is required and must not be blank",
+            "severity", "is required",
+            "title", "is required and must not be blank",
+            "description", "is required and must not be blank",
+            "details", "is required and must be a JSON object"
+        );
+        for (var expected : expectedReasons.entrySet()) {
+            var event = validEvent();
+            event.remove(expected.getKey());
+            assertEventError(event, "VALIDATION_ERROR", expected.getKey() + ": " + expected.getValue());
+            event.put(expected.getKey(), null);
+            assertEventError(event, "VALIDATION_ERROR", expected.getKey() + ": " + expected.getValue());
+        }
+    }
+
+    @Test
+    void explainsEmptyAndWhitespaceOnlyStrings() throws Exception {
+        for (String field : List.of("event_id", "timestamp", "event_type", "title", "description")) {
+            for (String value : List.of("", " ", "\t\r\n")) {
+                var event = validEvent();
+                event.put(field, value);
+                assertEventError(event, "VALIDATION_ERROR", field + ": is required and must not be blank");
+            }
+        }
+    }
+
+    @Test
+    void explainsInvalidEventIdsWithoutEchoingTheirValues() throws Exception {
+        for (String value : List.of("x".repeat(129), "with space", "path/id", "á", "<script>",
+                "prefix\n" + SENSITIVE_VALUE, "prefix\r" + SENSITIVE_VALUE)) {
+            var event = validEvent();
+            event.put("event_id", value);
+            assertEventError(event, "VALIDATION_ERROR",
+                "event_id: must contain 1 to 128 ASCII letters, digits, dots, underscores, colons or hyphens");
+        }
+    }
+
+    @Test
+    void acceptsEventIdsAtContractBoundaries() throws Exception {
+        for (String value : List.of("a", "x".repeat(128), "scan:001.a_b-C", "non-uuid-identifier")) {
+            var event = validEvent();
+            event.put("event_id", value);
+            assertEventReceipt(request("/events", mapper.writeValueAsString(event), "application/json"), value);
+        }
+    }
+
+    @Test
+    void explainsAllowedSourceAndSeverityValues() throws Exception {
+        for (String value : List.of("soar", "IDS", " ids ", "identity", "IDENTITY", " identity ", "", " ", SENSITIVE_VALUE)) {
+            var event = validEvent();
+            event.put("source", value);
+            assertEventError(event, "VALIDATION_ERROR", "source: must be one of: ids, honeypot, scanner, pentesting");
+        }
+        for (String value : List.of("urgent", "HIGH", " high ", "", " ", SENSITIVE_VALUE)) {
+            var event = validEvent();
+            event.put("severity", value);
+            assertEventError(event, "VALIDATION_ERROR", "severity: must be one of: info, low, medium, high, critical");
+        }
+    }
+
+    @Test
+    void reportsMultipleFieldsInStableOrderWithoutDuplicateMessages() throws Exception {
+        var event = validEvent();
+        event.put("title", " ");
+        event.put("source", SENSITIVE_VALUE);
+        event.put("severity", SENSITIVE_VALUE);
+        event.put("description", null);
+        var reversed = new LinkedHashMap<String, Object>();
+        event.sequencedEntrySet().reversed().forEach(entry -> reversed.put(entry.getKey(), entry.getValue()));
+
+        // Exact equality requires each field and reason once, in alphabetical order,
+        // regardless of request property order or repeated validation.
+        String expected = "description: is required and must not be blank; "
+            + "severity: must be one of: info, low, medium, high, critical; "
+            + "source: must be one of: ids, honeypot, scanner, pentesting; "
+            + "title: is required and must not be blank";
+        for (int attempt = 0; attempt < 3; attempt++) {
+            assertEventError(event, "VALIDATION_ERROR", expected);
+            assertEventError(reversed, "VALIDATION_ERROR", expected);
+        }
+    }
+
+    @Test
+    void identifiesStringFieldsWithIncompatibleTypes() throws Exception {
+        for (String field : List.of("event_id", "timestamp", "source", "event_type", "severity", "title", "description")) {
+            for (Object value : List.of(42, 4.2, true, List.of(SENSITIVE_VALUE), Map.of("credential", SENSITIVE_VALUE))) {
+                var event = validEvent();
+                event.put(field, value);
+                assertEventError(event, "INVALID_JSON", field + ": must be a string");
+            }
+        }
+    }
+
+    @Test
+    void explainsIncompatibleDetailsTypes() throws Exception {
+        for (Object value : List.of(42, 4.2, true, SENSITIVE_VALUE, List.of(SENSITIVE_VALUE))) {
+            var event = validEvent();
+            event.put("details", value);
+            assertEventError(event, "INVALID_JSON", "details: must be a JSON object");
+        }
+    }
+
+    @Test
+    void identifiesUnknownPropertiesWithoutEchoingTheirValues() throws Exception {
+        for (String field : List.of("source_module", "events")) {
+            var event = validEvent();
+            event.put(field, SENSITIVE_VALUE);
+            assertEventError(event, "INVALID_JSON", UNKNOWN_FIELD_MESSAGE);
+        }
+    }
+
+    @Test
+    void usesSafeFallbackForUnusablePropertyPaths() throws Exception {
+        for (String field : List.of("credential\n" + SENSITIVE_VALUE, SENSITIVE_VALUE.repeat(8))) {
+            var event = validEvent();
+            event.put(field, SENSITIVE_VALUE);
+            assertEventError(event, "INVALID_JSON", UNKNOWN_FIELD_MESSAGE);
+        }
+    }
+
+    @Test
+    void doesNotEchoSensitiveUnknownPropertyNames() throws Exception {
+        // A secret can be a short ASCII identifier, not just a suspicious-looking name.
+        for (String field : List.of(SENSITIVE_VALUE, "token_" + SENSITIVE_VALUE, "Exception")) {
+            var event = validEvent();
+            event.put(field, SENSITIVE_VALUE);
+            assertEventError(event, "INVALID_JSON", UNKNOWN_FIELD_MESSAGE);
+        }
+    }
+
+    @Test
+    void distinguishesMalformedJsonFromMissingBody() throws Exception {
+        for (String body : List.of("{", "{]", "{\"event_id\":\"" + SENSITIVE_VALUE + "\",\"timestamp\":}")) {
+            assertError(request("/events", body, "application/json"), 400, "INVALID_JSON",
+                "Malformed JSON: check the request body syntax");
+        }
+        for (String body : List.of("", " \t\r\n", "null")) {
+            assertError(request("/events", body, "application/json"), 400, "INVALID_JSON",
+                "The request body is required and must contain a JSON event object");
+        }
+    }
+
+    @Test
+    void recognizesMissingBodyWithoutDependingOnContentLength() throws Exception {
+        for (var publisher : List.of(HttpRequest.BodyPublishers.noBody(),
+                HttpRequest.BodyPublishers.ofInputStream(() -> new ByteArrayInputStream(new byte[0])),
+                HttpRequest.BodyPublishers.ofInputStream(() -> new ByteArrayInputStream("null".getBytes(StandardCharsets.UTF_8))))) {
+            var request = HttpRequest.newBuilder(URI.create(baseUrl + "/events"))
+                .header("Content-Type", "application/json").POST(publisher).build();
+            var response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertError(response, 400, "INVALID_JSON",
+                "The request body is required and must contain a JSON event object");
+        }
+    }
+
+    @Test
+    void stillAcceptsArbitraryPropertyNamesInsideDetails() throws Exception {
+        var event = validEvent();
+        event.put("details", Map.of(SENSITIVE_VALUE, Map.of("Exception", SENSITIVE_VALUE)));
+        var response = request("/events", mapper.writeValueAsString(event), "application/json");
+        assertEquals(200, response.statusCode(), response.body());
+        assertEventReceipt(response, (String) event.get("event_id"));
+        assertFalse(response.body().contains(SENSITIVE_VALUE));
+    }
+
+    @Test
+    void explainsIncompatibleRootStructures() throws Exception {
+        for (String body : List.of("[]", "42", "true", mapper.writeValueAsString(SENSITIVE_VALUE))) {
+            assertError(request("/events", body, "application/json"), 400, "INVALID_JSON",
+                "The body must match the JSON event structure; expected a single event object with correctly typed fields");
+        }
+    }
+
+    @Test
+    void explainsBothTimestampFailureReasons() throws Exception {
+        for (String value : List.of("2026-09-22T18:30:15+00:00", "2026-09-22T18:30:15", SENSITIVE_VALUE)) {
+            var event = validEvent();
+            event.put("timestamp", value);
+            assertEventError(event, "VALIDATION_ERROR", "timestamp: must end with Z (UTC)");
+        }
+        for (String value : List.of("2026-02-30T18:30:15Z", "2026-09-22T25:30:15Z", SENSITIVE_VALUE + "Z")) {
+            var event = validEvent();
+            event.put("timestamp", value);
+            assertEventError(event, "VALIDATION_ERROR", "timestamp: must represent a valid UTC date-time");
+        }
+    }
+
+    @Test
+    void preservesExactUnsupportedMediaTypeResponse() throws Exception {
+        String body = mapper.writeValueAsString(validEvent());
+        for (String contentType : List.of("text/plain", "application/xml")) {
+            assertError(request("/events", body, contentType), 415, "UNSUPPORTED_MEDIA_TYPE",
+                "Content-Type must be application/json");
+        }
+    }
+
+    @Test
+    void acceptsAllowedValuesAndOpenDetailsWithExactReceipt() throws Exception {
+        for (String source : List.of("ids", "honeypot", "scanner", "pentesting")) {
+            for (String severity : List.of("info", "low", "medium", "high", "critical")) {
+                var event = validEvent();
+                event.put("source", source);
+                event.put("severity", severity);
+                event.put("timestamp", "2026-09-22T18:30:15.123Z");
+                event.put("event_type", "producer_specific_event");
+                var details = new LinkedHashMap<String, Object>();
+                details.put("credential", SENSITIVE_VALUE);
+                details.put("optional", null);
+                int variant = 0;
+                for (Map<String, Object> value : List.of(Map.<String, Object>of(), details)) {
+                    // Different details represent different events, not changed retries (SEM-72: 409).
+                    event.put("event_id", "non-uuid-" + source + "-" + severity + "-" + variant++);
+                    event.put("details", value);
+                    var response = request("/events", mapper.writeValueAsString(event), "application/json");
+                    assertEquals(200, response.statusCode(), response.body());
+                    assertEventReceipt(response, (String) event.get("event_id"));
+                    assertFalse(response.body().contains(SENSITIVE_VALUE));
+                }
+            }
+        }
+    }
+
+    private LinkedHashMap<String, Object> validEvent() throws Exception {
+        LinkedHashMap<String, Object> event = mapper.readValue(Files.readString(Path.of("contract/examples/grupo_3_honeypot.json")),
+            new TypeReference<LinkedHashMap<String, Object>>() {});
+        // Tests modify this fixture independently; they must not collide in a future shared store.
+        event.put("event_id", "SEM24-" + java.util.UUID.randomUUID());
+        return event;
+    }
+
+    private void assertEventReceipt(HttpResponse<String> response, String eventId) throws Exception {
+        assertEquals(200, response.statusCode(), response.body());
+        assertEquals(Map.of("status", "success", "message", RECEIPT_MESSAGE, "event_id", eventId),
+            mapper.readValue(response.body(), Map.class));
+    }
+
+    private void assertEventError(Map<String, Object> event, String code, String message) throws Exception {
+        assertError(request("/events", mapper.writeValueAsString(event), "application/json"), 400, code, message);
+    }
+
+    private void assertError(HttpResponse<String> response, int status, String code, String message) throws Exception {
+        assertEquals(status, response.statusCode(), response.body());
+        assertTrue(response.headers().firstValue("Content-Type").orElse("").startsWith("application/json"));
+        // Compare the entire object: no extra details, stack traces or exception properties are allowed.
+        assertEquals(Map.of("error", Map.of("code", code, "message", message)),
+            mapper.readValue(response.body(), Map.class));
+        String actualMessage = mapper.readTree(response.body()).get("error").get("message").asText();
+        for (String forbidden : List.of(SENSITIVE_VALUE, "tools.jackson.", "com.fasterxml.jackson.",
+                "com.ciberurjc.", "\tat ")) {
+            assertFalse(actualMessage.contains(forbidden), "Response must not expose " + forbidden);
+        }
+    }
+
+    @Test
+    void acceptsCurrentHoneypotPayloadAndPreservesDetails() throws Exception {
+        String input = Files.readString(Path.of("contract/examples/grupo_3_honeypot_actual.json"));
+        var event = mapper.readValue(input, com.ciberurjc.siem.models.Event.class);
+
+        assertEquals(mapper.readTree(input), mapper.readTree(mapper.writeValueAsString(event)));
+        assertEquals("/login", event.details().get("ruta"));
+        assertTrue(event.details().containsKey("navegador"));
+        assertTrue(event.details().containsKey("command"));
+        assertNull(event.details().get("command"));
+
+        var response = request("/events", input, "application/json");
+        assertEquals(200, response.statusCode(), response.body());
+        assertEquals(event.event_id(), mapper.readTree(response.body()).get("event_id").asText());
+    }
+}
