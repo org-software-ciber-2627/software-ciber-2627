@@ -1,0 +1,50 @@
+[
+  {
+    "event_id": "b52ee782-265f-4ec7-a719-484460628ef9",
+    "timestamp": "2026-11-06T10:31:00Z",
+    "source": "scanner",
+    "event_type": "vulnerability_detected",
+    "severity": "medium",
+    "title": "Posible configuración HTTP insegura",
+    "description": "Hallazgo simulado para probar la presentación de vulnerabilidades.",
+    "details": {
+      "target": {
+        "ip": "192.0.2.10",
+        "port": 80,
+        "protocol": "tcp",
+        "service": "http"
+      },
+      "scan_id": "scan-001",
+      "tool": "nmap",
+      "profile": "web",
+      "script_id": "script-de-prueba",
+      "evidence": "Evidencia simulada de una configuración insegura.",
+      "cve": null,
+      "cvss": null
+    }
+  },
+  {
+    "event_id": "70ac7595-b612-4b1e-943a-58116643de95",
+    "timestamp": "2026-11-06T10:31:05Z",
+    "source": "scanner",
+    "event_type": "vulnerability_detected",
+    "severity": "high",
+    "title": "Vulnerabilidad con referencia CVE",
+    "description": "Hallazgo simulado para comprobar la visualización de CVE y CVSS.",
+    "details": {
+      "target": {
+        "ip": "192.0.2.10",
+        "port": 443,
+        "protocol": "tcp",
+        "service": "https"
+      },
+      "scan_id": "scan-001",
+      "tool": "nmap",
+      "profile": "web",
+      "script_id": "script-de-prueba",
+      "evidence": "Evidencia ficticia de prueba; no procede de un escaneo real.",
+      "cve": "CVE-2014-0160",
+      "cvss": 7.5
+    }
+  }
+]

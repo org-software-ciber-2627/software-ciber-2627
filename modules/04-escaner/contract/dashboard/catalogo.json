@@ -1,0 +1,23 @@
+[
+  {
+    "scan_id": "scan-003",
+    "created_at": "2026-11-06T10:40:00Z",
+    "target": "192.0.2.30",
+    "profile": "vuln",
+    "status": "running"
+  },
+  {
+    "scan_id": "scan-002",
+    "created_at": "2026-11-06T10:35:00Z",
+    "target": "192.0.2.20",
+    "profile": "quick",
+    "status": "completed"
+  },
+  {
+    "scan_id": "scan-001",
+    "created_at": "2026-11-06T10:30:00Z",
+    "target": "192.0.2.10",
+    "profile": "web",
+    "status": "completed"
+  }
+]
