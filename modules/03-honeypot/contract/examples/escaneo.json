@@ -1,0 +1,18 @@
+{
+  "event_id": "HP-103",
+  "timestamp": "2026-10-12T14:35:00Z",
+  "source": "honeypot",
+  "event_type": "escaneo",
+  "severity": "low",
+  "title": "Intento de acceso en el login falso",
+  "description": "Intento desde 192.168.1.99 con el usuario ",
+  "details": {
+    "source_ip": "192.168.1.99",
+    "service": "honeypot-web",
+    "username": null,
+    "credential": null,
+    "command": null,
+    "ruta": "/admin",
+    "navegador": "Nmap NSE"
+  }
+}

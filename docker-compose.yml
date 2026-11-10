@@ -38,9 +38,24 @@ services:
 
   honeypot:
     build: ./modules/03-honeypot
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: "0.5"
+    mem_limit: 512m
+    mem_reservation: 256m
     ports:
-      - "8003:80"
+      - "127.0.0.1:8003:80"
+      - "127.0.0.1:2121:2121"
+      - "127.0.0.1:2222:2222"
+    environment:
+      - HONEYPOT_SSH_HOSTKEY=/http/data/hostkey.ser
+    volumes:
+      - honeypot-data:/http/data
     networks:
+      - honeypot-publica
+      - honeypot-siem
       - ciberurjc
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
@@ -48,6 +63,8 @@ services:
       timeout: 3s
       retries: 5
       start_period: 5s
+
+    restart: unless-stopped
 
   escaner:
     build: ./modules/04-escaner
@@ -68,6 +85,7 @@ services:
       - "8005:80"
     networks:
       - ciberurjc
+      - honeypot-siem
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
       interval: 10s
@@ -131,6 +149,12 @@ services:
 networks:
   ciberurjc:
     driver: bridge
+  honeypot-publica:
+    driver: bridge
+  honeypot-siem:
+    driver: bridge
+    internal: true
 
 volumes:
+  honeypot-data:
   soar-data:
