@@ -18,7 +18,7 @@ Nada obligatorio. Si el SIEM no responde, los intentos se guardan igual. Para pr
 
 ## Cómo arrancarlo
 - *Con Docker* (desde la raíz del repo): `docker compose up --build honeypot` → `http://localhost:8003/login`
-- *Sin Docker* (desde `modules/03-honeypot`, con Java 25 o superior): `./mvnw spring-boot:run` → `http://localhost:8080/login`
+- *Sin Docker* (desde `modules/03-honeypot`, con Java 21 o superior): `./mvnw spring-boot:run` → `http://localhost:8080/login`
 - *SSH:* `ssh -p 2222 root@localhost` · *FTP:* cualquier cliente FTP contra `localhost:2121`
 - *Pruebas:* `./mvnw test`
 - *Mock del SIEM:* `java mocks/SiemMockServer.java` (escucha `POST /events` en el puerto `8081`)
@@ -63,7 +63,7 @@ También en `application.properties`:
 
 Para añadir una credencial basta con ponerla en la lista, sin tocar el código. En el login web el usuario es un correo, así que se compara lo que va antes de la @: `admin@loquesea.com` con la contraseña `admin` cuenta como `admin:admin`. Un intento que usa una de ellas se etiqueta como `credenciales_por_defecto` y se envía al SIEM con severidad `high`. Si además es fuerza bruta, gana `fuerza_bruta` (acuerdo con el grupo 5). En el FTP todavía no se comprueba, porque el usuario y la contraseña llegan en comandos distintos.
 
-## Plan de pruebas (Sprint 2)
+## Plan de pruebas (Sprints 2 y 3)
 
 Cada criterio de aceptación del sprint tiene al menos una prueba. Las automáticas se lanzan con `.\mvnw.cmd test` (Windows) o `./mvnw test` desde `modules/03-honeypot`, y la CI las pasa en cada PR (job *Honeypot Tests*). Las manuales se hacen antes de cerrar la historia, y el PO deja en Jira lo que ha comprobado.
 
@@ -100,3 +100,6 @@ En el Sprint 3 el grupo 8 hará pentesting contra el honeypot.
 | HP-32 | Resumen de rechazos en la BD | `RechazoResumenServiceIntegracionTest`: `variosRechazosEnElMismoMinutoSonUnSoloRegistro` y `otroMinutoEsOtroRegistro` (`HP-88`) | Integración | Sí | Hecho |
 | HP-32 | Límites de CPU y memoria | Revisar el compose y `docker stats` (`HP-72`, PR #22) | Manual | No | Hecho |
 | HP-32 | El resto de módulos sigue funcionando | Lanzar una ráfaga y comprobar el `/health` de otros módulos (`HP-73`) | Manual | No | Hecho |
+| HP-22 | Si el SIEM no responde o da error, el evento queda pendiente | `SiemSenderServiceTest`: `siElSiemNoRespondeElEventoQuedaPendiente` y `siElSiemDaErrorElEventoQuedaPendiente` | Unitaria | Sí | Hecho |
+| HP-22 | Cuando el SIEM vuelve, los pendientes se reenvían en orden | `ReintentoSiemServiceTest`: `cuandoElSiemVuelveLosPendientesLleganEnOrden` y `siFallaUnoSeParaParaNoDesordenar` | Unitaria | Sí | Hecho |
+| HP-22 | Con el SIEM caído no se pierde ningún evento | Mock apagado, 3 intentos en `/login`; al encender el mock llegan los 3 en orden en menos de 30 s | Manual | No | Hecho |

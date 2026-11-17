@@ -221,10 +221,12 @@ step "Comprobaciones"
 contiene http://localhost:8007/health '"ok"' && ok "dashboard: /health responde 200 (lo que exige el CI)" || bad "dashboard: /health"
 contiene http://localhost:8007/ "Dashboard Principal" && ok "dashboard: la página principal se sirve" || bad "dashboard: página principal"
 
-# Login (maqueta): la página existe y la principal está protegida y tiene botón de cierre de sesión.
-# OJO: es una maqueta, no consulta a Identidad; aquí solo se comprueba que los ficheros están.
+# Login: la página existe, la principal exige sesión (requireSession) y tiene botón de cierre de sesión,
+# y auth-client.js redirige a login.html. Solo se comprueba que los ficheros están; el login real contra
+# Identidad se prueba a mano en el navegador.
 contiene http://localhost:8007/login.html "Acceso CiberURJC" && ok "login: login.html se sirve" || bad "login: falta login.html"
-contiene http://localhost:8007/ "login.html" && contiene http://localhost:8007/ "logout" \
+contiene http://localhost:8007/ "requireSession" && contiene http://localhost:8007/ "logout-btn" \
+  && contiene http://localhost:8007/auth-client.js "login.html" \
   && ok "login: la página principal redirige al login si no hay sesión y tiene cierre de sesión" \
   || bad "login: la página principal no tiene la protección o el botón de cerrar sesión"
 
@@ -267,7 +269,7 @@ fi
 echo
 if [ "$FAIL" = 0 ]; then printf '\033[32mTODO CORRECTO\033[0m\n'; else printf '\033[31mHAY FALLOS (arriba)\033[0m\n'; fi
 echo
-echo "Prueba visual: abre http://localhost:8007. Te lleva al login: entra con cualquier usuario y contraseña."
+echo "Prueba visual: abre http://localhost:8007. Te lleva al login: inicia sesión con una cuenta válida del servicio Identidad."
 echo "Después deberías ver las alertas reales del SIEM ordenadas por severidad (si el SIEM no tiene ninguna,"
 echo "la lista sale vacía), la hora real en 'Última actualización' (cambia sola cada 30 s) y el botón"
 echo "'Cerrar Sesión', que te devuelve al login."

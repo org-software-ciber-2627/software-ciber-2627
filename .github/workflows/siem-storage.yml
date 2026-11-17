@@ -1,0 +1,36 @@
+# Isolated SIEM storage checks. No repository secrets required.
+name: SIEM storage
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'modules/05-siem/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/siem-storage.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  siem-storage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify storage, replay, recovery and log safety
+        run: python3 modules/05-siem/scripts/test-storage.py
+      - name: Upload successful verification summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: siem-storage-summary
+          path: modules/05-siem/target/sem66/report.json
+          if-no-files-found: error

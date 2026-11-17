@@ -125,7 +125,7 @@ public class FtpEventService {
             EventoContrato evento,
             LoginAttempt attempt
     ) {
-        int statusCode = siemSenderService.enviarEvento(json);
+        int statusCode = siemSenderService.enviarEvento(json, attempt.getId());
 
         if (statusCode == 200 || statusCode == 201) {
             attempt.setEnviado(true);

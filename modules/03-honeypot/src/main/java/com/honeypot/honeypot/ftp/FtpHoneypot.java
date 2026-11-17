@@ -38,6 +38,7 @@ public class FtpHoneypot {
             LoggerFactory.getLogger(FtpHoneypot.class);
     private static final Set<String> COMMANDS_ALLOWED_BEFORE_LOGIN =
             Set.of("USER", "PASS", "AUTH", "QUIT", "PROT", "PBSZ");
+    static final String USUARIO_SESION = "honeypot.ftp.usuario";
 
     private FtpServer server;
     private final FtpEventService ftpEventService;
@@ -139,6 +140,11 @@ public class FtpHoneypot {
         }
     }
 
+    static String usuarioDeSesion(FtpSession session) {
+        Object usuario = session.getAttribute(USUARIO_SESION);
+        return usuario instanceof String ? (String) usuario : null;
+    }
+
     Ftplet createFtplet() {
 
         return new DefaultFtplet() {
@@ -160,6 +166,14 @@ public class FtpHoneypot {
 
                 // Usuario: permitir continuar hasta la autenticación
                 if ("USER".equals(command)) {
+
+                    //recordar el USER de esta sesión (sustituye al anterior)
+                    String usuario = request.getArgument();
+                    if (usuario == null || usuario.isBlank()) {
+                        session.removeAttribute(USUARIO_SESION);
+                    } else {
+                        session.setAttribute(USUARIO_SESION, usuario);
+                    }
 
                     session.write(
                             new DefaultFtpReply(
@@ -199,6 +213,15 @@ public class FtpHoneypot {
                     return FtpletResult.SKIP;
                 }
 
+                return FtpletResult.DEFAULT;
+            }
+
+            @Override
+            public FtpletResult onDisconnect(FtpSession session)
+                    throws FtpException, IOException {
+
+                //al cerrar la conexión se olvida el USER guardado
+                session.removeAttribute(USUARIO_SESION);
                 return FtpletResult.DEFAULT;
             }
         };

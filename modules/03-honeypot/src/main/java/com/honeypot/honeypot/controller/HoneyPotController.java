@@ -103,7 +103,7 @@ public class HoneyPotController {
                 EventoContrato evento = eventoMapper.mapearAEvento(attempt, severidad);
                 String json = jsonMapper.writeValueAsString(evento);
 
-                int statusCode = siemSenderService.enviarEvento(json);
+                int statusCode = siemSenderService.enviarEvento(json, attempt.getId());
 
                 if (statusCode == 200 || statusCode == 201) {
                     attempt.setEnviado(true);

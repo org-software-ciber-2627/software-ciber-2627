@@ -13,3 +13,6 @@ instance/
 __pycache__/
 .venv/
 .DS_Store
+output/
+received.log
+received_ids.json

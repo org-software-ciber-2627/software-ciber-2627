@@ -1,4 +1,4 @@
-"""Módulo 1 · Identidad y secretos: servicio HTTP completo en un único fichero (contrato v1.0.2).
+"""Módulo 1 · Identidad y secretos: servicio HTTP completo en un único fichero (contrato v1.3.0).
 
 Sprint 1: GET /health, POST /auth/register (AAA-18), POST /auth/login (AAA-3) y emisión del
 token (AAA-19). Además incluye GET /auth/validate (adelanta AAA-20) y GET /secrets/{clave}
@@ -14,6 +14,9 @@ Variables de entorno:
   DATABASE_URL        opcional; por defecto sqlite:///identidad.db
   TRUSTED_PROXY_HOPS  opcional; nº de proxies de confianza delante (0 = ninguno, por defecto)
   JWT_EXPIRES_SECONDS opcional; por defecto 1800 (30 minutos, como dice el contrato)
+  IDS_URL             opcional; destino del envío de logs (por defecto http://ids/logs)
+  IDS_RETRY_SECONDS   opcional; espera base entre reintentos de envío al IDS (por defecto 30)
+  IDS_REINTENTOS      opcional; "0" desactiva el hilo de reintentos (lo usan los tests)
   ADMIN_PASSWORD      opcional; si existe se crea la cuenta "admin"
   SERVICE_PASSWORD    opcional; si existe se crea la cuenta "servicio"
   SECRET_DB_PASSWORD, SECRET_API_KEY, SECRET_JWT_SECRET
@@ -23,8 +26,9 @@ import base64
 import os
 import math
 import re
-import socket
+import tempfile
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import requests as http_client
@@ -41,6 +45,11 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from crypto import decrypt, encrypt
+
+try:
+    import fcntl  # solo Linux/macOS (el contenedor); en Windows no existe
+except ImportError:
+    fcntl = None
 
 
 class ConfigError(RuntimeError):
@@ -78,10 +87,13 @@ if TRUSTED_PROXY_HOPS > 0:
 db  = SQLAlchemy(app)
 jwt = JWTManager(app)
 
-# CORS restringido al dashboard (puerto 8007). Solo los endpoints de autenticación lo necesitan.
+# CORS restringido al dashboard (puerto 8007). Solo los endpoints de autenticación que llama
+# el navegador lo necesitan: login, registro, validación de sesión y cierre de sesión.
 CORS(app, resources={
     r"/auth/login":    {"origins": "http://localhost:8007"},
     r"/auth/register": {"origins": "http://localhost:8007"},
+    r"/auth/validate": {"origins": "http://localhost:8007"},
+    r"/auth/logout":   {"origins": "http://localhost:8007"},
 })
 
 # Roles del contrato (shared/auth-contract.md). Los usuarios registrados nacen como "analista".
@@ -92,10 +104,12 @@ CLAVE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
 EVENTOS = ("login_ok", "login_failed", "invalid_user", "secret_read", "secret_denied", "limit_exceeded")
 
 IDS_URL   = os.environ.get("IDS_URL", "http://ids/logs")
-_HOSTNAME = socket.gethostname()
-_PID      = os.getpid()
+_LOG_HOST = "identidad"  # fijo: el contenido de raw_line debe ser idéntico en cada reintento
 ids_lock  = threading.Lock()
 
+IDS_RETRY_SECONDS = int(os.environ.get("IDS_RETRY_SECONDS", "30"))  # espera base entre reintentos
+IDS_RETRY_MIN_AGE = 10  # un evento pendiente solo cuenta como fallo si tiene más de 10 s
+_LOCK_PATH = os.path.join(tempfile.gettempdir(), "identidad-ids-reintentos.lock")
 
 
 # Caracteres que rompen el formato key=value en syslog: controles, espacio y '='
@@ -233,16 +247,46 @@ def get_aes_key():
 
 
 def _format_raw_line(log):
-    """Línea syslog: MMM d HH:mm:ss host identidad[pid]: campos del evento."""
+    """Línea syslog al estilo OpenSSH para que el IDS active las reglas (P004, etc.).
+
+    Mapeo de eventos a mensajes reconocidos por log_parser.py del IDS:
+      login_failed  → Failed password for <user> from <ip> port <port> ssh2
+      invalid_user  → Failed password for invalid user <user> from <ip> port <port> ssh2
+      login_ok      → Accepted password for <user> from <ip> port <port> ssh2
+      limit_exceeded→ authentication attempts exceeded from <ip> port <port>
+      otros         → mensaje genérico (secret_read, secret_denied, …)
+    """
     ts = log.timestamp
     prefix = ts.strftime("%b") + " " + str(ts.day).rjust(2) + ts.strftime(" %H:%M:%S")
-    parts = [f"event={log.event_type}", f"result={log.result}"]
-    if log.username:
-        parts.append(f"user={_sanitize_log_field(log.username)}")
-    parts.append(f"from={log.source_ip}")
-    if log.clave:
-        parts.append(f"clave={log.clave}")
-    return f"{prefix} {_HOSTNAME} identidad[{_PID}]: {' '.join(parts)}"
+
+    ip = _sanitize_log_field(log.source_ip or "unknown")
+    port_part = f" port {log.source_port}" if log.source_port else ""
+    user = _sanitize_log_field(log.username) if log.username else "unknown"
+
+    if log.event_type == "login_ok":
+        message = f"Accepted password for {user} from {ip}{port_part} ssh2"
+    elif log.event_type == "login_failed":
+        message = f"Failed password for {user} from {ip}{port_part} ssh2"
+    elif log.event_type == "invalid_user":
+        # "Failed password for invalid user" activa event_type=failed_login en el IDS
+        # y hace que P004 cuente también los intentos con usuario inexistente.
+        message = f"Failed password for invalid user {user} from {ip}{port_part} ssh2"
+    elif log.event_type == "limit_exceeded":
+        message = f"authentication attempts exceeded from {ip}{port_part}"
+    else:
+        # secret_read, secret_denied: sin equivalente OpenSSH → mensaje informativo genérico
+        # Todo valor que pueda venir del usuario se sanea (la clave de un secreto denegado llega
+        # sin validar): sin espacios ni saltos de línea no puede fabricar una línea de login falsa.
+        parts = [f"event={_sanitize_log_field(log.event_type)}", f"result={_sanitize_log_field(log.result)}"]
+        if log.username:
+            parts.append(f"user={_sanitize_log_field(log.username)}")
+        parts.append(f"from={ip}")
+        if log.clave:
+            parts.append(f"clave={_sanitize_log_field(log.clave)}")
+        message = " ".join(parts)
+
+    # host fijo y "pid" = id de la fila: así la misma línea sale igual tras reiniciar el servicio.
+    return f"{prefix} {_LOG_HOST} identidad[{log.id}]: {message}"
 
 
 def enviar_lote_al_ids():
@@ -264,7 +308,7 @@ def enviar_lote_al_ids():
                 break
 
             payload = {
-                "source": "identity",
+                "source": "01-identidad",
                 "logs": [
                     {"id": log.log_id, "raw_line": _format_raw_line(log)}
                     for log in pendientes
@@ -272,13 +316,19 @@ def enviar_lote_al_ids():
             }
             try:
                 resp = http_client.post(IDS_URL, json=payload, timeout=2)
-                if resp.status_code in (200, 202):
+                # El contrato del IDS define 202 como único éxito. Un 200 no lo es: puede ser un
+                # servidor equivocado (p. ej. el contenedor placeholder) que descarta los logs.
+                if resp.status_code == 202:
                     for log in pendientes:
                         log.enviado = True
                     db.session.commit()
                     total_enviados += len(pendientes)
                 else:
-                    app.logger.error(f"Error del IDS al enviar lote: {resp.status_code} - {resp.text}")
+                    if resp.status_code in (400, 413, 415):
+                        tipo = "rechazo permanente (hay que corregir el payload; reintentar no lo arregla)"
+                    else:
+                        tipo = "respuesta inesperada o error temporal (se reintentará)"
+                    app.logger.error(f"IDS: {tipo}: {resp.status_code} - {resp.text}")
                     break
             except Exception as e:
                 db.session.rollback()
@@ -297,6 +347,67 @@ def _enviar_al_ids(_log=None):
             enviar_lote_al_ids()
 
     threading.Thread(target=_send, daemon=True).start()
+
+def _espera_reintento(fallos):
+    return min(IDS_RETRY_SECONDS * 2 ** fallos, 300)  # 30, 60, 120, 240, 300 s
+
+
+def _hay_pendientes_antiguos():
+    limite = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=IDS_RETRY_MIN_AGE)
+    return db.session.query(AuditLog.id).filter(
+        AuditLog.enviado.is_(False), AuditLog.timestamp <= limite
+    ).first() is not None
+
+
+def _con_candado(funcion):
+    """Ejecuta funcion() solo si ningún otro proceso del contenedor está reintentando.
+    Devuelve None si otro proceso tiene el candado."""
+    if fcntl is None:
+        return funcion()
+    with open(_LOCK_PATH, "a+") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return None
+        try:
+            return funcion()
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def _ciclo_reintento():
+    """Un intento de vaciar la cola. True si no queda nada pendiente (o ya lo hace otro proceso)."""
+    with app.app_context():
+        if _con_candado(enviar_lote_al_ids) is None:
+            return True
+        return not _hay_pendientes_antiguos()
+
+
+def _bucle_reintentos():
+    fallos = 0
+    while True:
+        time.sleep(_espera_reintento(fallos))
+        try:
+            ok = _ciclo_reintento()
+        except Exception:
+            ok = False
+        fallos = 0 if ok else min(fallos + 1, 4)  # IDS caído: espera cada vez mayor
+
+
+_reintentos_pid = None
+_reintentos_lock = threading.Lock()
+
+
+@app.before_request
+def _arrancar_reintentos_en_este_proceso():
+    """Arranca el hilo de reintentos una vez por proceso (con gunicorn --preload, uno por worker)."""
+    global _reintentos_pid
+    if os.environ.get("IDS_REINTENTOS", "1") != "1" or _reintentos_pid == os.getpid():
+        return
+    with _reintentos_lock:
+        if _reintentos_pid != os.getpid():
+            _reintentos_pid = os.getpid()
+            threading.Thread(target=_bucle_reintentos, daemon=True, name="ids-reintentos").start()
 
 
 
@@ -515,22 +626,6 @@ def leer_secreto(clave):
     respuesta = jsonify(clave=clave, valor=valor)
     respuesta.headers["Cache-Control"] = "no-store"  # contrato: nunca en caché
     return respuesta
-
-
-# ── Logs ─────────────────────────────────────────────────────────────────────
-
-@app.get("/logs")
-def get_logs():
-    claims, err = check_auth(required_roles=["admin", "servicio"])
-    if err:
-        return jsonify(error=err[0]), err[1]
-    logs = (
-        AuditLog.query
-        .order_by(AuditLog.timestamp.desc())
-        .limit(50)
-        .all()
-    )
-    return jsonify(logs=[l.to_dict() for l in logs], total=len(logs))
 
 
 # ── Salud y errores ───────────────────────────────────────────────────────────
