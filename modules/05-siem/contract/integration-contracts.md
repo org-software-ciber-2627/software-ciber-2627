@@ -1,0 +1,207 @@
+# Inventario de contratos de integración del SIEM
+
+## Alcance y referencias de versión
+
+Inventario técnico de SEM-123, parte de SEM-116. Recoge interfaces, ejemplos, versiones, discrepancias y decisiones pendientes entre el SIEM y los demás módulos. No introduce cambios en las APIs ni acredita acuerdos o ejecuciones que no se hayan verificado.
+
+Fecha de revisión: 19/11/2026. La referencia de `main` es `5deed65fd77fad738fb9484b07299a2dd06f92d6`. Las observaciones sobre el código corresponden a revisión estática. Las evidencias anteriores se enlazan como antecedentes y no se presentan como pruebas repetidas en esta revisión.
+
+| Referencia | Versión revisada | Situación |
+| --- | --- | --- |
+| Base común | [`main`, `5deed65`][main] | Contiene SIEM, contrato G1 y la integración de SOAR revisados. OpenAPI SIEM `0.3.0-sprint2`; G1 `1.3.0`. |
+| IDS | [`equipo-02-ids`, `e8c80d5`][ids-branch] | El procesamiento periódico y los cambios administrativos están en la rama de equipo. Se distinguen del `main` revisado. |
+| Honeypot | [`equipo-03-honeypot`, `94ab043`][honeypot-branch] | Cola y reintentos disponibles en la rama de equipo, todavía fuera de la base `main` indicada. |
+| Pentesting | [`equipo-08-pentesting/LV8-29-interfaz-interactiva`, `055ecbd`][pentesting-branch] | Generador y exportación de eventos disponibles en esa rama. La aplicación completa no forma parte de la base `main` revisada. |
+| Requisitos de despliegue SIEM | [SEM-128, commit `0eec80c`][compose-guide] | Guía publicada en la rama SEM-118. Especifica una propuesta de integración, no un cambio ya incorporado al Compose raíz. |
+
+Una fusión en una rama de equipo no equivale a una incorporación a `main`. La compatibilidad de una muestra con el esquema tampoco demuestra publicación HTTP, persistencia, aceptación semántica o funcionamiento de consumidores reales.
+
+## Interfaces vigentes del SIEM
+
+Fuente de referencia: [OpenAPI](openapi.json). Acceso interno: `http://siem:80`; acceso local del Compose revisado: `http://localhost:8005`.
+
+| Método y ruta | Uso | Respuesta y errores publicados |
+| --- | --- | --- |
+| `GET /health` | Compose, CI y consulta de salud | 200 con `status` y `module`. La implementación revisada no comprueba PostgreSQL. |
+| `POST /events` | Recepción de un evento de G2, G3, G4 o G8 | 200 tras almacenar o reconocer un reenvío idéntico; 400 inválido; 409 conflicto; 413 tamaño; 415 contenido; 503 almacenamiento; 507 almacén de alertas lleno. |
+| `GET /events` | Histórico persistido | 200 con `events`, `next_offset`, `next`; 400 consulta inválida; 503 almacenamiento o timeout; 500 error inesperado. |
+| `GET /alerts` | Consumo de alertas por SOAR y Dashboard | 200 con `{"alerts": [...]}`, también vacío; 503/500 ante fallo de consulta. |
+| `GET /alerts/{id}` | Detalle por `alert_id` | 200 con la alerta; 404 `ALERT_NOT_FOUND`; 503/500 ante fallo de consulta. |
+
+Los errores gestionados del SIEM utilizan `error.code` y `error.message`. Un fallo de consulta no se representa como una lista vacía. Los errores de G1 mantienen el formato propio de su API; no se presupone que coincida con el del SIEM.
+
+La base revisada no implementa autenticación ni autorización. Los futuros 401/403 y el error propuesto `IDENTITY_UNAVAILABLE` requieren acuerdo, actualización de contrato e implementación; no se describen como respuestas ya activas.
+
+## Formato y comportamiento comunes
+
+### Eventos de entrada
+
+La referencia es [event-schema.json](event-schema.json), coherente con `SecurityEvent` de OpenAPI.
+
+| Elemento | Regla vigente |
+| --- | --- |
+| Objeto raíz | Un evento por petición con exactamente `event_id`, `timestamp`, `source`, `event_type`, `severity`, `title`, `description`, `details`. No se admiten propiedades raíz adicionales. |
+| Identidad | `event_id` de 1 a 128 caracteres `[A-Za-z0-9._:-]`; no se exige UUID. La identidad persistida es `(source, event_id)`. |
+| Fecha | `timestamp` representa una fecha válida UTC terminada en `Z`. |
+| Origen | `ids`, `honeypot`, `scanner`, `pentesting`. |
+| Severidad de evento | `info`, `low`, `medium`, `high`, `critical`. |
+| Textos | `event_type`, `title` y `description` no pueden ser vacíos ni contener solo espacios. |
+| Datos específicos | `details` es un objeto abierto. No se añaden campos internos obligatorios por productor en este inventario. |
+
+Un evento informativo se guarda en el histórico sin generar una alerta. Los datos que PostgreSQL no puede representar se rechazan conforme al [contrato de ingesta](sem65-ingestion-proposal.md).
+
+La respuesta 200 confirma almacenamiento o reconocimiento de un reenvío idéntico, con el mismo `event_id` en el acuse. Misma identidad con contenido distinto produce 409 `EVENT_ID_CONFLICT`; no sobrescribe el original. JSONB compara contenido y estructura, sin prometer conservación del orden de claves ni de la escritura original de números. Los reenvíos deben conservar identidad, fecha y contenido.
+
+Un 507 `STORAGE_FULL` puede producirse después de guardar el evento: el almacén de alertas está lleno. Un reenvío idéntico puede crear posteriormente la alerta si hay capacidad. Hay que acordar cómo informa y recupera cada productor este resultado parcial.
+
+Con `persistence` activo, PostgreSQL debe estar disponible al arrancar. Sin ese perfil o con almacenamiento inaccesible durante una petición válida, la ingesta o el histórico responden 503. Un fallo de arranque no dispone de respuesta HTTP.
+
+### Histórico y alertas
+
+- [Histórico](history-events.md): `limit` predeterminado 100, entre 1 y 500; `offset` predeterminado 0, sin desbordar `offset + limit`. Solo se admiten los parámetros publicados. Orden `occurred_at DESC, source ASC, event_id ASC`. `next` conserva el límite; al terminar, `next` y `next_offset` son nulos. La paginación OFFSET no mantiene una instantánea ante inserciones concurrentes.
+- [Alertas](sem68-alert-query-contract.md): cada alerta conserva el evento y añade `alert_id`, `source_ip`, `target_ip`. No incluye `priority`, `status`, `risk_score`, `recommended_action` ni `related_events`. Se conserva `details`; una lista de destinos P005 no se reduce a una única IP.
+- Las alertas públicas admiten `low`, `medium`, `high`, `critical`. El listado no tiene filtros, paginación ni orden garantizado; Dashboard ordena en cliente.
+- Las alertas están en memoria y se pierden al reiniciar el SIEM. Los eventos persistidos permanecen en PostgreSQL. SEM-121 aborda la persistencia de alertas.
+
+## Matriz de integraciones y ejemplos
+
+Los ejemplos enlazados son datos de laboratorio o referencias de código. No acreditan entregas reales en el despliegue actual.
+
+| Equipo | Interfaz y datos | Referencia o ejemplo | Estado de la revisión |
+| --- | --- | --- | --- |
+| G1 · Identidad | El SIEM presentará el token del llamante a `GET /auth/validate`. `GET /secrets/{clave}` exige rol `servicio`; el lector del secreto PostgreSQL está por concretar. | [OpenAPI G1][identity-contract] y [resumen compartido][identity-summary]. | Contrato disponible; integración y acuerdos específicos del SIEM pendientes. Véase SEM-132. |
+| G2 · IDS | `POST /events`, `source: ids`; P004 `brute_force`, P005 `endpoint_scan`. | [Construcción P004][ids-p004], [P005][ids-p005], [fixture P004 del SIEM](../src/test/resources/ids/p004.json). | Formato construido por el productor; publicación automática pendiente en el flujo revisado. |
+| G3 · Honeypot | `POST /events`, `source: honeypot`; `intento_login`, `fuerza_bruta`, `credenciales_por_defecto`; ampliar semántica de nuevos eventos. | [Contrato G3][honeypot-contract], [ejemplo actual del SIEM](examples/grupo_3_honeypot_actual.json) y [mapper G3][honeypot-mapper]. | Formato general alineado; revisar respuestas HTTP, versiones y nuevos tipos. Cola disponible en rama de equipo. |
+| G4 · Escáner | `POST /events`, `source: scanner`, `details.target`; `port_open`, `service_detected`, `cve_detected`, `vulnerability_detected`. | [scanner-events.md](scanner-events.md), [vulnerabilidad](examples/grupo_4_scanner.json), [informativo](examples/grupo_4_scanner_info.json), [parser G4][scanner-parser]. | Estructura alineada; discrepancias de severidad informativa y confirmación de publicación. |
+| G6 · SOAR | `GET /alerts`; normaliza el contenedor `alerts`, crea incidentes y calcula prioridad. | [Contrato G6][soar-contract], [validador][soar-validator], [consumidor principal][soar-app] y [prioridad][soar-priority]. | Consumo implementado; falta admitir o excluir expresamente `pentesting`, coordinar autenticación y configurar ejecución real. |
+| G7 · Dashboard | `GET /alerts` y detalle mediante proxy; muestra eventos convertidos en alertas. Consume también incidentes de G6. | [Cliente SIEM][dashboard-siem], [contrato G7][dashboard-contract], [cliente SOAR][dashboard-soar]. | Alertas apuntan al SIEM real; incidentes todavía apuntan a un mock en la referencia revisada. El histórico puede contener eventos sin alerta. |
+| G8 · Pentesting | Eventos `source: pentesting`, `event_type: vulnerability_detected`; `details.target` conserva la URL. | [Ejemplo del SIEM](examples/grupo_8_pentesting.json), [ejemplo de G8][pentesting-example], [mapper][pentesting-mapper], [exportación][pentesting-controller]. | JSON exportable en la rama; envío HTTP y contrato de campaña pendientes de cierre. |
+
+### Muestras que requieren precisión
+
+- [grupo_2_ids_ejemplo_propuesto.json](examples/grupo_2_ids_ejemplo_propuesto.json) usa `port_scan` / `IDS-001`: es un ejemplo histórico propuesto, no una muestra del P004/P005 actual. Para P005 se dispone del constructor del productor, pero no se ha localizado una fixture independiente en las referencias seleccionadas; solicitar una salida completa para la prueba conjunta.
+- En P005, `target_ips`, `ports`, `connections` y la ventana se conservan dentro de `details`. El campo público `target_ip` de la alerta puede ser nulo.
+- El contrato de G3 enumera `escaneo`, sin que las referencias revisadas acrediten su publicación efectiva. El README sí identifica el envío del resumen de rechazos como trabajo pendiente. Acordar tipos, detalles y severidades sin confundir catálogo documentado con función implementada.
+- `info` está soportado por la ingesta común. Que un productor utilice solo un subconjunto de severidades no es una incompatibilidad por sí solo; la discrepancia de G4 es semántica respecto a las observaciones de inventario acordadas.
+
+## Discrepancias y dependencias identificadas
+
+Los puntos siguientes siguen abiertos en este inventario salvo donde se especifica una capacidad ya disponible. Cada fila contiene evidencia, efecto y siguiente comprobación; no asigna tareas nuevas ni declara acuerdos externos.
+
+| ID y tipo | Evidencia y efecto | Grupo responsable y siguiente paso |
+| --- | --- | --- |
+| C01 · Incompatibilidad semántica | [Parser][scanner-parser] y [tests de G4][scanner-tests] asignan `low` a `port_open` y `service_detected`; [scanner-events.md](scanner-events.md) define `info` para inventario. La implementación SIEM generaría alertas para esos `low`. | G4/G5: alinear el productor o registrar y acordar un cambio de contrato; verificar histórico sin alerta para `info`. |
+| C02 · Confirmación de entrega | [jobs.py de G4][scanner-jobs] marca el trabajo completado antes de publicar, no comprueba la respuesta y oculta errores de conexión. Un escaneo terminado no demuestra almacenamiento. | G4: distinguir resultado del escaneo y publicación, comprobar acuse y definir recuperación; G5 contrasta por `event_id`. |
+| C03 · Publicación pendiente | [Flujo actual de G2 en rama][ids-main-branch] procesa detecciones y las escribe en `events.json`; no publica por HTTP. Los cambios administrativos nuevos no cierran esta integración. | G2: completar la publicación; G5/G2 prueban la versión real. No atribuir a `main` las mejoras exclusivas de la rama. |
+| C04 · Semántica P004 | [Evaluador SIEM](../src/main/java/com/ciberurjc/siem/services/RepeatedAuthenticationFailureEvaluator.java) reconoce P004 ya agrupado y finalizado. El ID de [P004][ids-p004] se basa en el primer intento; cambiar recuento o fecha bajo la misma identidad contradice la política 409. | G2/G5: confirmar detecciones finalizadas o acordar explícitamente un modelo de actualizaciones. No introducir otra correlación por inferencia. |
+| C05 · Configuración y versión G3 | En el [Compose base][compose], Honeypot no recibe `SIEM_URL`; el [emisor base][honeypot-sender-main] apunta por defecto al mock local. La [rama de G3][honeypot-sender-branch] incorpora cola y reintentos. | G3/G7: incorporar destino real y versión de envío; G5 verifica la ingesta cuando exista almacenamiento común. |
+| C06 · Documentación de respuestas | [Contrato G3][honeypot-contract] menciona 201/422. La [evidencia histórica SIEM](../docs/hu5-integracion-honeypot.md) cita `EVENT_CONFLICT`. El contrato vigente usa 200/400 y `EVENT_ID_CONFLICT`. | G3/G5: actualizar documentos actuales y mantener identificadas las evidencias históricas. Acordar recuperación de 503/507 y reenvíos sin cambiar contenido. |
+| C07 · Eventos nuevos G3 | [README G3][honeypot-readme] y su contrato no acreditan todavía el envío efectivo de todos los nuevos tipos, incluido el resumen de rechazos. | G3/G5: obtener ejemplos y cerrar significado, campos y severidad antes de registrar su aceptación. |
+| C08 · Catálogo de origen de G6 | [Validador SOAR][soar-validator] solo admite `ids`, `honeypot`, `scanner`; el contrato SIEM admite también `pentesting`. | G6/G5: ampliar el consumidor o documentar una exclusión acordada; comprobar un caso G8 de extremo a extremo. |
+| C09 · Recorrido real de consumidores | El [Compose][compose] deja el sondeo SOAR en 0 por defecto; [Dashboard][dashboard-soar] lee un mock de incidentes; [notify][soar-playbook] depende de un destino provisional. | G6/G7: acordar sondeo, API real de incidentes y acción efectiva del playbook. G5 coordina la trazabilidad en SEM-119. |
+| C10 · Publicación e identidad G8 | [README de la rama][pentesting-readme] declara pendiente el envío HTTP. El [mapper][pentesting-mapper] usa fecha actual cuando falta y un identificador con hash reducido; hay riesgo de reenvíos distintos o colisiones. | G8/G5: concretar publicador, identidad y fecha estables, y contrato de campaña. El formato válido no demuestra idempotencia ni publicación. |
+| C11 · Identidad y permisos | [G1][identity-code] precarga una cuenta `servicio` y comprueba solo el rol al leer secretos. La base SIEM no aplica IAM. | G1/G5: SEM-132 cierra identidad y validación; SEM-141/SEM-35 define permisos. SEM-123 enlaza sus acuerdos y versiones, sin definir otro mecanismo paralelo. |
+| C12 · Persistencia común | [Compose raíz][compose] no incorpora PostgreSQL ni `persistence` para SIEM. La [guía SEM-128][compose-guide] está publicada fuera de `main` como propuesta. | G7/G5, SEM-118: incorporar configuración y suministro del secreto PostgreSQL; comprobar ingesta con un productor real. El lector de G1 y la rotación siguen por acordar. |
+| C13 · Documentación de consumidores | [Contrato G7][dashboard-contract] cita SIEM `0.2.0-sprint1-review`, omite `pentesting` y conserva descripciones anteriores de G4/G6. | G7 con proveedores: contrastar contra contratos vigentes y actualizar versiones y ejemplos. No deducir incompatibilidad de código solo por un README antiguo. |
+| C14 · Filtros previstos | [SEM-28][jira-28] prevé fuente, severidad e intervalo temporal. El histórico actual solo acepta `limit` y `offset`; parámetros desconocidos producen 400. | G5/G7, SEM-125/SEM-116: acordar nombres, tipos, límites, extremos temporales y conservación en `next` antes del 26/11; implementar después en SEM-28. |
+| C15 · Severidad, prioridad y correlación | El SIEM conserva `severity`; [G6 calcula `priority`][soar-priority]. [SEM-119][jira-119] identifica la ratificación en el SoS como pendiente. P004 reconocido no demuestra correlación adicional entre fuentes. | G5/G6/SoS: registrar cómo se satisface el escenario común, señales, reglas y trazabilidad. No añadir `priority` a la alerta ni declarar cerrado ese acuerdo unilateralmente. |
+| C16 · Esquema común | [shared/event-schema.json][shared-schema] sigue siendo un placeholder de tipo objeto. El job común no acredita las reglas del esquema local completo por el mero hecho de pasar. | G5/G7, SEM-120: acordar el esquema común y los ejemplos positivos/negativos del CI compartido. |
+
+## Identidad: referencia a la subtarea especializada
+
+[SEM-132][jira-132] define el acuerdo de autenticación con G1; la implementación corresponde a SEM-133 y sus pruebas posteriores. [SEM-141][jira-141] define la matriz de autorización. [SEM-125][jira-125] contrasta el resultado con los consumidores.
+
+El borrador comunicado para SEM-132 propone validación remota por petición, ausencia de caché y denegación ante fallos de G1. Está pendiente de ratificación y de publicación del documento especializado `identity-auth.md`; no se enlaza un archivo inexistente ni se considera implementado.
+
+Aspectos que deben quedar resueltos en esos acuerdos:
+
+- Proteger `POST /events`, `GET /events`, `GET /alerts` y `GET /alerts/{id}`, conservando el acceso público a `GET /health` según el diseño acordado.
+- Definir cuentas, entrega privada de credenciales, renovación mediante login y tratamiento de expiración/revocación.
+- Definir la relación entre identidad validada, operaciones y `source` permitido. Tener rol `servicio` no identifica por sí solo al módulo.
+- Registrar 401/403 y el fallo de Identidad diferenciado del almacenamiento. El código propuesto `IDENTITY_UNAVAILABLE` todavía no pertenece al OpenAPI base.
+- Contrastar capacidad con G1. Una futura caché cambiaría la garantía de revocación y requeriría acuerdo, pruebas y versión efectiva.
+- Coordinar la activación con productores, SOAR y Dashboard. Los emisores y el consumidor principal de G6 de la base revisada no envían token; la validación en el navegador no sustituye al control del backend.
+
+El secreto PostgreSQL propuesto `siem_db_password` y su suministro se concretan en SEM-118 con G1/G7. Que G7 recupere ese secreto es una alternativa de despliegue pendiente de aceptación; no una obligación ya acordada. El inventario no publica credenciales ni replica la guía de despliegue.
+
+## Decisiones que requieren confirmación
+
+| Decisión | Capacidad actual y propuesta pendiente | Equipos y referencia |
+| --- | --- | --- |
+| Inventario del escáner | SIEM soporta `info`; el productor revisado usa `low`. Se propone restablecer la semántica informativa del contrato. | G4/G5; C01. |
+| Cierre de detecciones | SIEM guarda eventos inmutables por identidad. Confirmar envío de P004/P005 finalizados y casos de reenvío. | G2/G5; C04. |
+| Nuevos eventos | Acordar ejemplos y severidades de G3 y alcance de campaña de G8. | G3/G5/G8; C07/C10. |
+| Autenticación y permisos | Contrato de G1 disponible; propuesta SIEM todavía no ratificada. | G1/G5 y clientes; SEM-132, SEM-141 y SEM-125. |
+| Filtros | Mantener compatible la consulta sin filtros; cerrar semántica y ejemplos antes de implementar. | G5/G7; SEM-28 y SEM-125. |
+| Prioridad y escenario | El cálculo actual está en SOAR. Ratificar el reparto y qué señales se correlacionan para la demo común. | G5/G6/SoS; SEM-119. |
+| Secretos y despliegue | Guía disponible; confirmar lector del secreto, arranque, redes, volumen, migraciones y rotación. | G1/G5/G7; SEM-118. |
+
+Las confirmaciones deben registrar versión, equipos afectados y fecha efectiva. Este inventario distingue lo implementado de lo propuesto; no convierte un pendiente en acuerdo ni modifica estados de Jira.
+
+## Casos de verificación posteriores
+
+Estos casos especifican comprobaciones necesarias; no se presentan como ejecutados en el despliegue común durante esta revisión.
+
+| Caso | Resultado esperado o decisión previa |
+| --- | --- |
+| Evento real válido de G2/G3/G4/G8 | Acuse 200 con el identificador enviado y evento completo recuperable del histórico. Requiere configuración y publicador reales. |
+| Reenvío idéntico / contenido cambiado | 200 y una fila / 409 `EVENT_ID_CONFLICT` con original conservado. |
+| Inventario `info` | Evento persistido sin alerta; vulnerabilidades no informativas siguen su flujo normal. |
+| P004/P005 | Conservar la detección finalizada y sus detalles, listas y nulos; no inventar una única IP de destino. |
+| Error de formato, contenido o tamaño | Respuesta publicada, sin inserción ni exposición de datos internos. |
+| Histórico y filtros | Paginación y errores actuales; futuros filtros solo contra versión acordada, conservados en `next`. |
+| Alertas a G6/G7 | Campos preservados, detalle coherente, tratamiento de `pentesting` y ausencia de mocks del recorrido. |
+| Identidad y permisos | Tokens reales válidos, ausentes, inválidos, expirados y revocados; permisos y fallos de G1 según el contrato definitivo. |
+| Reinicio y almacenamiento | Eventos conservados; comprobar alertas persistidas cuando SEM-121 esté integrada. |
+| Escenario común | Relación entre `source`/`event_id`, `alert_id` e `incident_id`, severidad y prioridad según el acuerdo del SoS. |
+
+Se reutilizan las evidencias de [histórico](../docs/history-events-tests.md), [almacenamiento](../docs/sem66-storage-tests.md), [escáner](../docs/scanner-integration.md), [Honeypot](../docs/hu5-integracion-honeypot.md), [P004](../docs/sem29-deteccion-intentos-fallidos.md) y [consulta de alertas](../docs/hu16-acceptance.md) como antecedentes identificados por su propia versión. Sus resultados no se trasladan automáticamente a la plataforma actual.
+
+### Comprobación local del inventario · 19/11/2026
+
+Se comprobó la resolución de enlaces relativos y las referencias de versión. El verificador existente `scripts/verify-contract.py` pasó con los seis ejemplos de eventos, fixtures de alertas, catálogos de severidad, referencias OpenAPI y casos positivos/negativos del contrato del histórico. Se utilizaron dependencias en un entorno temporal externo, eliminado al terminar. Esta comprobación valida documentos y datos de prueba; no ejecutó servicios HTTP, PostgreSQL, Docker ni el escenario común.
+
+## Cierre del inventario
+
+SEM-123 entrega el mapa de interfaces, ejemplos, versiones y discrepancias con evidencia y siguiente acción por grupo. SEM-124/125 contrastan productores y consumidores; SEM-126 registra los acuerdos definitivos; SEM-127 ejecuta las pruebas de contrato reales.
+
+Los puntos abiertos no impiden disponer de un inventario completo, pero sí deben resolverse o gestionarse antes de declarar cerrada la integración correspondiente. No se cambian código, APIs, permisos ni infraestructura mediante este documento.
+
+[main]: https://github.com/org-software-ciber-2627/software-ciber-2627/tree/5deed65fd77fad738fb9484b07299a2dd06f92d6
+[ids-branch]: https://github.com/org-software-ciber-2627/software-ciber-2627/tree/e8c80d5c4ddb9a5e6b21bcbb0291c577ba53107b/modules/02-ids
+[ids-main-branch]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/e8c80d5c4ddb9a5e6b21bcbb0291c577ba53107b/modules/02-ids/src/main.py
+[ids-p004]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/02-ids/src/patterns/brute_force.py
+[ids-p005]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/02-ids/src/patterns/endpoint_scan.py
+[honeypot-branch]: https://github.com/org-software-ciber-2627/software-ciber-2627/tree/94ab04328191730aaee561fd4a6e71d750f9dbf0/modules/03-honeypot
+[honeypot-contract]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/03-honeypot/contract/README.md
+[honeypot-readme]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/03-honeypot/README.md
+[honeypot-mapper]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/03-honeypot/src/main/java/com/honeypot/honeypot/service/EventoMapper.java
+[honeypot-sender-main]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/03-honeypot/src/main/java/com/honeypot/honeypot/service/SiemSenderService.java
+[honeypot-sender-branch]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/94ab04328191730aaee561fd4a6e71d750f9dbf0/modules/03-honeypot/src/main/java/com/honeypot/honeypot/service/SiemSenderService.java
+[scanner-parser]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/04-escaner/src/parser.py
+[scanner-tests]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/04-escaner/src/test_parser.py
+[scanner-jobs]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/04-escaner/src/jobs.py
+[soar-contract]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/06-soar/contract/README.md
+[soar-validator]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/06-soar/src/soar/normalization/schemas.py
+[soar-app]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/06-soar/src/app.py
+[soar-priority]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/06-soar/contract/priority.md
+[soar-playbook]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/06-soar/src/soar/services/playbook_service.py
+[dashboard-siem]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/07-dashboard/src/SIEM-client.js
+[dashboard-soar]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/07-dashboard/src/SOAR-client.js
+[dashboard-contract]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/07-dashboard/contract/README.md
+[pentesting-branch]: https://github.com/org-software-ciber-2627/software-ciber-2627/tree/055ecbd05b40553c111ad0e8db631c31e3f52f64/modules/08-pentesting
+[pentesting-readme]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/055ecbd05b40553c111ad0e8db631c31e3f52f64/modules/08-pentesting/README.md
+[pentesting-example]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/055ecbd05b40553c111ad0e8db631c31e3f52f64/modules/08-pentesting/mocks/siem_event_example.json
+[pentesting-mapper]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/055ecbd05b40553c111ad0e8db631c31e3f52f64/modules/08-pentesting/web/src/main/java/grupo8/sw/services/SiemEventMapper.java
+[pentesting-controller]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/055ecbd05b40553c111ad0e8db631c31e3f52f64/modules/08-pentesting/web/src/main/java/grupo8/sw/controllers/ResultadoJsonController.java
+[identity-contract]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/01-identidad/contract/openapi.yaml
+[identity-summary]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/shared/auth-contract.md
+[identity-code]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/modules/01-identidad/src/app.py
+[compose]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/docker-compose.yml
+[compose-guide]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/0eec80c0c253568e09df622f96484daff7d13114/modules/05-siem/docs/common-compose-integration.md
+[shared-schema]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/5deed65fd77fad738fb9484b07299a2dd06f92d6/shared/event-schema.json
+[jira-28]: https://moncholi.atlassian.net/browse/SEM-28
+[jira-119]: https://moncholi.atlassian.net/browse/SEM-119
+[jira-132]: https://moncholi.atlassian.net/browse/SEM-132
+[jira-141]: https://moncholi.atlassian.net/browse/SEM-141
+[jira-125]: https://moncholi.atlassian.net/browse/SEM-125
