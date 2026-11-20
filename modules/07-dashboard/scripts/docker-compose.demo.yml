@@ -1,0 +1,13 @@
+# Solo para la demo (probar.sh -d / probar.ps1 -d). Se usa JUNTO al docker-compose.yml raiz:
+#   docker compose -f docker-compose.yml -f modules/07-dashboard/scripts/docker-compose.demo.yml ...
+# Sustituye el servicio "siem" por un SIEM de prueba con las alertas de ejemplo del Dashboard.
+# El SIEM real del compose comun no tiene almacenamiento (responde 503 a POST /events), asi que
+# su lista de alertas esta siempre vacia.
+# Las rutas son relativas al docker-compose.yml raiz (el primer fichero), no a este.
+services:
+  siem:
+    build:
+      context: ./modules/07-dashboard/mocks
+      dockerfile: mock_SIEM/Dockerfile
+    # Nombre propio: asi "-s" (sin reconstruir) nunca reutiliza la imagen del SIEM real.
+    image: dashprueba-siem-demo

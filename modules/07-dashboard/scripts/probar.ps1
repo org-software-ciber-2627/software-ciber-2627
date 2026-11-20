@@ -21,7 +21,8 @@
 # Opciones (ver "probar.ps1 -h"):
 #   -s  no reconstruir las imagenes (demo rapida)      -m  dejar todo levantado al terminar
 #   -c  solo comprobar lo que ya esta corriendo        -p  parar lo que dejo -m
-#   -n  sin los mocks de SOAR y Escaner                -h  ayuda
+#   -n  sin los mocks de SOAR y Escaner                -d  modo demo (SIEM de prueba con alertas)
+#   -h  ayuda
 # =============================================================================
 
 # Opciones. Cada una es un "switch" (presente = activada). Los alias permiten la forma corta:
@@ -32,6 +33,7 @@ param(
     [Alias('c')][switch]$SoloComprobar,
     [Alias('p')][switch]$Parar,
     [Alias('n')][switch]$SinMocks,
+    [Alias('d')][switch]$Demo,
     [Alias('h')][switch]$Ayuda
 )
 
@@ -50,14 +52,20 @@ Sin opciones: construye (con la cache de Docker), arranca, comprueba y limpia al
                        este corriendo (arrancalo antes con -m, o sin opciones en otra terminal).
   -p, -Parar           Para y borra lo que dejo -m (contenedores, red y mocks). No hace pruebas.
   -n, -SinMocks        No arranca ni comprueba los mocks de SOAR y Escaner.
+  -d, -Demo            Modo demo: sustituye el SIEM real por un SIEM de prueba con 4 alertas de ejemplo
+                       y, si no las has definido, usa claves de demostracion (usuario admin, contrasena
+                       Demo-Admin-2026) para poder iniciar sesion. El SIEM real del compose no tiene
+                       almacenamiento (responde 503 a POST /events), asi que sin -d la lista de alertas
+                       sale siempre vacia. Con -c, anade -d si lo que esta corriendo se arranco con -d.
   -h, -Ayuda           Muestra esta ayuda.
 
 Las opciones se escriben por separado (-s -m).
 
-Flujo recomendado para la demo:
-  1) Un rato antes, una vez:    probar.ps1            (construye y deja las imagenes guardadas)
-  2) En la demo:                probar.ps1 -s         (no reconstruye; arranca, comprueba y espera)
-  3) Si lo quieres ya levantado: probar.ps1 -s -m     y luego  probar.ps1 -c   y al final  probar.ps1 -p
+Flujo recomendado para la demo (con datos):
+  1) Un rato antes, una vez:    probar.ps1 -d            (construye y deja las imagenes guardadas)
+  2) En la demo:                probar.ps1 -d -s         (no reconstruye; arranca, comprueba y espera)
+  3) Si lo quieres ya levantado: probar.ps1 -d -s -m     y luego  probar.ps1 -d -c   y al final  probar.ps1 -p
+Sin -d se prueba contra el SIEM real (la tabla de alertas sale vacia; sirve para comprobar el proxy).
 '@
 }
 if ($Ayuda) { Show-Uso; exit 0 }
@@ -72,6 +80,14 @@ $Mod  = Join-Path $Raiz 'modules\07-dashboard'
 # Nombre del "proyecto" de compose: aisla esta prueba de cualquier otro docker compose del equipo
 # y hace que las imagenes se llamen siempre igual (dashprueba-*), de modo que -s las reutilice.
 $Proj = 'dashprueba'
+# Ficheros de compose (rutas relativas a $Raiz, desde donde se lanza docker compose).
+# $Ficheros: los que se usan para arrancar. Con -d se anade el que sustituye el SIEM real por el de prueba.
+# $FicherosTodos: siempre los dos, para poder parar o consultar lo que dejo una ejecucion con -d.
+$FichBase = 'docker-compose.yml'
+$FichDemo = 'modules/07-dashboard/scripts/docker-compose.demo.yml'
+$Ficheros = @('-f', $FichBase)
+if ($Demo) { $Ficheros = @('-f', $FichBase, '-f', $FichDemo) }
+$FicherosTodos = @('-f', $FichBase, '-f', $FichDemo)
 # Copia temporal del .env.example para no tocar el .env real del usuario.
 $EnvF = Join-Path ([System.IO.Path]::GetTempPath()) ('probar-dashboard-' + [guid]::NewGuid().ToString('N') + '.env')
 # $Fallo pasa a $true si cualquier comprobacion falla; es el codigo de salida final del script.
@@ -115,7 +131,7 @@ function Count-Key($url, $key) {
 function Stop-Prueba {
     docker rm -f mock-soar mock-scanner *> $null
     Push-Location $Raiz
-    docker compose --env-file $EnvF -p $Proj down *> $null
+    docker compose --env-file $EnvF -p $Proj @FicherosTodos down *> $null
     Pop-Location
 }
 # Start-Mock NOMBRE IMAGEN CARPETA PUERTO -> construye (salvo con -s y si la imagen ya existe) y
@@ -160,6 +176,21 @@ try {
     # docker compose lee las URLs de los modulos de un fichero de variables. Partimos de .env.example.
     Copy-Item (Join-Path $Raiz '.env.example') $EnvF
 
+    # Con -d: Identidad solo crea la cuenta "admin" si existen JWT_SECRET_KEY y ADMIN_PASSWORD, y el
+    # .env.example las trae vacias. Se usan las que tengas definidas en la terminal o, si no hay, unas
+    # de demostracion (solo locales; no son secretos reales). Se escriben en la copia temporal, no en tu .env.
+    if ($Demo) {
+        $ClaveDemo = $env:JWT_SECRET_KEY
+        if (-not $ClaveDemo) { $ClaveDemo = 'clave-de-demo-solo-local-0123456789abcdef' }
+        $PassDemo = $env:ADMIN_PASSWORD
+        if (-not $PassDemo) { $PassDemo = 'Demo-Admin-2026' }
+        $lineas = @(Get-Content $EnvF | Where-Object { $_ -notmatch '^(JWT_SECRET_KEY|ADMIN_PASSWORD)=' })
+        $lineas += "JWT_SECRET_KEY=$ClaveDemo"
+        $lineas += "ADMIN_PASSWORD=$PassDemo"
+        # ASCII a proposito: en PowerShell 5.1, UTF8 escribe una marca BOM que estropearia la primera clave.
+        Set-Content -Path $EnvF -Value $lineas -Encoding ASCII
+    }
+
     # --- Modo -p: parar lo que dejo -m y salir ----------------------------------
     if ($Parar) {
         Step 'Parando lo que dejo -m'
@@ -178,7 +209,7 @@ try {
         # Proteccion: si ya hay una prueba levantada (por ejemplo con -m), no se arranca otra encima
         # porque los puertos chocarian; se indica que hacer.
         Push-Location $Raiz
-        $ya = docker compose --env-file $EnvF -p $Proj ps -q dashboard 2>$null
+        $ya = docker compose --env-file $EnvF -p $Proj @FicherosTodos ps -q dashboard 2>$null
         Pop-Location
         if ($ya) {
             Write-Host "Ya hay una prueba en marcha (proyecto $Proj)."
@@ -191,10 +222,13 @@ try {
         # Docker); con -s se omite y solo se construyen las que no existan todavia.
         $buildArgs = @()
         if (-not $SinBuild) { $buildArgs = @('--build') }
-        if ($SinBuild) { Step 'Arrancando el Dashboard (docker compose, sin reconstruir)' } else { Step 'Arrancando el Dashboard (docker compose)' }
+        $textoArranque = 'docker compose'
+        if ($SinBuild) { $textoArranque += ', sin reconstruir' }
+        if ($Demo) { $textoArranque += ', modo demo: SIEM de prueba' }
+        Step "Arrancando el Dashboard ($textoArranque)"
         $script:Arrancado = $true
         Push-Location $Raiz
-        docker compose --env-file $EnvF -p $Proj up @buildArgs -d dashboard
+        docker compose --env-file $EnvF -p $Proj @Ficheros up @buildArgs -d dashboard
         $codigo = $LASTEXITCODE
         Pop-Location
         if ($codigo -ne 0) {
@@ -269,6 +303,27 @@ try {
         Bad 'dashboard: el proxy deja pasar metodos distintos de GET (revisar limit_except en default.conf)'
     }
 
+    # Modo demo (-d): el servicio "siem" es el SIEM de prueba con 4 alertas, y Identidad tiene la cuenta admin.
+    # Se comprueba lo que vera quien haga la demo: la lista con datos, el detalle, el 404 de una alerta que no
+    # existe y que el login de admin funciona (200 con token). Un login fallido cuenta para el limite de intentos.
+    if ($Demo) {
+        $n = Count-Key 'http://localhost:8007/api/siem/alerts' 'alert_id'
+        if ($n -eq 4) { Ok 'demo: el SIEM de prueba devuelve 4 alertas por el proxy' } else { Bad "demo: /api/siem/alerts devuelve $n alertas (esperaba 4; se arranco sin -d?)" }
+        if ((Get-Text 'http://localhost:8007/api/siem/alerts/SIEM-ALERT-EJEMPLO-001') -match '"alert_id"') {
+            Ok 'demo: el detalle de una alerta responde (GET /api/siem/alerts/{id})'
+        } else {
+            Bad 'demo: el detalle de SIEM-ALERT-EJEMPLO-001 no responde'
+        }
+        if ((Get-Code 'http://localhost:8007/api/siem/alerts/NO-EXISTE') -eq 404) { Ok 'demo: una alerta que no existe devuelve 404' } else { Bad 'demo: una alerta que no existe no devuelve 404' }
+        $loginOk = $false
+        try {
+            $cuerpoLogin = @{ username = 'admin'; password = $PassDemo } | ConvertTo-Json -Compress
+            $r = Invoke-WebRequest -UseBasicParsing -Uri 'http://localhost:8007/api/identidad/auth/login' -Method Post -ContentType 'application/json' -Body $cuerpoLogin -TimeoutSec 5
+            if (($r.StatusCode -eq 200) -and ($r.Content -match '"token"')) { $loginOk = $true }
+        } catch { }
+        if ($loginOk) { Ok 'demo: el login de admin contra Identidad funciona (200 con token)' } else { Bad 'demo: el login de admin falla (se arranco con otra ADMIN_PASSWORD o sin -d?)' }
+    }
+
     # Higiene: el Dockerfile solo debe publicar el mock del SIEM, no el codigo de los mocks de Python.
     if ((Get-Code 'http://localhost:8007/mocks/mock_SOAR/app.py') -eq 404) {
         Ok 'dashboard: el codigo de los mocks de Python no se publica en la web'
@@ -294,10 +349,21 @@ try {
     Write-Host ''
     if (-not $script:Fallo) { Write-Host 'TODO CORRECTO' -ForegroundColor Green } else { Write-Host 'HAY FALLOS (arriba)' -ForegroundColor Red }
     Write-Host ''
-    Write-Host 'Prueba visual: abre http://localhost:8007. Te lleva al login: inicia sesión con una cuenta válida del servicio Identidad.'
-    Write-Host 'Despues deberias ver las alertas reales del SIEM ordenadas por severidad (si el SIEM no tiene ninguna,'
-    Write-Host "la lista sale vacia), la hora real en 'Ultima actualizacion' (cambia sola cada 30 s) y el boton"
-    Write-Host "'Cerrar Sesion', que te devuelve al login."
+    if ($Demo) {
+        Write-Host 'Guion de la demo (SIEM de prueba con datos de ejemplo; el SIEM real del compose no tiene almacenamiento):'
+        Write-Host '  1) Abre http://localhost:8007. Sin sesion te lleva al login.'
+        Write-Host '  2) Inicia sesion con usuario  admin  y la contrasena de ADMIN_PASSWORD (si no la definiste: Demo-Admin-2026).'
+        Write-Host '  3) Veras 4 alertas del SIEM ordenadas por severidad y 3 incidentes del SOAR (mock). La hora de'
+        Write-Host "     'Ultima actualizacion' cambia sola cada 30 s."
+        Write-Host "  4) Pulsa 'Ver detalle' en una alerta: muestra todos sus campos."
+        Write-Host "  5) Pulsa 'Cerrar Sesion': vuelve al login y el token queda revocado en Identidad."
+    } else {
+        Write-Host 'Prueba visual: abre http://localhost:8007. Te lleva al login: inicia sesion con una cuenta valida del servicio Identidad.'
+        Write-Host 'Despues deberias ver las alertas reales del SIEM ordenadas por severidad (si el SIEM no tiene ninguna,'
+        Write-Host 'la lista sale vacia: el SIEM del compose no tiene almacenamiento y no se le pueden enviar eventos; para ver'
+        Write-Host "datos usa -d), la hora real en 'Ultima actualizacion' (cambia sola cada 30 s) y el boton"
+        Write-Host "'Cerrar Sesion', que te devuelve al login."
+    }
     # Solo se pausa si el script arranco el mismo los contenedores y los va a limpiar: asi puedes mirar
     # el navegador antes de que se paren. Con -m o -c no hay nada que limpiar, asi que no se espera.
     # Si no hay terminal interactiva (CI, redirecciones) tampoco se espera.
