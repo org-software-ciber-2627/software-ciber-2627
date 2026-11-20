@@ -11,12 +11,12 @@ El SIEM actúa como **consumidor** de G1. La fuente de verdad del proveedor es e
 | Autenticación en el SIEM | Ninguna | Obligatoria en `POST /events`, `GET /events`, `GET /alerts` y `GET /alerts/{id}` |
 | `GET /health` | Público | Se mantiene público |
 | Validación del token | No aplica | `GET /auth/validate` de G1 en cada petición protegida, sin caché |
-| Identidad de los servicios | No aplica | Una cuenta por módulo con rol `servicio` (propuesta A) o la cuenta `servicio` compartida (propuesta B) |
+| Identidad de los servicios | No aplica | Una cuenta por módulo con rol `servicio` (propuesta A, ratificada) |
 | Identidad no disponible | No aplica | 503 `IDENTITY_UNAVAILABLE`, sin conceder acceso |
 | Formato de eventos y alertas | Esquema común | **Sin cambios** |
 | Contenedor de errores | `{"error": {"code", "message"}}` | Se conserva |
 
-**Estado: propuesta pendiente de ratificar con G1.** La autenticación no está implementada todavía en el SIEM; se implementa en SEM-133.
+**Estado: ratificado con G1 el 20/11/2026 (propuesta A).** G1 publica su contrato v1.4.0 en `main` el 25/11, con fecha efectiva 26/11. La autenticación no está implementada todavía en el SIEM; se implementa en SEM-133.
 
 ## Operaciones protegidas
 
@@ -60,13 +60,13 @@ El SIEM **no** decodifica ni verifica el JWT por su cuenta: la clave de firma no
 
 ## Identidad de los servicios
 
-G1 tiene hoy **una sola cuenta de servicio**, `servicio`. Con ella:
+En la versión 1.3.0, G1 tiene **una sola cuenta de servicio**, `servicio`. Con ella:
 
 - el SIEM no puede comprobar que un evento con `source: "ids"` lo publica de verdad el IDS;
 - si se filtra la contraseña en un módulo, quedan expuestos todos;
 - la auditoría de G1 no distingue qué módulo hace cada acceso.
 
-**Propuesta A (preferida).** G1 precarga una cuenta por módulo con rol `servicio` y una variable de entorno por contraseña. Es un cambio compatible para G1 (propuesta de versión 1.4.0): solo añade cuentas.
+**Propuesta A (ratificada por G1 el 20/11/2026).** G1 precarga una cuenta por módulo con rol `servicio` y una variable de entorno por contraseña. Es un cambio compatible para G1 (versión 1.4.0): solo añade cuentas y un secreto, sin cambiar endpoints ni formatos.
 
 | Cuenta | Variable en G1 | Módulo | `source` permitido en `POST /events` |
 | --- | --- | --- | --- |
@@ -75,12 +75,13 @@ G1 tiene hoy **una sola cuenta de servicio**, `servicio`. Con ella:
 | `svc-escaner` | `SERVICE_PASSWORD_ESCANER` | G4 Escáner | `scanner` |
 | `svc-pentesting` | `SERVICE_PASSWORD_PENTESTING` | G8 Pentesting | `pentesting` |
 | `svc-soar` | `SERVICE_PASSWORD_SOAR` | G6 SOAR | No publica eventos |
+| `svc-siem` | La fija G1 en v1.4.0 | G5 SIEM | No publica eventos; solo lee `siem_db_password` al arrancar |
 
 Con la propuesta A, el SIEM comprueba en SEM-35 que el `username` validado corresponde al `source` del evento; si no corresponde, responde 403 `SOURCE_MISMATCH` sin insertar nada.
 
-**Propuesta B (alternativa si G1 no llega antes del 26/11).** Se mantiene la cuenta `servicio` compartida. El SIEM solo comprueba el rol `servicio` y no puede atribuir el `source`. La limitación se registra en el ROAM como *Accepted*, con G1 como responsable y una fecha de revisión.
+**Propuesta B (descartada).** Mantener la cuenta `servicio` compartida. Solo se habría aplicado si G1 no llegaba antes del 26/11.
 
-**Riesgo trasladado a G1, sin bloquear el acuerdo:** cualquier cuenta con rol `servicio` puede leer todos los secretos (`GET /secrets/{clave}`). Repartir cuentas a más módulos amplía lo que queda expuesto si una se ve comprometida. Se registra en el ROAM.
+**Lectura de secretos por cuenta.** En la versión 1.3.0, cualquier cuenta con rol `servicio` puede leer todos los secretos (`GET /secrets/{clave}`). G1 implementará una lista de claves permitidas por cuenta: si una clave tiene regla, solo la leen las cuentas indicadas (las demás reciben el 403 ya publicado); si no la tiene, se comporta como ahora. Si G1 no llega a tiempo, lo registra en el ROAM como riesgo y avisa a G5.
 
 ## Validación y respuestas
 
@@ -147,31 +148,36 @@ Para no recibir 401 por caducidad, el cliente puede renovar el login antes de lo
 | G6 SOAR | Consumidor | Lee un token fijo de `SIEM_TOKEN`, que caduca a los 30 min | Login con su cuenta de servicio; no tratar 401/503 como «no hay alertas» |
 | G7 Dashboard | Consumidor | Envía el token del analista; nginx (`/api/siem/`) reenvía la petición al SIEM | Confirmar en la prueba real que llega `Authorization`; tratar el 503; quitar el valor por defecto `"token-de-prueba"` |
 
-## Acuerdos pendientes con G1
+## Respuestas de G1 (20/11/2026)
 
-Preguntas enviadas a G1 el 19/11/2026:
+Preguntas enviadas a G1 el 19/11/2026 y respondidas el 20/11/2026. G1 revisó este documento contra su código en `main` y no encontró discrepancias.
 
-| # | Pregunta | Propuesta de G5 | Respuesta de G1 |
-| --- | --- | --- | --- |
-| P1 | ¿Podéis provisionar cuentas distintas `svc-ids`, `svc-honeypot`, `svc-escaner`, `svc-pentesting` y `svc-soar`, con rol `servicio`, antes del 26/11? | Propuesta A. G5 aplica los permisos y comprueba la correspondencia entre identidad y `source` | |
-| P2 | ¿Qué canal privado y qué fecha utilizaréis para entregar las credenciales? | Canal privado, nunca el repositorio | |
-| P3 | ¿Existen límites de carga o frecuencia para `/auth/validate`? | Comprobar juntos el escenario real antes de introducir caché | |
-| P4 | ¿Se mantienen las respuestas publicadas 200, 401 y 500? | El SIEM trata cualquier 5xx o respuesta incompatible como «no disponible» | |
-| P5 | ¿Se mantienen los 30 minutos de caducidad y la obtención de nuevos tokens mediante login? | Renovar con login antes de que caduque | |
-| P6 | ¿Cómo se provisionaría el secreto `siem_db_password` y qué restricciones de lectura por cuenta tendrá? | Ver la sección siguiente | |
+| # | Pregunta | Respuesta de G1 |
+| --- | --- | --- |
+| P1 | ¿Podéis provisionar cuentas distintas `svc-ids`, `svc-honeypot`, `svc-escaner`, `svc-pentesting` y `svc-soar`, con rol `servicio`, antes del 26/11? | Sí, con las variables `SERVICE_PASSWORD_IDS`, `SERVICE_PASSWORD_HONEYPOT`, `SERVICE_PASSWORD_ESCANER`, `SERVICE_PASSWORD_PENTESTING` y `SERVICE_PASSWORD_SOAR`. Añaden `svc-siem` (ver P6). Contrato v1.4.0 en `main` el 25/11, registrado en el SoS con fecha efectiva 26/11. G1 coordina con G7 las variables nuevas del compose |
+| P2 | ¿Qué canal privado y qué fecha utilizaréis para entregar las credenciales? | Las genera el embajador de G1 y las entrega el 25/11 por el chat de embajadores. Cada grupo las guarda en su `.env` local, nunca en el repositorio. Se rotan al terminar la demo |
+| P3 | ¿Existen límites de carga o frecuencia para `/auth/validate`? | Sin límite de frecuencia. Solo el login limita: 5 fallos por usuario e IP en 15 min (`429` con `Retry-After`); una cuenta de servicio con 5 logins fallidos seguidos queda bloqueada 15 min. Cada validación consulta la lista de tokens revocados (SQLite, 2 *workers*), sin medir bajo carga. Prueba conjunta del escenario real el 30/11, con la campaña de fuerza bruta de Pentesting, antes de introducir caché |
+| P4 | ¿Se mantienen las respuestas publicadas 200, 401 y 500? | Sí. G1 está de acuerdo con tratar cualquier 5xx o respuesta incompatible como 503 `IDENTITY_UNAVAILABLE` |
+| P5 | ¿Se mantienen los 30 minutos de caducidad y la obtención de nuevos tokens mediante login? | Sí, sin *refresh*. De acuerdo con renovar a los 25 min y reintentar una sola vez ante 401 |
+| P6 | ¿Cómo se provisionaría el secreto `siem_db_password` y qué restricciones de lectura por cuenta tendrá? | Ver la sección siguiente |
 
 ## Secreto de base de datos del SIEM
 
-G5 propone custodiar en G1 la contraseña de PostgreSQL del SIEM bajo la clave `siem_db_password`. El nombre cumple el formato de claves de G1 (`^[A-Za-z0-9_.-]{1,100}$`). Quién la recupera para el despliegue se concreta con G7 en SEM-129.
+Acordado con G1 el 20/11/2026:
 
-Situación en el código publicado de G1 (`5deed65`):
+- G1 añade `siem_db_password` a los secretos precargados con la variable `SECRET_SIEM_DB_PASSWORD`, en la versión 1.4.0 (25/11).
+- El valor lo proporciona G5 a G1 por el canal privado de embajadores, nunca por el repositorio.
+- Lo lee **el propio SIEM al arrancar**, con la cuenta `svc-siem`, en lugar de G7. Así encaja con la dependencia `service_healthy` del compose: el SIEM no arranca sin Identidad.
+- `svc-siem` será la única cuenta con permiso sobre `siem_db_password`, mediante la lista de claves permitidas por cuenta. Si G1 no la tiene a tiempo, lo registra en el ROAM como riesgo y avisa a G5.
 
-- No existe un endpoint para crear secretos. G1 solo precarga tres claves fijas desde variables de entorno: `db_password`, `api_key` y `jwt_secret`. Añadir `siem_db_password` requiere un cambio en G1, por ejemplo una variable `SECRET_SIEM_DB_PASSWORD`.
-- `GET /secrets/{clave}` solo responde al rol `servicio`, y cualquier cuenta con ese rol puede leer cualquier secreto existente. No hay restricción por cuenta.
-- Quien recupere el secreto necesita una cuenta con rol `servicio`. Ninguna de las cuentas de P1 pertenece al SIEM ni a G7: falta decidir si será `svc-siem` o una cuenta de G7.
-- Si el SIEM lee la contraseña de G1 al arrancar, no puede arrancar sin Identidad. Encaja con la dependencia `service_healthy` del compose, y G7 debe tenerlo en cuenta para el despliegue.
+Configuración del SIEM que se añade para leer el secreto (valores en el `.env` local, nunca en el repositorio):
 
-La falta de restricción de lectura por cuenta se registra en el ROAM como riesgo, con G1 como responsable.
+| Variable | Uso |
+| --- | --- |
+| `SIEM_AUTH_USER` | `svc-siem` |
+| `SIEM_AUTH_PASSWORD` | Contraseña de `svc-siem`, entregada por G1 el 25/11 |
+
+Si el SIEM no puede obtener el secreto al arrancar (Identidad caída, 401 o 403), no arranca con una contraseña por defecto: falla de forma visible.
 
 ## Compatibilidad y despliegue
 
@@ -183,10 +189,10 @@ Exigir autenticación es un **cambio incompatible** del contrato del SIEM: los p
 | Cambio | `POST /events`, `GET /events`, `GET /alerts` y `GET /alerts/{id}` exigen `Authorization: Bearer`; nuevos códigos 401 `UNAUTHENTICATED` y 503 `IDENTITY_UNAVAILABLE` |
 | Motivo | DoD de integración: «la autenticación se hace siempre a través del Módulo 1» (SEM-34 / HU18) |
 | Equipos afectados | G1 (proveedor), G2, G3, G4 y G8 (productores), G6 y G7 (consumidores) |
-| Fecha efectiva | Contrato cerrado el **26/11**. Autenticación activa en el compose antes del Integration Day. Recorrido autenticado verificado el **30/11** |
-| Dependencias en Jira | Si se aplica la propuesta A, SEM-34 «es bloqueada por» la tarjeta de G1 (proyecto AAA) |
+| Fecha efectiva | Ratificado con G1 el **20/11**. G1 v1.4.0 en `main` el **25/11** (efectiva 26/11) y credenciales entregadas el 25/11. Autenticación activa en el compose antes del Integration Day. Recorrido autenticado y prueba de carga con G1 el **30/11** |
+| Dependencias | G1 v1.4.0: cuentas `svc-*`, secreto `siem_db_password` y lista de claves permitidas por cuenta (25/11). G7: variables nuevas del compose, coordinadas por G1 |
 
-Se actualizan a la vez el [OpenAPI](openapi.json) (esquema `bearerAuth` y respuestas 401/503) y este documento. El formato de eventos y alertas no cambia.
+El [OpenAPI](openapi.json) (esquema `bearerAuth` y respuestas 401/503) se actualiza en SEM-133, junto con la implementación. Hasta entonces sigue describiendo la API sin autenticación. El formato de eventos y alertas no cambia.
 
 ## Criterios verificables de integración
 
@@ -205,9 +211,25 @@ Se actualizan a la vez el [OpenAPI](openapi.json) (esquema `bearerAuth` y respue
 | Logs del SIEM | Sin tokens ni contraseñas |
 | Productor real (G3 o G4) en el compose | Login, envío autenticado y almacenamiento correlacionados por `event_id` |
 | SOAR y Dashboard en el compose | Leen alertas con su token; con token inválido reciben 401 |
+| Cuenta de un productor publicando otro `source` (SEM-35) | 403 `SOURCE_MISMATCH` sin inserción |
+| Arranque del SIEM con `svc-siem` | Obtiene `siem_db_password` de G1 y conecta con PostgreSQL |
+| Otra cuenta `servicio` leyendo `siem_db_password` | 403 de G1, cuando esté la lista de claves permitidas |
+| Prueba conjunta con G1 el 30/11, con la campaña de fuerza bruta de Pentesting | `/auth/validate` responde sin degradar la ingesta; si no, se decide la caché con G1 |
 
 Las pruebas unitarias y de integración con *stub* de Identidad corresponden a SEM-134. El recorrido con servicios reales corresponde a SEM-135. Los fallos de Identidad y la regresión corresponden a SEM-136.
 
-## Contrato ratificado con G1
+## Contrato ratificado con G1 (20/11/2026)
 
-*Pendiente.* Cuando G1 confirme, se completa con la fecha, la propuesta elegida (A o B), las respuestas a P1–P6 y la evidencia (captura de Teams o minuta del SoS) adjunta en SEM-132.
+G1 ratificó la propuesta A por escrito el 20/11/2026 (captura adjunta en SEM-132). Confirmó que lo descrito sobre Identidad coincide con su código en `main` y respondió a P1–P6 (ver «Respuestas de G1»).
+
+| Compromiso | Responsable | Fecha |
+| --- | --- | --- |
+| Contrato de Identidad v1.4.0 en `main`: cuentas `svc-*`, `svc-siem` y secreto `siem_db_password` | G1 | 25/11 (efectiva 26/11) |
+| Entrega de credenciales de servicio por el chat de embajadores | G1 (embajador) | 25/11 |
+| Valor de `siem_db_password` entregado a G1 por canal privado | G5 | Antes del 25/11 |
+| Lista de claves permitidas por cuenta, o riesgo registrado en el ROAM | G1 | 25/11 |
+| Variables nuevas en el docker-compose | G1 con G7 | 25/11 |
+| Prueba conjunta del escenario real, antes de decidir caché | G1 y G5 | 30/11 |
+| Rotación de credenciales tras la demo | G1 | Tras la Sprint Review |
+
+*Pendiente:* referencia del commit de G1 con la versión 1.4.0 efectiva, que G1 pasará cuando esté en `main`.
