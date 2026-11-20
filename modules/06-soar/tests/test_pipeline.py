@@ -26,6 +26,8 @@ FLAT_FIELDS = (
     "source_ip", "status", "created_at", "resolved_at",
 )
 INCIDENT_FIELDS = ("id", "alert_key", "alert", "first_seen") + FLAT_FIELDS + ("applied_playbook", "automation", "responses")
+# Campos de cada cambio en GET /incidents/{id}/history (HU7)
+HISTORY_FIELDS = ("from_status", "to_status", "justification", "resolution_reason", "changed_by", "changed_at")
 
 
 class FakeHttpPost:
@@ -325,6 +327,66 @@ class TestHttpApi(PipelineTestCase):
         )
 
         self.assertEqual(status, 400)
+
+    def create_open_incident(self):
+        """port_scan no se automatiza: el incidente queda en open y sin cambios de estado."""
+        self.build_pipeline().process_alert(PORT_SCAN_ALERT)
+        return self.find_incident("SIEM-ALERT-EJEMPLO-001")["incident_id"]
+
+    def change(self, incident_id, body):
+        status, response = self.request("POST", f"/incidents/{incident_id}/status", body)
+        self.assertEqual(status, 200, response)
+
+    def test_history_lists_changes_in_order_with_their_fields(self):
+        self.change(self.incident_id, {"status": "contained", "justification": "Amenaza contenida"})
+        self.change(self.incident_id, {"status": "closed", "justification": "Revisado",
+                                       "resolution_reason": "IP bloqueada", "changed_by": "analista.fer"})
+
+        status, history = self.request("GET", f"/incidents/{self.incident_id}/history")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            [(change["from_status"], change["to_status"]) for change in history],
+            [("open", "in_progress"), ("in_progress", "contained"), ("contained", "closed")],
+        )
+        self.assertEqual([change["changed_by"] for change in history], ["soar-automation", None, "analista.fer"])
+        for change in history:
+            self.assertEqual(set(change), set(HISTORY_FIELDS))
+            self.assertTrue(change["changed_at"].endswith("Z"), change["changed_at"])
+        self.assertEqual(history[0]["justification"], "Respuesta automática ejecutada: notify")
+        self.assertIsNone(history[1]["resolution_reason"])
+        self.assertLessEqual(history[0]["changed_at"], history[2]["changed_at"])
+
+    def test_history_of_incident_without_changes_is_empty(self):
+        incident_id = self.create_open_incident()
+
+        self.assertEqual(self.request("GET", f"/incidents/{incident_id}/history"), (200, []))
+
+    def test_history_of_unknown_incident_returns_404(self):
+        self.assertEqual(
+            self.request("GET", "/incidents/INC-NOPE/history"), (404, {"error": "incident_not_found"})
+        )
+
+    def test_full_flow_open_in_progress_closed_is_recorded(self):
+        incident_id = self.create_open_incident()
+        self.change(incident_id, {"status": "in_progress", "justification": "Investigación iniciada"})
+        self.change(incident_id, {"status": "closed", "justification": "Falso positivo",
+                                  "resolution_reason": "Escaneo autorizado", "changed_by": "analista.fer"})
+
+        status, history = self.request("GET", f"/incidents/{incident_id}/history")
+
+        self.assertEqual(status, 200)
+        self.assertEqual([change["to_status"] for change in history], ["in_progress", "closed"])
+        self.assertEqual(history[-1]["from_status"], "in_progress")
+        self.assertEqual(history[-1]["changed_by"], "analista.fer")
+        self.assertEqual(history[-1]["resolution_reason"], "Escaneo autorizado")
+        self.assertEqual(history[-1]["justification"], "Falso positivo")
+
+    def test_history_route_does_not_clash_with_other_incident_routes(self):
+        self.assertEqual(self.request("GET", f"/incidents/{self.incident_id}/responses")[0], 200)
+        self.assertEqual(self.request("GET", f"/incidents/{self.incident_id}/history")[0], 200)
+        self.assertEqual(self.request("GET", f"/incidents/{self.incident_id}/status"), (404, {"error": "not_found"}))
+        self.assertEqual(self.request("POST", f"/incidents/{self.incident_id}/history", {}), (404, {"error": "not_found"}))
 
     def test_unexpected_error_returns_500(self):
         with patch.object(app, "list_incidents", side_effect=Exception("boom")), self.assertLogs("soar", "ERROR"):

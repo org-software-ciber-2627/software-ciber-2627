@@ -79,3 +79,45 @@ Ejemplo de respuesta `200` al cerrar (se omiten algunos campos del incidente):
   "changed_by": "analista.fer"
 }
 ```
+
+## Historial por HTTP (HU7)
+
+`GET /incidents/{incident_id}/history`
+
+Devuelve `200` con la lista de cambios de estado del incidente, **del más antiguo al más reciente**
+(ordenados por `changed_at`; si dos cambios tienen la misma hora, en el orden en que se registraron).
+
+| Campo | Tipo | Admite `null` | Significado |
+|---|---|---|---|
+| `from_status` | string | No | Estado anterior |
+| `to_status` | string | No | Estado nuevo |
+| `justification` | string | No | Justificación del cambio |
+| `resolution_reason` | string | Sí | Motivo de resolución; solo al cerrar |
+| `changed_by` | string | Sí | Quién hizo el cambio; `soar-automation` para los automáticos y `null` en los cambios anteriores a HU7 |
+| `changed_at` | string ISO 8601 en UTC, terminado en `Z` | No | Marca de tiempo del cambio |
+
+- Incidente sin cambios de estado → `200` con `[]`.
+- Incidente inexistente → `404` `{"error": "incident_not_found"}`.
+
+Ejemplo de un incidente automatizado que después cierra un analista:
+
+```json
+[
+  {
+    "from_status": "open",
+    "to_status": "in_progress",
+    "justification": "Respuesta automática ejecutada: notify",
+    "resolution_reason": null,
+    "changed_by": "soar-automation",
+    "changed_at": "2026-11-20T10:00:00.120000Z"
+  },
+  {
+    "from_status": "in_progress",
+    "to_status": "closed",
+    "justification": "Revisado por el analista",
+    "resolution_reason": "IP bloqueada en el cortafuegos",
+    "changed_by": "analista.fer",
+    "changed_at": "2026-11-20T10:15:00.123456Z"
+  }
+]
+```

@@ -162,7 +162,10 @@ def poll_siem() -> dict[str, int]:
 
 
 RESPONSES_PATH = re.compile(r"^/incidents/([^/]+)/responses$")
+HISTORY_PATH = re.compile(r"^/incidents/([^/]+)/history$")
 STATUS_PATH = re.compile(r"^/incidents/([^/]+)/status$")
+# Campos de cada cambio que expone GET /incidents/{id}/history (HU7)
+HISTORY_FIELDS = {"from_status", "to_status", "justification", "resolution_reason", "changed_by", "changed_at"}
 STATUS_ERRORS = (
     IncidentClosedError,
     InvalidTransitionError,
@@ -215,6 +218,7 @@ class SoarHandler(BaseHTTPRequestHandler):
 
     def handle_get(self, path: str) -> None:
         responses_match = RESPONSES_PATH.match(path)
+        history_match = HISTORY_PATH.match(path)
         if path == "/health":
             self.send_json(200, {"status": "ok", "module": "06-soar"})
         elif path == "/incidents":
@@ -226,6 +230,13 @@ class SoarHandler(BaseHTTPRequestHandler):
                 self.send_json(404, {"error": "incident_not_found"})
                 return
             self.send_json(200, [response.model_dump(mode="json") for response in responses])
+        elif history_match:
+            try:
+                history = build_pipeline().get_history(history_match.group(1))
+            except IncidentNotFoundError:
+                self.send_json(404, {"error": "incident_not_found"})
+                return
+            self.send_json(200, [change.model_dump(mode="json", include=HISTORY_FIELDS) for change in history])
         else:
             self.send_json(404, {"error": "not_found"})
 

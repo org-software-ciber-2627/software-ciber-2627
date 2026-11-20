@@ -9,6 +9,7 @@ la misma alerta y ejecuta la respuesta automática de los incidentes de fuerza b
 - `GET /health`
 - `GET /incidents` — incidentes con prioridad, estado, decisión de automatización y respuestas.
 - `GET /incidents/{incident_id}/responses` — respuestas ejecutadas de un incidente (HU15).
+- `GET /incidents/{incident_id}/history` — historial de cambios de estado, con quién los hizo (HU7).
 - `POST /incidents/{incident_id}/status` — cambio de estado con justificación (HU6).
 - `POST /poll` — consulta `GET /alerts` del SIEM y procesa las alertas nuevas.
 

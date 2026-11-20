@@ -162,6 +162,28 @@ Respuesta real con `GROUP7_NOTIFY_URL` sin configurar. Como ninguna acción tuvo
 Devuelve `200` con la lista de respuestas ejecutadas del incidente (ver `executed_response.md`).
 Si el incidente no existe devuelve `404` `{"error":"incident_not_found"}`.
 
+## `GET /incidents/{incident_id}/history`
+
+Devuelve `200` con los cambios de estado del incidente (HU7), del más antiguo al más reciente.
+Cada elemento tiene `from_status`, `to_status`, `justification`, `resolution_reason`, `changed_by`
+y `changed_at` (UTC, terminado en `Z`). Detalle de los campos en `status.md`.
+
+- Sin cambios de estado: `200` con `[]`.
+- Si el incidente no existe devuelve `404` `{"error":"incident_not_found"}`.
+
+```json
+[
+  {
+    "from_status": "open",
+    "to_status": "in_progress",
+    "justification": "Respuesta automática ejecutada: notify",
+    "resolution_reason": null,
+    "changed_by": "soar-automation",
+    "changed_at": "2026-11-20T10:00:00.120000Z"
+  }
+]
+```
+
 ## `POST /incidents/{incident_id}/status`
 
 Cambia el estado del incidente según HU6 (ver `status.md`). Cuerpo:

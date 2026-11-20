@@ -7,6 +7,7 @@ from soar.models.executed_response import ExecutedResponse
 from soar.models.incident import Incident
 from soar.models.incident_status import IncidentStatus
 from soar.models.playbook import BRUTE_FORCE_PLAYBOOK, BruteForcePlaybookInput
+from soar.models.status_change import StatusChange
 from soar.normalization.parser import parse_and_normalize_alert
 from soar.repositories.incident_repository import SqliteIncidentRepository
 from soar.repositories.response_repository import SqliteResponseRepository
@@ -155,6 +156,14 @@ class SoarPipeline:
                 update={"resolved_at": self._status.get_resolved_at(incident_id).isoformat()}
             )
         return self._incidents.save(incident)
+
+    def get_history(self, incident_id: str) -> list[StatusChange]:
+        """
+        HU7: cambios de estado del incidente, del más antiguo al más reciente.
+        Lanza IncidentNotFoundError si el incidente no existe.
+        """
+        self.get_incident(incident_id)
+        return self._status.get_history(incident_id)
 
     def get_incident(self, incident_id: str) -> Incident:
         """Devuelve el incidente guardado o lanza IncidentNotFoundError."""
