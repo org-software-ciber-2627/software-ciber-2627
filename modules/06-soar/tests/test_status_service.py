@@ -1,9 +1,13 @@
+import json
+import os
+import sqlite3
+import tempfile
 import unittest
 from datetime import datetime, timezone
 
 from soar.models.incident import Incident
 from soar.models.incident_status import IncidentStatus
-from soar.repositories.status_history_repository import StatusHistoryRepository
+from soar.repositories.status_history_repository import SqliteStatusHistoryRepository, StatusHistoryRepository
 from soar.services.status_service import (
     IncidentClosedError,
     InvalidTransitionError,
@@ -167,6 +171,78 @@ class TestStatusService(unittest.TestCase):
             service.change_status(incident, "contained", "Skipping investigation")
 
         self.assertEqual(service.get_history(incident.incident_id), [])
+
+    def test_changed_by_is_recorded_in_history(self):
+        service, _ = self.create_service()
+        incident = self.create_incident()
+
+        service.change_status(
+            incident, "closed", "Incident resolved",
+            resolution_reason="Root cause fixed", changed_by="analista",
+        )
+
+        self.assertEqual(service.get_history(incident.incident_id)[0].changed_by, "analista")
+
+
+class TestSqliteStatusHistoryRepository(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.database_path = os.path.join(directory.name, "soar.db")
+
+    def create_incident(self):
+        return Incident(
+            incident_id="INC-001",
+            alert_id="SIEM-ALERT-EJEMPLO-001",
+            event_type="port_scan",
+            severity="medium",
+            source_ip="192.168.1.50",
+            status="open",
+            created_at="2026-09-22T18:30:20Z",
+        )
+
+    def test_changed_by_survives_recreating_the_repository(self):
+        repository = SqliteStatusHistoryRepository(self.database_path)
+        StatusService(repository, clock=lambda: FIXED_TIME).change_status(
+            self.create_incident(), "closed", "Incident resolved",
+            resolution_reason="Root cause fixed", changed_by="analista",
+        )
+
+        history = SqliteStatusHistoryRepository(self.database_path).get_by_incident("INC-001")
+
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0].changed_by, "analista")
+        self.assertEqual(history[0].resolution_reason, "Root cause fixed")
+        self.assertEqual(history[0].changed_at, FIXED_TIME)
+
+    def test_rows_saved_before_hu7_are_read_with_changed_by_null(self):
+        # Tabla con el esquema actual y una fila cuyo JSON no tiene la clave changed_by
+        connection = sqlite3.connect(self.database_path)
+        connection.execute(
+            "CREATE TABLE status_history ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, incident_id TEXT NOT NULL, change_json TEXT NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO status_history (incident_id, change_json) VALUES (?, ?)",
+            ("INC-OLD", json.dumps({
+                "incident_id": "INC-OLD", "from_status": "open", "to_status": "in_progress",
+                "justification": "Investigation started", "changed_at": "2026-10-27T16:30:00Z",
+                "resolution_reason": None,
+            })),
+        )
+        connection.commit()
+        connection.close()
+
+        repository = SqliteStatusHistoryRepository(self.database_path)
+        old_change = repository.get_by_incident("INC-OLD")[0]
+
+        self.assertEqual(old_change.to_status, IncidentStatus.IN_PROGRESS)
+        self.assertIsNone(old_change.changed_by)
+
+        StatusService(repository, clock=lambda: FIXED_TIME).change_status(
+            self.create_incident(), "in_progress", "Investigation started", changed_by="analista",
+        )
+        self.assertEqual(repository.get_by_incident("INC-001")[0].changed_by, "analista")
 
 
 if __name__ == "__main__":

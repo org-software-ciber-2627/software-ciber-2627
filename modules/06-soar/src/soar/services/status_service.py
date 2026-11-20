@@ -39,6 +39,7 @@ class StatusService:
         new_status: IncidentStatus | str,
         justification: str,
         resolution_reason: Optional[str] = None,
+        changed_by: Optional[str] = None,
     ) -> Incident:
         current_status = IncidentStatus(incident.status)
         if current_status is IncidentStatus.CLOSED:
@@ -69,6 +70,7 @@ class StatusService:
                 justification=justification,
                 changed_at=self._clock(),
                 resolution_reason=resolution_reason,
+                changed_by=changed_by,
             )
         )
         return incident.model_copy(update={"status": target_status.value})

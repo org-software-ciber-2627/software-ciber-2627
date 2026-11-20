@@ -25,6 +25,10 @@ class IncidentNotFoundError(Exception):
     pass
 
 
+# changed_by de los cambios de estado que hace el propio SOAR (HU7)
+AUTOMATION_ACTOR = "soar-automation"
+
+
 class SoarPipeline:
     """
     Orquesta el flujo del Sprint 2 sobre el SQLite del módulo:
@@ -75,6 +79,7 @@ class SoarPipeline:
                     incident,
                     IncidentStatus.IN_PROGRESS,
                     f"Respuesta automática ejecutada: {', '.join(successful)}",
+                    changed_by=AUTOMATION_ACTOR,
                 )
                 self._incidents.save(incident)
 
@@ -136,18 +141,24 @@ class SoarPipeline:
         new_status: str,
         justification: str,
         resolution_reason: Optional[str] = None,
+        changed_by: Optional[str] = None,
     ) -> Incident:
         """
         Aplica HU6 a un incidente guardado. Al cerrarlo, rellena resolved_at con la fecha del cambio.
+        changed_by (HU7) se guarda en el historial.
         """
         incident = self._status.change_status(
-            self._get_incident(incident_id), new_status, justification, resolution_reason
+            self._get_incident(incident_id), new_status, justification, resolution_reason, changed_by
         )
         if incident.status == IncidentStatus.CLOSED.value:
             incident = incident.model_copy(
                 update={"resolved_at": self._status.get_resolved_at(incident_id).isoformat()}
             )
         return self._incidents.save(incident)
+
+    def get_incident(self, incident_id: str) -> Incident:
+        """Devuelve el incidente guardado o lanza IncidentNotFoundError."""
+        return self._get_incident(incident_id)
 
     def _get_incident(self, incident_id: str) -> Incident:
         incident = self._incidents.find_by_id(incident_id)

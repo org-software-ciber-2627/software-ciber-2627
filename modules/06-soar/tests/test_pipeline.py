@@ -84,6 +84,16 @@ class TestPipeline(PipelineTestCase):
         self.assertEqual([(c.from_status.value, c.to_status.value) for c in history], [("open", "in_progress")])
         self.assertEqual(history[0].justification, "Respuesta automática ejecutada: notify")
 
+    def test_automatic_transition_is_recorded_as_soar_automation(self):
+        pipeline = self.build_pipeline()
+        pipeline.process_alert(BRUTE_FORCE_ALERT)
+        incident_id = self.find_incident("SIEM-ALERT-EJEMPLO-002")["incident_id"]
+
+        history = pipeline._status.get_history(incident_id)
+
+        self.assertEqual(history[0].to_status.value, "in_progress")
+        self.assertEqual(history[0].changed_by, "soar-automation")
+
     def test_repeated_alert_creates_nothing_and_does_not_rerun_playbook(self):
         self.build_pipeline().process_alert(BRUTE_FORCE_ALERT)
 
@@ -209,7 +219,8 @@ class TestHttpApi(PipelineTestCase):
     def test_change_status(self):
         status, body = self.request(
             "POST", f"/incidents/{self.incident_id}/status",
-            {"status": "closed", "justification": "Revisado", "resolution_reason": "IP bloqueada a mano"},
+            {"status": "closed", "justification": "Revisado", "resolution_reason": "IP bloqueada a mano",
+             "changed_by": "analista"},
         )
 
         self.assertEqual(status, 200)
@@ -228,6 +239,92 @@ class TestHttpApi(PipelineTestCase):
         status, _ = self.request("POST", "/incidents/INC-NOPE/status", {"status": "closed", "justification": "x"})
 
         self.assertEqual(status, 404)
+
+    def test_closing_unknown_incident_returns_404_before_any_changed_by_error(self):
+        cases = {
+            "sin changed_by": {},
+            "changed_by vacío": {"changed_by": ""},
+            "changed_by de 101 caracteres": {"changed_by": "a" * 101},
+            "changed_by que no es texto": {"changed_by": 42},
+        }
+        for name, extra in cases.items():
+            with self.subTest(name):
+                status, body = self.request(
+                    "POST", "/incidents/INC-NOPE/status",
+                    {"status": "closed", "justification": "x", "resolution_reason": "y", **extra},
+                )
+
+                self.assertEqual((status, body), (404, {"error": "incident_not_found"}))
+
+    def history(self):
+        return self.build_pipeline()._status.get_history(self.incident_id)
+
+    def current_status(self):
+        return self.find_incident("SIEM-ALERT-EJEMPLO-002")["status"]
+
+    def test_close_with_changed_by_is_saved_in_history(self):
+        status, body = self.request(
+            "POST", f"/incidents/{self.incident_id}/status",
+            {"status": "closed", "justification": "Revisado", "resolution_reason": "IP bloqueada",
+             "changed_by": "  analista.fer  "},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["changed_by"], "analista.fer")
+        self.assertEqual(self.history()[-1].to_status.value, "closed")
+        self.assertEqual(self.history()[-1].changed_by, "analista.fer")
+
+    def test_close_without_changed_by_returns_400_and_status_is_unchanged(self):
+        for changed_by in (None, "", "   "):
+            with self.subTest(changed_by=changed_by):
+                body = {"status": "closed", "justification": "Revisado", "resolution_reason": "IP bloqueada"}
+                if changed_by is not None:
+                    body["changed_by"] = changed_by
+
+                status, response = self.request("POST", f"/incidents/{self.incident_id}/status", body)
+
+                self.assertEqual(status, 400)
+                self.assertIn("changed_by", response["error"])
+                self.assertEqual(self.current_status(), "in_progress")
+                self.assertEqual(len(self.history()), 1)
+
+    def test_changed_by_longer_than_100_characters_returns_400(self):
+        status, response = self.request(
+            "POST", f"/incidents/{self.incident_id}/status",
+            {"status": "contained", "justification": "Contenida", "changed_by": "a" * 101},
+        )
+
+        self.assertEqual(status, 400)
+        self.assertIn("100", response["error"])
+        self.assertEqual(self.current_status(), "in_progress")
+
+    def test_changed_by_of_exactly_100_characters_is_accepted(self):
+        status, body = self.request(
+            "POST", f"/incidents/{self.incident_id}/status",
+            {"status": "contained", "justification": "Contenida", "changed_by": "a" * 100},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["changed_by"], "a" * 100)
+
+    def test_non_closing_transition_without_changed_by_is_accepted_as_null(self):
+        status, body = self.request(
+            "POST", f"/incidents/{self.incident_id}/status",
+            {"status": "contained", "justification": "Amenaza contenida"},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["status"], "contained")
+        self.assertIsNone(body["changed_by"])
+        self.assertIsNone(self.history()[-1].changed_by)
+
+    def test_changed_by_that_is_not_text_returns_400(self):
+        status, _ = self.request(
+            "POST", f"/incidents/{self.incident_id}/status",
+            {"status": "contained", "justification": "Contenida", "changed_by": 42},
+        )
+
+        self.assertEqual(status, 400)
 
     def test_unexpected_error_returns_500(self):
         with patch.object(app, "list_incidents", side_effect=Exception("boom")), self.assertLogs("soar", "ERROR"):

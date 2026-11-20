@@ -167,11 +167,12 @@ Si el incidente no existe devuelve `404` `{"error":"incident_not_found"}`.
 Cambia el estado del incidente según HU6 (ver `status.md`). Cuerpo:
 
 ```json
-{"status":"closed","justification":"Revisado por el analista","resolution_reason":"IP bloqueada"}
+{"status":"closed","justification":"Revisado por el analista","resolution_reason":"IP bloqueada","changed_by":"analista.fer"}
 ```
 
-- `200` con el incidente actualizado. Al cerrar, `resolved_at` se rellena.
-- `400` `{"error":"..."}` si el cuerpo no es válido o HU6 rechaza el cambio.
+- `changed_by` (HU7) es obligatorio al cerrar y opcional en el resto de cambios; máximo 100 caracteres.
+- `200` con el incidente actualizado y `changed_by`. Al cerrar, `resolved_at` se rellena.
+- `400` `{"error":"..."}` si el cuerpo no es válido, falta `changed_by` al cerrar o HU6 rechaza el cambio.
 - `404` `{"error":"incident_not_found"}` si el incidente no existe.
 
 ## `POST /poll`

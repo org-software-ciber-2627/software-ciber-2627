@@ -170,6 +170,24 @@ STATUS_ERRORS = (
     MissingResolutionReasonError,
     ValueError,
 )
+MAX_CHANGED_BY_LENGTH = 100
+
+
+def request_identity(body: dict[str, Any]) -> str | None:
+    """
+    Devuelve quién hace el cambio de estado (changed_by), sin espacios al principio ni al final,
+    o None si no viene. Lanza ValueError si no es texto o supera MAX_CHANGED_BY_LENGTH.
+    """
+    # Hoy sale del cuerpo JSON; más adelante vendrá del token del Módulo 1 (grupo 1).
+    value = body.get("changed_by")
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("changed_by debe ser texto")
+    value = value.strip()
+    if len(value) > MAX_CHANGED_BY_LENGTH:
+        raise ValueError(f"changed_by no puede superar {MAX_CHANGED_BY_LENGTH} caracteres")
+    return value or None
 
 
 class SoarHandler(BaseHTTPRequestHandler):
@@ -237,12 +255,25 @@ class SoarHandler(BaseHTTPRequestHandler):
         if not isinstance(body.get("justification") or "", str) or not isinstance(body.get("resolution_reason") or "", str):
             self.send_json(400, {"error": "justification y resolution_reason deben ser texto"})
             return
+        pipeline = build_pipeline()
         try:
-            incident = build_pipeline().change_status(
+            # El 404 tiene prioridad sobre cualquier error de changed_by
+            pipeline.get_incident(incident_id)
+            try:
+                changed_by = request_identity(body)
+            except ValueError as error:
+                self.send_json(400, {"error": str(error)})
+                return
+            # HU7: cerrar exige saber quién lo cierra; se comprueba antes de tocar el incidente
+            if body["status"] == "closed" and changed_by is None:
+                self.send_json(400, {"error": "changed_by es obligatorio para cerrar un incidente"})
+                return
+            incident = pipeline.change_status(
                 incident_id,
                 body["status"],
                 body.get("justification") or "",
                 body.get("resolution_reason"),
+                changed_by,
             )
         except IncidentNotFoundError:
             self.send_json(404, {"error": "incident_not_found"})
@@ -250,7 +281,7 @@ class SoarHandler(BaseHTTPRequestHandler):
         except STATUS_ERRORS as error:
             self.send_json(400, {"error": str(error)})
             return
-        self.send_json(200, incident.model_dump(mode="json"))
+        self.send_json(200, {**incident.model_dump(mode="json"), "changed_by": changed_by})
 
     def log_message(self, format: str, *args: Any) -> None:
         logger.info("%s - %s", self.address_string(), format % args)

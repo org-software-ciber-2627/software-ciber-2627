@@ -13,6 +13,8 @@ class StatusChange(BaseModel):
     justification: str
     changed_at: datetime
     resolution_reason: Optional[str] = None
+    # HU7: quién hace el cambio; null en los cambios registrados antes de HU7
+    changed_by: Optional[str] = None
 
     @field_validator("changed_at")
     @classmethod
