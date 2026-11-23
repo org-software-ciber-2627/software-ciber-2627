@@ -10,7 +10,7 @@ La comunicación entre el IDS y el SIEM se realizará mediante peticiones HTTP u
 
 Cuando ambos módulos se ejecuten mediante Docker Compose, la dirección utilizada será http://siem:80/events. Si el SIEM se ejecuta localmente y está disponible en el puerto 8005, la dirección será http://localhost:8005/events.
 
-G2 confirmó en SEM-124 el envío automático una vez cerradas las detecciones P004/P005. El [publicador de la rama `equipo-02-ids`](https://github.com/org-software-ciber-2627/software-ciber-2627/blob/6dcc2658933e05f7369cb4edb19b0250bf369790/modules/02-ids/src/util/siem_publisher.py) en el commit `6dcc265` usa `SIEM_URL` y envía un evento JSON por petición. Ante un fallo temporal, el acuerdo conserva el mismo `event_id`, `timestamp` y contenido.
+G2 confirmó en SEM-124 el envío automático una vez cerradas las detecciones P004/P005. El [publicador de la rama `equipo-02-ids`](https://github.com/org-software-ciber-2627/software-ciber-2627/blob/582dde5dbcb1f90563e952e54cfb7f17086689d1/modules/02-ids/src/util/siem_publisher.py) en el commit `582dde5` usa `SIEM_URL` y envía un evento JSON por petición. Reintenta fallos temporales como `503`, timeouts y errores de conexión con el mismo `event_id`, `timestamp` y contenido.
 
 3. Formato de los eventos
 
@@ -54,10 +54,10 @@ El equipo 02 ya ha implementado la generación de eventos correspondientes a los
 
 Por su parte, el equipo 05 dispone del endpoint POST /events, encargado de recibir y procesar los eventos de seguridad.
 
-La publicación HTTP se ha comprobado por revisión del código de la rama de G2 y mediante su [suite automatizada](https://github.com/org-software-ciber-2627/software-ciber-2627/actions/runs/45191585007/job/137751037596). Queda por verificar el despliegue conjunto con el SIEM.
+El publicador se revisó en el commit `582dde5`. La [suite automatizada de G2](https://github.com/org-software-ciber-2627/software-ciber-2627/actions/runs/45196741717/job/137769091367) superó 34 pruebas, con cobertura del rechazo `409`, el fallo temporal y el acuse `200`. Queda por verificar el despliegue conjunto con el SIEM.
 
 8. Acuerdo de SEM-124 y verificación pendiente
 
 G2 confirmó P004 y P005 para el escenario y facilitó una [muestra P005](../contract/examples/grupo_2_ids_p005.json) compatible con el esquema de eventos del SIEM. La muestra usa direcciones de documentación y conserva el formato, el recuento y los tiempos comunicados.
 
-En SEM-127 se comprobarán la ingesta, la conservación de destinos múltiples, el acuse por `event_id` y el reenvío sin duplicados. El publicador de la revisión examinada trata un `409 EVENT_ID_CONFLICT` como cualquier fallo de envío. Conviene confirmar con G2 que este rechazo quede registrado sin reintentar automáticamente el mismo cuerpo.
+Un `409 EVENT_ID_CONFLICT` se registra como rechazo definitivo y el evento queda fuera de la cola automática. Un `200` solo confirma la entrega y retira el pendiente si el acuse contiene el mismo `event_id`. En SEM-127 se comprobarán estos casos contra el SIEM, además del reenvío idéntico sin duplicados y la conservación de los destinos múltiples de P005.
