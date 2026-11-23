@@ -26,6 +26,11 @@ FLAT_FIELDS = (
     "source_ip", "status", "created_at", "resolved_at",
 )
 INCIDENT_FIELDS = ("id", "alert_key", "alert", "first_seen") + FLAT_FIELDS + ("applied_playbook", "automation", "responses")
+def parse_utc(value):
+    """Parsea una fecha ISO 8601; sustituye una "Z" final por "+00:00" (fromisoformat solo la acepta desde Python 3.11)."""
+    return datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
+
+
 # Campos de cada cambio en GET /incidents/{id}/history (HU7)
 HISTORY_FIELDS = ("from_status", "to_status", "justification", "resolution_reason", "changed_by", "changed_at")
 
@@ -259,7 +264,14 @@ class TestHttpApi(PipelineTestCase):
                 self.assertEqual((status, body), (404, {"error": "incident_not_found"}))
 
     def history(self):
-        return self.build_pipeline()._status.get_history(self.incident_id)
+        status, history = self.request("GET", f"/incidents/{self.incident_id}/history")
+        self.assertEqual(status, 200, history)
+        return history
+
+    def incident_view(self, incident_id):
+        status, incidents = self.request("GET", "/incidents")
+        self.assertEqual(status, 200)
+        return next(item for item in incidents if item["incident_id"] == incident_id)
 
     def current_status(self):
         return self.find_incident("SIEM-ALERT-EJEMPLO-002")["status"]
@@ -273,8 +285,8 @@ class TestHttpApi(PipelineTestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(body["changed_by"], "analista.fer")
-        self.assertEqual(self.history()[-1].to_status.value, "closed")
-        self.assertEqual(self.history()[-1].changed_by, "analista.fer")
+        self.assertEqual(self.history()[-1]["to_status"], "closed")
+        self.assertEqual(self.history()[-1]["changed_by"], "analista.fer")
 
     def test_close_without_changed_by_returns_400_and_status_is_unchanged(self):
         for changed_by in (None, "", "   "):
@@ -318,7 +330,7 @@ class TestHttpApi(PipelineTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["status"], "contained")
         self.assertIsNone(body["changed_by"])
-        self.assertIsNone(self.history()[-1].changed_by)
+        self.assertIsNone(self.history()[-1]["changed_by"])
 
     def test_changed_by_that_is_not_text_returns_400(self):
         status, _ = self.request(
@@ -387,6 +399,52 @@ class TestHttpApi(PipelineTestCase):
         self.assertEqual(self.request("GET", f"/incidents/{self.incident_id}/history")[0], 200)
         self.assertEqual(self.request("GET", f"/incidents/{self.incident_id}/status"), (404, {"error": "not_found"}))
         self.assertEqual(self.request("POST", f"/incidents/{self.incident_id}/history", {}), (404, {"error": "not_found"}))
+
+    def test_resolved_at_is_the_closing_time_and_serves_for_mttr(self):
+        before = self.incident_view(self.incident_id)
+        self.assertEqual(before["status"], "in_progress")
+        self.assertIsNone(before["resolved_at"])
+
+        status, _ = self.request(
+            "POST", f"/incidents/{self.incident_id}/status",
+            {"status": "closed", "justification": "Revisado por el analista",
+             "resolution_reason": "IP bloqueada en el cortafuegos", "changed_by": "analista.fer"},
+        )
+        self.assertEqual(status, 200)
+
+        closed = self.incident_view(self.incident_id)
+        history = self.history()
+        self.assertEqual(closed["status"], "closed")
+        self.assertIsNotNone(closed["resolved_at"])
+
+        last = history[-1]
+        self.assertEqual((last["from_status"], last["to_status"]), ("in_progress", "closed"))
+        self.assertEqual(last["changed_by"], "analista.fer")
+        self.assertEqual(last["justification"], "Revisado por el analista")
+        self.assertEqual(last["resolution_reason"], "IP bloqueada en el cortafuegos")
+
+        # resolved_at usa +00:00 y changed_at usa Z: se comparan como fechas, no como texto
+        resolved_at = parse_utc(closed["resolved_at"])
+        closed_at = parse_utc(last["changed_at"])
+        created_at = parse_utc(closed["created_at"])
+        for value in (resolved_at, closed_at, created_at):
+            self.assertEqual(value.utcoffset().total_seconds(), 0)
+        self.assertEqual(resolved_at, closed_at)
+        self.assertGreaterEqual(resolved_at, created_at)  # el MTTR nunca es negativo
+
+        # El cierre es definitivo: ni resolved_at ni el historial se reescriben
+        for new_status in ("in_progress", "closed"):
+            with self.subTest(new_status=new_status):
+                status, body = self.request(
+                    "POST", f"/incidents/{self.incident_id}/status",
+                    {"status": new_status, "justification": "Otro intento",
+                     "resolution_reason": "Otro motivo", "changed_by": "otro.analista"},
+                )
+
+                self.assertEqual(status, 400)
+                self.assertIn("Closed incidents cannot change status", body["error"])
+                self.assertEqual(self.incident_view(self.incident_id)["resolved_at"], closed["resolved_at"])
+                self.assertEqual(self.history(), history)
 
     def test_unexpected_error_returns_500(self):
         with patch.object(app, "list_incidents", side_effect=Exception("boom")), self.assertLogs("soar", "ERROR"):

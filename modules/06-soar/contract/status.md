@@ -121,3 +121,15 @@ Ejemplo de un incidente automatizado que después cierra un analista:
   }
 ]
 ```
+
+## Uso para el MTTR (HU16)
+
+- `resolved_at` se rellena **una sola vez**, al pasar a `closed`, con el `changed_at` de ese cambio.
+  Ya no cambia, porque `closed` es un estado final: cualquier cambio posterior devuelve `400` y no se registra.
+- Está en UTC (ISO 8601 con zona), igual que `created_at`, así que se pueden restar directamente.
+- **MTTR de un incidente = `resolved_at` − `created_at`.** Los incidentes no cerrados (`resolved_at = null`)
+  no entran en el cálculo.
+- Aviso de formato: `resolved_at` y `created_at` (en `GET /incidents`) van con `+00:00`, y `changed_at`
+  (en `GET /incidents/{incident_id}/history`) va con `Z`. Hay que comparar **fechas**, no texto.
+- La fórmula definitiva del MTTR la fija HU16. Si HU16 decide medirlo hasta la contención en lugar del
+  cierre, la fecha está en el `changed_at` del cambio a `contained` de `GET /incidents/{incident_id}/history`.
