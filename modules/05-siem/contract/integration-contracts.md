@@ -90,13 +90,13 @@ Los puntos siguientes siguen abiertos en este inventario salvo donde se especifi
 
 | ID y tipo | Evidencia y efecto | Grupo responsable y siguiente paso |
 | --- | --- | --- |
-| C01 · Incompatibilidad semántica | [Parser][scanner-parser] y [tests de G4][scanner-tests] asignan `low` a `port_open` y `service_detected`; [scanner-events.md](scanner-events.md) define `info` para inventario. La implementación SIEM generaría alertas para esos `low`. | G4/G5: alinear el productor o registrar y acordar un cambio de contrato; verificar histórico sin alerta para `info`. |
-| C02 · Confirmación de entrega | [jobs.py de G4][scanner-jobs] marca el trabajo completado antes de publicar, no comprueba la respuesta y oculta errores de conexión. Un escaneo terminado no demuestra almacenamiento. | G4: distinguir resultado del escaneo y publicación, comprobar acuse y definir recuperación; G5 contrasta por `event_id`. |
+| C01 · Severidad de inventario | En la base del 19/11, el [parser][scanner-parser] y los [tests de G4][scanner-tests] usan `low` para `port_open` y `service_detected`. La [PR #95][scanner-pr-95] cambia ambos a `info`, como define [scanner-events.md](scanner-events.md). | G4/G5: confirmar la versión que se integrará y comprobar que se guarda el evento sin generar alerta. |
+| C02 · Confirmación de entrega | En la base del 19/11, [jobs.py][scanner-jobs] no comprueba el acuse. En la [versión propuesta][scanner-pr-95-jobs], G4 exige `200` con el mismo `event_id` y registra el resultado de la publicación en `siem_delivery`. | G4/G5: comprobar la versión elegida contra el SIEM y acordar cómo recuperar las entregas fallidas conservando el evento original. |
 | C03 · Publicación pendiente | [Flujo actual de G2 en rama][ids-main-branch] procesa detecciones y las escribe en `events.json`; no publica por HTTP. Los cambios administrativos nuevos no cierran esta integración. | G2: completar la publicación; G5/G2 prueban la versión real. No atribuir a `main` las mejoras exclusivas de la rama. |
 | C04 · Semántica P004 | [Evaluador SIEM](../src/main/java/com/ciberurjc/siem/services/RepeatedAuthenticationFailureEvaluator.java) reconoce P004 ya agrupado y finalizado. El ID de [P004][ids-p004] se basa en el primer intento; cambiar recuento o fecha bajo la misma identidad contradice la política 409. | G2/G5: confirmar detecciones finalizadas o acordar explícitamente un modelo de actualizaciones. No introducir otra correlación por inferencia. |
 | C05 · Configuración y versión G3 | En el [Compose base][compose], Honeypot no recibe `SIEM_URL`; el [emisor base][honeypot-sender-main] apunta por defecto al mock local. La [rama de G3][honeypot-sender-branch] incorpora cola y reintentos. | G3/G7: incorporar destino real y versión de envío; G5 verifica la ingesta cuando exista almacenamiento común. |
 | C06 · Documentación de respuestas | [Contrato G3][honeypot-contract] menciona 201/422. La [evidencia histórica SIEM](../docs/hu5-integracion-honeypot.md) cita `EVENT_CONFLICT`. El contrato vigente usa 200/400 y `EVENT_ID_CONFLICT`. | G3/G5: actualizar documentos actuales y mantener identificadas las evidencias históricas. Acordar recuperación de 503/507 y reenvíos sin cambiar contenido. |
-| C07 · Eventos nuevos G3 | [README G3][honeypot-readme] y su contrato no acreditan todavía el envío efectivo de todos los nuevos tipos, incluido el resumen de rechazos. | G3/G5: obtener ejemplos y cerrar significado, campos y severidad antes de registrar su aceptación. |
+| C07 · Eventos nuevos G3 | G3 publica un [ejemplo de `escaneo`][honeypot-examples-124], aunque en el flujo revisado no se ha confirmado su emisión. El [resumen de rechazos][honeypot-rejections-124] se guarda localmente. | G3/G5: confirmar qué tipos entran en el escenario. Si se publicará el resumen, acordar su JSON y severidad. |
 | C08 · Catálogo de origen de G6 | [Validador SOAR][soar-validator] solo admite `ids`, `honeypot`, `scanner`; el contrato SIEM admite también `pentesting`. | G6/G5: ampliar el consumidor o documentar una exclusión acordada; comprobar un caso G8 de extremo a extremo. |
 | C09 · Recorrido real de consumidores | El [Compose][compose] deja el sondeo SOAR en 0 por defecto; [Dashboard][dashboard-soar] lee un mock de incidentes; [notify][soar-playbook] depende de un destino provisional. | G6/G7: acordar sondeo, API real de incidentes y acción efectiva del playbook. G5 coordina la trazabilidad en SEM-119. |
 | C10 · Publicación e identidad G8 | [README de la rama][pentesting-readme] declara pendiente el envío HTTP. El [mapper][pentesting-mapper] usa fecha actual cuando falta y un identificador con hash reducido; hay riesgo de reenvíos distintos o colisiones. | G8/G5: concretar publicador, identidad y fecha estables, y contrato de campaña. El formato válido no demuestra idempotencia ni publicación. |
@@ -137,6 +137,19 @@ El secreto PostgreSQL propuesto `siem_db_password` y su suministro se concretan 
 | Secretos y despliegue | Guía disponible; confirmar lector del secreto, arranque, redes, volumen, migraciones y rotación. | G1/G5/G7; SEM-118. |
 
 Las confirmaciones deben registrar versión, equipos afectados y fecha efectiva. Este inventario distingue lo implementado de lo propuesto; no convierte un pendiente en acuerdo ni modifica estados de Jira.
+
+### SEM-124 · Contraste con productores
+
+Revisión del 23/11/2026. Para esta comprobación se revisó [`main` en `23b1a19`][sem124-main] y se fijaron las referencias de las ramas de cada productor. Las evidencias de esta tabla son ejemplos y código revisados de forma estática. Las pruebas entre servicios quedan para SEM-127.
+
+| Productor | Ejemplos y código revisados | Confirmación pendiente |
+| --- | --- | --- |
+| G2 · IDS | El [P004 `brute_force` del README][ids-p004-example-124] coincide con el [fixture del SIEM](../src/test/resources/ids/p004.json). La [rama de G2 en `c7811f0`][ids-p005-124] genera P005 `endpoint_scan`. En el flujo revisado las detecciones se escriben en `events.json`. | Obtener un JSON de P005 generado por la versión que se probará. Confirmar la versión que publicará por HTTP y que P004/P005 se envían una vez cerrados y se reenvían con el mismo ID, fecha y contenido. |
+| G3 · Honeypot | Los [cuatro ejemplos de G3 en `94ab043`][honeypot-examples-124] incluyen `intento_login`, `fuerza_bruta`, `credenciales_por_defecto` y `escaneo`. El [emisor de esa rama][honeypot-sender-branch] reintenta el `503` con el JSON original y excluye el `507` del reintento automático. | Confirmar si `escaneo` se emitirá en el escenario y qué versión lo publicará. Si se enviará el resumen de rechazos, obtener su JSON y severidad. Usar datos sintéticos en las muestras compartidas. |
+| G4 · Escáner | El SIEM dispone de un [ejemplo informativo](examples/grupo_4_scanner_info.json) y un [ejemplo de vulnerabilidad](examples/grupo_4_scanner.json). La [PR #95][scanner-pr-95] en `649cffb` asigna `info` a `port_open` y `service_detected` y verifica el acuse de entrega. | Confirmar el commit que se integrará y que los cuerpos publicados se ajustan a los ejemplos. Comprobar después el acuse y que los eventos `info` aparecen en el histórico sin generar alerta. |
+| G8 · Pentesting | El [JSON de G8][pentesting-example] de la rama en `055ecbd` cumple el esquema de entrada. La [aplicación permite exportar los eventos][pentesting-controller]. | Confirmar si el escenario usará publicación directa o exportación. Si hay publicación, confirmar la versión y que el reenvío conserva ID, fecha y contenido. |
+
+Al recibir cada confirmación se registrará el acuerdo, la fecha y su referencia en SEM-124. SEM-126 recogerá las versiones definitivas del contrato.
 
 ## Casos de verificación posteriores
 
@@ -205,3 +218,10 @@ Los puntos abiertos no impiden disponer de un inventario completo, pero sí debe
 [jira-132]: https://moncholi.atlassian.net/browse/SEM-132
 [jira-141]: https://moncholi.atlassian.net/browse/SEM-141
 [jira-125]: https://moncholi.atlassian.net/browse/SEM-125
+[sem124-main]: https://github.com/org-software-ciber-2627/software-ciber-2627/tree/23b1a19d42fcd92496906799e36dd5565bac3ef3
+[ids-p004-example-124]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/23b1a19d42fcd92496906799e36dd5565bac3ef3/modules/02-ids/README.md#evento-generado
+[ids-p005-124]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/c7811f0eda2637501ef1627942b53c8d08fe5159/modules/02-ids/src/patterns/endpoint_scan.py
+[honeypot-examples-124]: https://github.com/org-software-ciber-2627/software-ciber-2627/tree/94ab04328191730aaee561fd4a6e71d750f9dbf0/modules/03-honeypot/contract/examples
+[honeypot-rejections-124]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/94ab04328191730aaee561fd4a6e71d750f9dbf0/modules/03-honeypot/src/main/java/com/honeypot/honeypot/service/RechazoResumenService.java
+[scanner-pr-95]: https://github.com/org-software-ciber-2627/software-ciber-2627/pull/95
+[scanner-pr-95-jobs]: https://github.com/org-software-ciber-2627/software-ciber-2627/blob/649cffb229486866facadca1bff45127bca56561/modules/04-escaner/src/jobs.py
