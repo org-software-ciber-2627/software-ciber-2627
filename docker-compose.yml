@@ -58,6 +58,7 @@ services:
     environment:
       PORT: "80"
       SIEM_URL: "http://siem:80/events"
+      IDENTITY_URL: "http://identidad:80"
     healthcheck:
       test:
         - CMD

@@ -2,13 +2,14 @@ from flask import Flask, jsonify, request
 from runner import get_profiles
 from jobs import create_job, get_job, public, JOBS
 from reports import reports_bp
+from auth import require_roles
 import os
 import logging
 
 app = Flask(__name__)
 app.register_blueprint(reports_bp)
 
-logging.basicConfig( # configuración para mostrar los mensajes de error si algo no va bien con el SIEM en jobs.py
+logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
@@ -22,6 +23,7 @@ def health():
 
 @app.route("/events", methods=["GET"])
 @app.route("/scans", methods=["GET"])
+@require_roles("admin", "analista", "servicio")
 def listar_escaneos():
     escaneos = []
 
@@ -37,7 +39,8 @@ def listar_escaneos():
 
     return jsonify(escaneos), 200
 
-@app.route("/scan", methods=["POST"]) # metodo para realizar el escaneo
+@app.route("/scan", methods=["POST"])
+@require_roles("admin", "analista") 
 def scan():
     data = request.get_json(silent=True) or {}
     target = data.get("target")
@@ -51,7 +54,8 @@ def scan():
     job = create_job(target, profile)
     return jsonify(public(job)), 200
 
-@app.route("/scan/<scan_id>", methods=["GET"]) # metodo para obtener los resultados del escaneo
+@app.route("/scan/<scan_id>", methods=["GET"])
+@require_roles("admin", "analista", "servicio") 
 def scan_status(scan_id):
     job = get_job(scan_id)
     if job is None:
@@ -59,8 +63,8 @@ def scan_status(scan_id):
     return jsonify(public(job))
 
 @app.route("/diff", methods=["GET"])
+@require_roles("admin", "analista", "servicio")
 def diff():
-    # Obtenemos los IDs de los escaneos a comparar por parámetros GET: /diff?base=ID1&target=ID2
     base_id = request.args.get("base")
     target_id = request.args.get("target")
 
@@ -73,7 +77,6 @@ def diff():
     if not job_base or not job_target:
         return jsonify({"error": "Uno o ambos escaneos no fueron encontrados"}), 404
 
-    # Solo podemos comparar dos escaneos terminados correctamente.
     estados = [job_base.get("status"), job_target.get("status")]
 
     if "failed" in estados:
@@ -91,24 +94,19 @@ def diff():
             "error": "Uno de los escaneos tiene un estado no válido"
         }), 500
     
-    # Extraemos los eventos de cada escaneo (asegurándonos de refrescar el job)
     events_base = job_base.get("events", [])
     events_target = job_target.get("events", [])
 
-    # Función auxiliar para crear una firma única de cada vulnerabilidad
     def get_signature(ev):
         t = ev.get("details", {}).get("target", {})
-        # Identificamos el hallazgo por IP, Puerto y el Título (CVE o script_id)
         return (t.get("ip"), t.get("port"), ev.get("title"))
 
-    # Mapeamos los identificadores únicos a sus respectivos eventos
     base_sigs = {get_signature(ev): ev for ev in events_base}
     target_sigs = {get_signature(ev): ev for ev in events_target}
 
     base_keys = set(base_sigs.keys())
     target_keys = set(target_sigs.keys())
 
-    # Calculamos diferencias
     new_keys = target_keys - base_keys
     fixed_keys = base_keys - target_keys
     unchanged_keys = base_keys.intersection(target_keys)

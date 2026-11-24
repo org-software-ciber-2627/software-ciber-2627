@@ -2,6 +2,7 @@ from copy import deepcopy
 
 from flask import Blueprint, current_app, jsonify
 from jobs import get_job
+from auth import require_roles
 
 reports_bp = Blueprint("reports", __name__)
 
@@ -16,8 +17,8 @@ def respuesta_error(codigo, mensaje, http_status):
 
 
 @reports_bp.route("/scans/<scan_id>/report", methods=["GET"])
+@require_roles("admin", "analista", "servicio")
 def consultar_informe(scan_id):
-    """Devuelve las vulnerabilidades del escaneo para el Dashboard."""
     try:
         job = get_job(scan_id)
 
@@ -68,14 +69,12 @@ def consultar_informe(scan_id):
         findings = []
 
         for event in events:
-            # El informe excluye eventos informativos de puertos y servicios.
             if event.get("event_type") not in (
                 "vulnerability_detected",
                 "cve_detected",
             ):
                 continue
 
-            # Adaptamos una copia sin modificar el evento original del SIEM.
             finding = deepcopy(event)
             finding["event_type"] = "vulnerability_detected"
             findings.append(finding)
