@@ -2,7 +2,7 @@
 
 ## Alcance y estado de implementación
 
-Este contrato especifica cómo autentica el SIEM las peticiones a sus operaciones protegidas a través del Módulo 1 (Identidad y secretos). Cubre las operaciones protegidas, la validación de tokens, la identidad de los servicios, las respuestas, la indisponibilidad de Identidad y lo que deben hacer los productores y los consumidores. Corresponde a SEM-132 (HU18 / SEM-34) y se registra en la revisión de contratos de SEM-116 (HU20). La matriz de permisos por rol se cierra en SEM-35 (HU19) y SEM-141.
+Este contrato especifica cómo autentica el SIEM las peticiones a sus operaciones protegidas a través del Módulo 1 (Identidad y secretos). Cubre las operaciones protegidas, la validación de tokens, la identidad de los servicios, las respuestas, la indisponibilidad de Identidad y lo que deben hacer los productores y los consumidores. Corresponde a SEM-132 (HU18 / SEM-34) y se registra en la revisión de contratos de SEM-116 (HU20). La matriz de permisos por rol está en [roles-permissions.md](roles-permissions.md) (SEM-141, HU19).
 
 El SIEM actúa como **consumidor** de G1. La fuente de verdad del proveedor es el [contrato de Identidad](../../01-identidad/contract/openapi.yaml), versión **1.3.0**, y su resumen en [`shared/auth-contract.md`](../../../shared/auth-contract.md). Este documento no redefine esos endpoints: fija cómo los usa el SIEM y qué cambios se piden a G1. La referencia de código es el commit `5deed65`. La referencia identifica versiones de código; no acredita ninguna ejecución de integración.
 
