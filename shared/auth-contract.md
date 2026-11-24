@@ -2,12 +2,13 @@
 
 El equipo `equipo-01-identidad` publica aquí, en el Sprint 1, el contrato de los endpoints que expone.
 La fuente de verdad es [`modules/01-identidad/contract/openapi.yaml`](../modules/01-identidad/contract/openapi.yaml)
-(versión 1.3.0); si este resumen y el YAML difieren, manda el YAML. Los cambios se hacen por Pull Request
+(versión 1.4.0); si este resumen y el YAML difieren, manda el YAML. Los cambios se hacen por Pull Request
 y se avisan por Teams a los equipos que usen el endpoint.
 
 Servicio en local con `docker compose up`: `http://localhost:8001` (puerto interno `80` dentro del compose).
 
-**Historial.** 1.3.0: se retiran `GET /audit` (nunca se implementó) y `GET /logs` (existía en el código); ningún módulo los usa; se documentan el `429` del login y el evento `limit_exceeded`; CORS también en `GET /auth/validate` y `POST /auth/logout`. 1.2.0: se añade `POST /auth/logout` (cierre de sesión). 1.1.0: se añade `GET /audit` (registro de auditoría, solo `admin`). Ambos son cambios compatibles: no modifican los endpoints existentes. 27/10: se documenta CORS para el Dashboard (sin cambios en los endpoints).
+**Historial.** 
+1.4.0: una cuenta de servicio por módulo; pedir un secreto de otro módulo devuelve `403` y se registra `secret_denied`. 1.3.2: se documenta que el `404` de `/secrets` registra `secret_denied`, que la caducidad del JWT es configurable, que el 5.º fallo de login ya devuelve `429`, el envío al IDS en lotes de hasta 200 y el valor de `IDS_REINTENTOS`. 1.3.1: se documentan CORS, variables de entorno, el envío de logs al IDS y la auditoría de `/secrets`. 1.3.0: se retiran `GET /audit` (nunca se implementó) y `GET /logs` (existía en el código); ningún módulo los usa; se documentan el `429` del login y el evento `limit_exceeded`; CORS también en `GET /auth/validate` y `POST /auth/logout`. 1.2.0: se añade `POST /auth/logout` (cierre de sesión). 1.1.0: se añade `GET /audit` (registro de auditoría, solo `admin`). Ambos son cambios compatibles: no modifican los endpoints existentes. 27/10: se documenta CORS para el Dashboard (sin cambios en los endpoints).
 
 ## Endpoints
 
@@ -20,7 +21,7 @@ Servicio en local con `docker compose up`: `http://localhost:8001` (puerto inter
   ```json
   { "token": "<jwt>", "user": { "id": 1, "username": "usuario.ejemplo", "email": "usuario.ejemplo@ciberurjc.local", "role": "analista" } }
   ```
-- **Errores:** `400` falta usuario o contraseña · `401` credenciales incorrectas · `429` demasiados intentos; bloqueo temporal por combinación de usuario e IP, con cabecera `Retry-After` indicando los segundos restantes · `500` error inesperado. Cuerpo: `{ "error": "<mensaje>" }`.
+- **Errores:** `400` falta usuario o contraseña · `401` credenciales incorrectas · `429` demasiados intentos: el 5º fallo en 15 minutos ya devuelve `429` en lugar de `401`; bloqueo temporal por combinación de usuario e IP, con cabecera `Retry-After` indicando los segundos restantes · `500` error inesperado. Cuerpo: `{ "error": "<mensaje>" }`.
 - Cada intento de login queda en el registro de auditoría interno, que se envía al IDS. No hay endpoint para consultarlo.
 
 ### `POST /auth/logout` (novedad 1.2.0)
@@ -48,9 +49,8 @@ Servicio en local con `docker compose up`: `http://localhost:8001` (puerto inter
   { "clave": "api_key", "valor": "<valor descifrado>" }
   ```
   La respuesta lleva `Cache-Control: no-store`.
-- **Errores:** `400` clave no válida · `401` token inválido o ausente · `403` token válido pero rol distinto de `servicio` · `404` clave inexistente · `500` error inesperado.
-- Solo para llamadas autenticadas como rol "servicio".
-- Cada acceso (concedido o denegado) queda en el registro de auditoría interno, que se envía al IDS. El registro nunca contiene valores de secretos.
+- **Errores:** `400` clave no válida · `401` token inválido o ausente · `403` token válido pero rol distinto de `servicio` o el secreto pertenece a otro módulo · `404` clave inexistente · `500` error inesperado.
+- Auditoría: el `200` se registra como `secret_read`; el `403` y el `404`, como `secret_denied`. El `401` no se registra (sin token válido no se sabe quién pide). Los eventos se envían al IDS y nunca contienen valores de secretos.
 
 ### Endpoints adicionales
 
@@ -63,9 +63,9 @@ Servicio en local con `docker compose up`: `http://localhost:8001` (puerto inter
 
 Valores exactos, en minúsculas:
 
-- `admin`: cuenta de administración precargada; hoy no tiene endpoints propios.
+- `admin`: cuenta de administración precargada, que se crea si existe `ADMIN_PASSWORD`; hoy no tiene endpoints propios.
 - `analista`: rol de los usuarios registrados con `POST /auth/register`.
-- `servicio`: cuentas precargadas para los módulos; es el único rol que puede leer secretos.
+- `servicio`: una cuenta propia por módulo, por ejemplo `svc-siem`; es el único rol que puede leer secretos.
 
 ## Cómo usarlo desde tu módulo
 
@@ -95,12 +95,12 @@ Si vuestro módulo es una web que llama a esta API desde el navegador (como el D
 
 ## Token
 
-- JWT firmado con HS256. Claims: `sub` (usuario), `role`, `user_id`, `iat`, `exp`. Caducidad: 30 minutos.
+- JWT firmado con HS256. Claims: `sub` (usuario), `role`, `user_id`, `iat`, `exp`. Caducidad: 30 minutos por defecto, configurable con `JWT_EXPIRES_SECONDS`.
 - La clave de firma no sale del módulo 1: por eso se valida llamando a `/auth/validate`.
 
 ## Secretos y cuentas de servicio
 
-- Las cuentas de servicio son precargadas. **Pedid las credenciales por Teams al equipo 01** y guardadlas en variables de entorno o en un `.env` ignorado por Git. **El repositorio es público: no subáis credenciales reales.**
+- Cada módulo tiene su cuenta. Cada módulo sólo lee sus secretos. Todo secreto tiene un módulo dueño. Pedir un secreto de otro módulo devuelve error `403`. **Pedid las credenciales por Teams al equipo 01** y guardadlas en variables de entorno o en un `.env` ignorado por Git. **El repositorio es público: no subáis credenciales reales.**
 
 ## Mock para programar sin esperarnos
 
