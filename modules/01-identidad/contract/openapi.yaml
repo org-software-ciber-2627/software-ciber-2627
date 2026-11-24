@@ -1,28 +1,31 @@
 openapi: 3.0.3
 info:
   title: Identidad y secretos
-  version: 1.3.1
+  version: 1.4.0
   description: |
     API de autenticación, gestión de usuarios, acceso a secretos y registro de auditoría interno.
 
     **Token.** `POST /auth/login` y `POST /auth/register` devuelven un JWT firmado con HS256
     (claims: `sub` = nombre de usuario, `role`, `user_id`, `iat`, `exp`). Caducidad: 30 minutos
-    (valor del Sprint 1; cualquier cambio se avisará por Pull Request y por Teams).
+    por defecto, configurable con `JWT_EXPIRES_SECONDS`. Cualquier cambio se avisará por Pull Request y por Teams.
 
     **Cómo validar desde otro módulo.** No decodifiquéis ni verifiquéis el token por vuestra
     cuenta: llamad a `GET /auth/validate` con la cabecera `Authorization: Bearer <token>`.
 
     **Roles.** `admin`, `analista` y `servicio`. Los usuarios registrados por `POST /auth/register`
-    nacen con rol `analista`; las cuentas `admin` y `servicio` se precargan en el Sprint 1.
+    nacen con rol `analista`. La cuenta `admin` se crea si existe la variable `ADMIN_PASSWORD`.
+    Cada módulo que necesita leer secretos tiene su propia cuenta con rol `servicio` (por ejemplo, `svc-siem`).
+    No hay una cuenta de servicio compartida.
 
-    **Secretos.** `GET /secrets/{clave}` solo está permitido al rol `servicio`.
+    **Secretos.** `GET /secrets/{clave}` solo está permitido al rol `servicio` y cada cuenta solo
+    puede leer los secretos de su módulo. Todo secreto tiene un módulo dueño.
 
     **Auditoría.** El módulo registra internamente los intentos de login (`login_ok`,
     `login_failed`, `invalid_user`, `limit_exceeded`) y los accesos a secretos (`secret_read`,
     `secret_denied`) y los envía al IDS (`POST /logs` del módulo 2). No hay endpoint público para
     consultarlos. El registro nunca contiene contraseñas, tokens ni valores de secretos.
 
-    **Envío de logs al IDS.** Los eventos se envían en lotes a la URL configurada en la variable
+    **Envío de logs al IDS.** Los eventos se envían en lotes de hasta 200 a la URL configurada en la variable
     de entorno `IDS_URL` (por defecto `http://ids/logs`). El payload tiene la forma:
 
     ```json
@@ -57,9 +60,11 @@ info:
     deslizante descarta el fallo más antiguo y el contador cae por debajo del umbral, el siguiente
     fallo que lo vuelva a alcanzar genera un nuevo `limit_exceeded`.
 
-    **Auditoría de acceso a secretos.** Los accesos denegados por rol insuficiente (`403`)
-    quedan registrados como `secret_denied`; los rechazos por token inválido o ausente (`401`)
-    no se auditan, ya que en ese caso no es posible identificar al solicitante de forma fiable.
+    **Auditoría de acceso a secretos.** Los accesos denegados por rol insuficiente o porque el secreto pertenece
+    a otro módulo (`403`) quedan registrados como `secret_denied`; los rechazos por token inválido 
+    o ausente (`401`) no se auditan, ya que en ese caso no es posible identificar al solicitante de forma fiable.
+    Si se realiza una petición para obtener un secreto, pero no hay ninguno asociado a la clave solicitada, 
+    se registra el evento `secret_denied` y devuelve error (`404`).
 
     **CORS.** Los endpoints `/auth/login`, `/auth/register`, `/auth/validate` y `/auth/logout`
     aceptan peticiones cross-origin exclusivamente desde `http://localhost:8007` (dashboard).
@@ -76,7 +81,7 @@ info:
     | `JWT_EXPIRES_SECONDS` | No | Caducidad del JWT en segundos; por defecto 1800 |
     | `IDS_URL` | No | URL del endpoint de logs del IDS; por defecto `http://ids/logs` |
     | `IDS_RETRY_SECONDS` | No | Espera base entre reintentos al IDS en segundos; por defecto 30 |
-    | `IDS_REINTENTOS` | No | `"0"` desactiva el hilo de reintentos (útil en tests) |
+    | `IDS_REINTENTOS` | No | `"1"` (por defecto) activa el hilo de reintentos; cualquier otro valor lo desactiva (los tests usan `"0"`) |
     | `ADMIN_PASSWORD` | No | Si existe, crea la cuenta `admin` |
     | `SERVICE_PASSWORD` | No | Si existe, crea la cuenta `servicio` |
     | `SECRET_DB_PASSWORD` | No | Si existe, se guarda cifrado como secreto `db_password` |
@@ -89,6 +94,13 @@ info:
     en `/auth/validate`).
 
     **Historial.**
+    1.4.0: Se establece una cuenta de servicio por módulo
+           Pedir un secreto de otro módulo devuelve un error `403` y se registra el evento `secret_denied`
+    1.3.2: se documenta que el `404` también registra el evento `secret_denied`
+           se documenta que la caducidad del JWT es configurable
+           se documentan lotes de hasta 200 logs
+           se documenta que el 5º intento fallido ya devuelve `429`
+           se documenta el valor de `IDS_REINTENTOS`
     1.3.1: se documentan CORS, variables de entorno, formato del payload al IDS, formato de
     `raw_line`, política de reintentos, semántica exacta de `limit_exceeded` y comportamiento
     de auditoría en `401` vs `403` en `/secrets/{clave}`.
@@ -160,11 +172,11 @@ paths:
         Autentica a un usuario con nombre de usuario y contraseña y devuelve un JWT.
         Cada intento queda en el registro de auditoría.
 
-        **Rate limiting.** Tras 5 intentos fallidos (credenciales incorrectas o usuario
+        **Rate limiting.** Al 5º intento fallido (credenciales incorrectas o usuario
         inexistente) desde la misma pareja usuario+IP en una ventana deslizante de 15 minutos,
-        el endpoint responde `429` para esa pareja hasta que la ventana desplace el fallo más
-        antiguo. Durante el bloqueo no se registran nuevos eventos de auditoría; el evento
-        `limit_exceeded` se emite una sola vez al alcanzar el umbral (ver descripción del `429`).
+        el endpoint ya responde `429` en lugar de `401`, y sigue respondiendo `429` hasta que 
+        la ventana desplace el fallo más antiguo. Durante el bloqueo no se registran nuevos eventos de auditoría; 
+        el evento `limit_exceeded` se emite una sola vez al alcanzar el umbral (ver descripción del `429`).
       operationId: login
       security: []
       requestBody:
@@ -279,9 +291,11 @@ paths:
       description: >
         Obtiene el secreto asociado a la clave proporcionada. Requiere un token JWT válido
         y que el usuario esté autenticado con el rol `servicio`. El acceso concedido queda
-        registrado como `secret_read`; el acceso denegado por rol insuficiente (`403`) queda
-        registrado como `secret_denied`. Los rechazos por token inválido o ausente (`401`) no
+        registrado como `secret_read`; el acceso denegado por rol insuficiente o porque el secreto pertenece
+        a otro módulo (`403`) queda registrado como `secret_denied`. Los rechazos por token inválido o ausente (`401`) no
         se auditan, ya que en ese caso no es posible identificar al solicitante de forma fiable.
+        Si se realiza una petición para obtener un secreto, pero no hay ninguno asociado a la clave solicitada, 
+        se registra el evento `secret_denied` y devuelve error (`404`).
       operationId: getSecret
       security:
         - BearerAuth: []
@@ -322,7 +336,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '403':
-          description: Token válido, pero el rol no es `servicio`. Se registra como `secret_denied`.
+          description: Token válido, pero el rol no es `servicio` o el secreto pertenece a otro módulo. Se registra como `secret_denied`.
           content:
             application/json:
               schema:
