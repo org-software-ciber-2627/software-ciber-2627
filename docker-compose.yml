@@ -134,7 +134,7 @@ services:
     environment:
       SIEM_URL: ${SIEM_URL:-http://siem:80}
       DATABASE_PATH: /data/soar.db
-      POLL_INTERVAL_SECONDS: ${SOAR_POLL_INTERVAL_SECONDS:-0}
+      POLL_INTERVAL_SECONDS: ${SOAR_POLL_INTERVAL_SECONDS:-30}
     volumes:
       - soar-data:/data
     depends_on:

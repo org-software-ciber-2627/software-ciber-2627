@@ -78,10 +78,13 @@ function mostrarDetalle(alerta) {
   document.getElementById("error").style.display = "none";
 }
 
-async function abrirDetalle(id) {
+// ... (mantén el resto del archivo igual y sustituye la función abrirDetalle por esta)
+
+export async function abrirDetalle(id) {
   try {
     const alerta = await getAlertById(id);
     mostrarDetalle(alerta);
+    document.getElementById("detalle-alerta")?.scrollIntoView({ behavior: "smooth" });
   } catch (e) {
     const error = document.getElementById("error");
     error.textContent =
@@ -92,6 +95,7 @@ async function abrirDetalle(id) {
           : "No se pudo cargar el detalle de la alerta.";
     error.className = "aviso-error";
     error.style.display = "block";
+    error.scrollIntoView({ behavior: "smooth" });
   }
 }
 

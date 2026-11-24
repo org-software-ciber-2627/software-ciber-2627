@@ -87,6 +87,43 @@
             border-radius: 4px;
             margin-top: 12px;
         }
+        .metricas-soar {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin: 12px 0 16px 0;
+        }
+
+        .tarjeta-metrica {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 12px 18px;
+            background: #f9fafb;
+            min-width: 180px;
+        }
+
+        .tarjeta-metrica .titulo-metrica {
+            font-size: 12px;
+            color: #555;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .tarjeta-metrica .valor-metrica {
+            font-size: 20px;
+            font-weight: bold;
+            color: #111;
+        }
+
+        .ver-alerta-origen {
+            background: none;
+            border: none;
+            color: #1d4ed8;
+            text-decoration: underline;
+            cursor: pointer;
+            padding: 0;
+            font: inherit;
+        }
     </style>
     <style id="guard-style">
         body {
@@ -140,8 +177,24 @@
 
     <script type="module" src="SIEM-alert.js"></script>
 
-    <!-- SECCIÓN SOAR (DASHG7-26) -->
+    <!-- SECCIÓN SOAR (DASHG7-26, DASHG7-27, DASHG7-28) -->
     <h2 style="margin-top: 40px;">Incidentes del SOAR</h2>
+
+    <div class="metricas-soar" id="metricas-soar">
+        <div class="tarjeta-metrica">
+            <div class="titulo-metrica">MTTD (Tiempo medio detección)</div>
+            <div class="valor-metrica" id="soar-mttd">Cargando...</div>
+        </div>
+        <div class="tarjeta-metrica">
+            <div class="titulo-metrica">MTTR (Tiempo medio resolución)</div>
+            <div class="valor-metrica" id="soar-mttr">Cargando...</div>
+        </div>
+        <div class="tarjeta-metrica">
+            <div class="titulo-metrica">Periodo de cálculo</div>
+            <div class="valor-metrica" id="soar-periodo" style="font-size: 15px;">Cargando...</div>
+        </div>
+    </div>
+
     <table>
         <thead>
             <tr>
