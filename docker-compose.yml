@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   identidad:
@@ -59,6 +59,9 @@ services:
       PORT: "80"
       SIEM_URL: "http://siem:80/events"
       IDENTITY_URL: "http://identidad:80"
+      SCAN_DB_PATH: /data/scans.db
+    volumes:
+      - escaner-data:/data
     healthcheck:
       test:
         - CMD
@@ -99,7 +102,13 @@ services:
     networks:
       - ciberurjc
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1/health')"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1/health')",
+        ]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -142,3 +151,4 @@ networks:
 
 volumes:
   soar-data:
+  escaner-data:

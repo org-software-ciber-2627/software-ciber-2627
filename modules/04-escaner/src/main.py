@@ -1,8 +1,9 @@
 from flask import Flask, jsonify, request
 from runner import get_profiles
-from jobs import create_job, get_job, public, JOBS
+from jobs import create_job, get_job, public
 from reports import reports_bp
 from auth import require_roles
+from history import init_db, list_jobs   
 import os
 import logging
 
@@ -25,19 +26,8 @@ def health():
 @app.route("/scans", methods=["GET"])
 @require_roles("admin", "analista", "servicio")
 def listar_escaneos():
-    escaneos = []
-
-    for job in list(JOBS.values()):
-        resumen = public(job)
-        resumen.pop("events", None)
-        escaneos.append(resumen)
-
-    escaneos.sort(
-        key=lambda escaneo: escaneo.get("created_at") or "",
-        reverse=True,
-    )
-
-    return jsonify(escaneos), 200
+    limit = request.args.get("limit", default=100, type=int)
+    return jsonify(list_jobs(limit=max(1, min(limit, 1000)))), 200
 
 @app.route("/scan", methods=["POST"])
 @require_roles("admin", "analista") 

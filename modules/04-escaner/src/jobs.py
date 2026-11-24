@@ -7,23 +7,38 @@ import subprocess
 from xml.etree.ElementTree import ParseError
 from runner import NMAP_TIMEOUT_SECONDS, start_nmap
 from parser import parse_xml
+from history import save_job, load_job
 from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
 
-JOBS = {}  # estructura temporal que actúa como BBDD en memoria
 SIEM_URL = os.environ.get("SIEM_URL", "http://localhost:8005/events")
+MAX_CONSECUTIVE_CONN_ERRORS = 3  # tras estos fallos de conexión seguidos se aborta el envío
+
+
+def _persist(job):
+    """Guarda el escaneo en el historial sin romper el flujo si falla."""
+    try:
+        save_job(job)
+    except Exception:
+        logger.exception("No se pudo guardar el escaneo %s en el historial", job.get("scan_id"))
+
 
 def publish_events_to_siem(events, scan_id=None):
-    """Envía cada evento individualmente mediante POST /events hacia el SIEM, comprueba el acuse y registra fallos."""
+    """Envía cada evento individualmente mediante POST /events hacia el SIEM,
+    comprueba el acuse y registra los fallos en el log.
+
+    Devuelve solo un resumen (sin detalle por evento): el detalle de los
+    errores es un asunto operativo y queda en los logs, no en la API.
+    """
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
     delivered = 0
-    errors = []
-    
+    consecutive_conn_errors = 0
+
     for event in events:
         sent_event_id = event.get("event_id")
         try:
@@ -33,12 +48,9 @@ def publish_events_to_siem(events, scan_id=None):
                 headers=headers,
                 timeout=3,
             )
+            consecutive_conn_errors = 0  # hubo conexión con el SIEM
+
             if response.status_code != 200:
-                errors.append({
-                    "event_id": sent_event_id,
-                    "code": "http_error",
-                    "status_code": response.status_code,
-                })
                 logger.warning(
                     "Fallo al publicar evento en SIEM (scan_id=%s, event_id=%s, status=%s)",
                     scan_id,
@@ -50,10 +62,6 @@ def publish_events_to_siem(events, scan_id=None):
             try:
                 ack = response.json()
             except ValueError:
-                errors.append({
-                    "event_id": sent_event_id,
-                    "code": "invalid_json_ack",
-                })
                 logger.warning(
                     "Acuse del SIEM no es JSON válido (scan_id=%s, event_id=%s)",
                     scan_id,
@@ -62,26 +70,16 @@ def publish_events_to_siem(events, scan_id=None):
                 continue
 
             if not isinstance(ack, dict):
-                errors.append({
-                    "event_id": sent_event_id,
-                    "code": "invalid_ack",
-                })
                 logger.warning(
-                    "Acuse del SIEM no es un objeto JSON "
-                    "(scan_id=%s, event_id=%s)",
+                    "Acuse del SIEM no es un objeto JSON (scan_id=%s, event_id=%s)",
                     scan_id,
                     sent_event_id,
                 )
                 continue
 
             if ack.get("status") != "success":
-                errors.append({
-                    "event_id": sent_event_id,
-                    "code": "invalid_ack_status",
-                })
                 logger.warning(
-                    "Acuse del SIEM con status no válido "
-                    "(scan_id=%s, event_id=%s, status=%s)",
+                    "Acuse del SIEM con status no válido (scan_id=%s, event_id=%s, status=%s)",
                     scan_id,
                     sent_event_id,
                     ack.get("status"),
@@ -94,10 +92,6 @@ def publish_events_to_siem(events, scan_id=None):
                 or not ack_event_id.strip()
                 or ack_event_id != sent_event_id
             ):
-                errors.append({
-                    "event_id": sent_event_id,
-                    "code": "event_id_mismatch",
-                })
                 logger.warning(
                     "Acuse del SIEM con event_id no coincidente "
                     "(scan_id=%s, event_id=%s, ack_event_id=%s)",
@@ -106,25 +100,30 @@ def publish_events_to_siem(events, scan_id=None):
                     ack_event_id,
                 )
                 continue
-                
+
             delivered += 1
-        
+
         except requests.exceptions.RequestException as exc:
-            errors.append({
-                "event_id": sent_event_id,
-                "code": "connection_error",
-                "error_type": type(exc).__name__,
-            })
+            consecutive_conn_errors += 1
             logger.warning(
-                "Error de conexión o timeout al publicar evento en SIEM (scan_id=%s, event_id=%s, error=%s)",
+                "Error al publicar evento en SIEM (scan_id=%s, event_id=%s): %s",
                 scan_id,
                 sent_event_id,
-                type(exc).__name__,
+                exc,
             )
+            if consecutive_conn_errors >= MAX_CONSECUTIVE_CONN_ERRORS:
+                logger.error(
+                    "SIEM inaccesible tras %d fallos de conexión seguidos; "
+                    "se aborta el envío (scan_id=%s)",
+                    consecutive_conn_errors,
+                    scan_id,
+                )
+                break
 
-    failed = len(errors)
+    total = len(events)
+    failed = total - delivered  # incluye los eventos no intentados tras abortar
 
-    if not events:
+    if total == 0:
         delivery_status = "not_required"
     elif failed == 0:
         delivery_status = "delivered"
@@ -133,18 +132,28 @@ def publish_events_to_siem(events, scan_id=None):
     else:
         delivery_status = "partial"
 
+    if failed:
+        logger.error(
+            "Entrega al SIEM incompleta (scan_id=%s): %d/%d eventos sin entregar",
+            scan_id,
+            failed,
+            total,
+        )
+
     return {
         "status": delivery_status,
-        "total": len(events),
+        "total": total,
         "delivered": delivered,
         "failed": failed,
-        "errors": errors,
     }
 
-def _run_job_worker(scan_id, target, profile, xml_outfile):
+
+def _run_job_worker(job, xml_outfile):
+    """Ejecuta el escaneo. `job` es una copia privada de este hilo."""
+    scan_id = job["scan_id"]
     try:
         try:
-            process = start_nmap(target, profile, xml_outfile)
+            process = start_nmap(job["target"], job["profile"], xml_outfile)
         except OSError as error:
             raise RuntimeError("No se pudo iniciar Nmap; comprueba que esté instalado") from error
 
@@ -169,28 +178,28 @@ def _run_job_worker(scan_id, target, profile, xml_outfile):
                 xml_content = xml_file.read()
         except OSError as error:
             raise RuntimeError("No se pudo leer el informe XML de Nmap") from error
-        JOBS[scan_id]["events"] = parse_xml(xml_content, scan_id, profile)
 
-        JOBS[scan_id]["siem_delivery"] = publish_events_to_siem(
-            JOBS[scan_id]["events"],
-            scan_id=scan_id,
-        )
-        JOBS[scan_id]["status"] = "completed"
+        job["events"] = parse_xml(xml_content, scan_id, job["profile"])
+        job["status"] = "completed"
+        _persist(job)
 
     except Exception as error:
-        JOBS[scan_id]["status"] = "failed"
+        job["status"] = "failed"
         # No se devuelve stderr ni detalles del entorno a los consumidores de la API.
         if isinstance(error, (RuntimeError, ParseError)):
             message = str(error)
         else:
+            logger.exception("Error interno en el escaneo %s", scan_id)
             message = "Error interno al ejecutar o procesar Nmap"
-        JOBS[scan_id]["error"] = message or "Error al ejecutar o procesar Nmap"
+        job["error"] = message or "Error al ejecutar o procesar Nmap"
+        _persist(job)
     finally:
         if os.path.exists(xml_outfile):
             try:
                 os.remove(xml_outfile)
             except OSError:
                 pass
+
 
 def create_job(target, profile):
     scan_id = str(uuid.uuid4())
@@ -203,19 +212,26 @@ def create_job(target, profile):
         "target": target,
         "profile": profile,
         "status": "running",
-        "events": []
+        "events": [],
     }
-    JOBS[scan_id] = job
+    _persist(job)
 
-    # Lanzamos el proceso en segundo plano (daemon thread) para responder de inmediato
-    t = threading.Thread(target=_run_job_worker, args=(scan_id, target, profile, xml_outfile))
+    # El hilo recibe su propia copia: no comparte estado con quien lo creó.
+    t = threading.Thread(target=_run_job_worker, args=(dict(job), xml_outfile))
     t.daemon = True
     t.start()
 
     return job
 
+
 def get_job(scan_id):
-    return JOBS.get(scan_id)
+    """Lee el escaneo del historial (fuente de verdad)."""
+    try:
+        return load_job(scan_id)
+    except Exception:
+        logger.exception("No se pudo leer el escaneo %s del historial", scan_id)
+        return None
+
 
 def public(job):
     if job is None:
@@ -226,10 +242,9 @@ def public(job):
         "target": job["target"],
         "profile": job["profile"],
         "status": job["status"],
-        "events": job.get("events", [])
+        "events": job.get("events", []),
     }
-    if "siem_delivery" in job:
-        result["siem_delivery"] = job["siem_delivery"]
+    
     if job.get("status") == "failed":
         result["error"] = job.get("error", "El escaneo ha fallado")
     return result
