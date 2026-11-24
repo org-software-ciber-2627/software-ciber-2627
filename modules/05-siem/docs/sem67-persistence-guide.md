@@ -118,9 +118,10 @@ Los ocho campos del contrato son `event_id`, `timestamp`, `source`, `event_type`
 | Misma clave con otro contenido | 409 `EVENT_ID_CONFLICT`, original intacto |
 | Evento inválido | 400, sin nueva fila |
 | Tipo de contenido no admitido | 415 |
-| Sin almacenamiento configurado o caída durante ingesta | 503 `STORAGE_UNAVAILABLE` |
+| Sin almacenamiento configurado o caída durante ingesta | 503 `STORAGE_UNAVAILABLE`; evento y alerta se revierten juntos |
+| Error de esquema o integridad del almacén (por ejemplo, un `alert_id` ya usado por otro evento) | 500 `INTERNAL_ERROR`; evento y alerta se revierten juntos |
 
-Con persistencia activa se rechazan con 400 los textos con caracteres nulos o Unicode incompleto, también dentro de `details`, y las fechas o números fuera del rango de almacenamiento. Se conserva el error genérico: no se devuelven SQL ni datos de conexión. Los fallos reales de PostgreSQL continúan produciendo 503. El Unicode válido, incluidos caracteres suplementarios, se guarda y reenvía sin sustituciones.
+Con persistencia activa se rechazan con 400 los textos con caracteres nulos o Unicode incompleto, también dentro de `details`, y las fechas o números fuera del rango de almacenamiento. Se conserva el error genérico: no se devuelven SQL ni datos de conexión. Los fallos de disponibilidad de PostgreSQL (conexión, timeout, bloqueo o transacción que no puede empezar) producen 503: el productor puede reenviar el mismo evento más tarde sin duplicarlo. Los errores de esquema o integridad producen 500: reintentar no los resuelve y hay que revisar la base de datos o la aplicación. En ese caso el log registra `Event storage error` con el tipo de error, sin el contenido del evento. El Unicode válido, incluidos caracteres suplementarios, se guarda y reenvía sin sustituciones.
 
 Si PostgreSQL no está disponible al arrancar con `persistence`, la creación del pool puede impedir el arranque; no debe confundirse con un servidor arrancado que responde 503. El [comportamiento de ingesta](../contract/sem65-ingestion-proposal.md) describe 409 y 503; el [OpenAPI vigente](../contract/openapi.json) refleja estas respuestas y el histórico de HU10.
 
@@ -146,6 +147,7 @@ Esto conserva el volumen nombrado del mismo proyecto. No uses `down -v` ni borre
 | Un evento `pentesting` falla con `events_source_check` | Aplica la migración 004 al volumen existente |
 | El SIEM no arranca: `Table 'alerts' is missing` | Aplica la migración 005 al volumen existente |
 | 503 en `GET /alerts` con Java sin perfil | Esperado: sin persistencia no hay almacén de alertas |
+| 500 `INTERNAL_ERROR` en `POST /events` | Buscar `Event storage error` en el log del SIEM; suele indicar una migración sin aplicar o un esquema distinto. No reintentar en bucle |
 | Puerto ocupado | Otro proceso o contenedor en 8005/5433; no detener procesos ajenos automáticamente |
 | 409 al repetir un ejemplo | El contenido guardado para esa clave difiere; no borrar datos para forzar 200 |
 | Pruebas PostgreSQL omitidas | Usar el ejecutor SEM-66 o una base exclusiva de pruebas configurada |
