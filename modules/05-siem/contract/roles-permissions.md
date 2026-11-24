@@ -2,7 +2,14 @@
 
 Corresponde a SEM-141 (HU19 / SEM-35). Completa el [contrato de autenticación con Identidad](identity-auth.md): aquella fija **quién eres** (HU18); esta fija **qué puedes hacer** (HU19).
 
-La identidad (`username` y `role`) la devuelve G1 en `GET /auth/validate`. El SIEM no decodifica el JWT. La autorización se comprueba **después** de autenticar y **antes** de validar, almacenar o consultar nada.
+La identidad (`username` y `role`) la devuelve G1 en `GET /auth/validate`. El SIEM no decodifica el JWT.
+
+Orden de las comprobaciones:
+
+1. Autenticación con G1 (HU18): sin token o con un token rechazado, 401.
+2. Permiso de la cuenta o el rol sobre la operación: si no lo tiene, 403 `FORBIDDEN`, **antes de leer el cuerpo**.
+3. Validación del evento: si está mal formado, 400, como hasta ahora.
+4. Solo en `POST /events`, el `source` frente a la cuenta: si no corresponde, 403 `SOURCE_MISMATCH`, **antes de guardar**.
 
 ## Roles y cuentas
 
@@ -82,4 +89,4 @@ Ante un 403, el cliente registra el fallo y **no reintenta**: repetir la petici�
 
 ## Estado
 
-Propuesta de G5 el 24/11/2026, pendiente de confirmar con G1 (que `/auth/validate` devuelve `username`), G6 (uso de `svc-soar`) y G7 (permisos del analista). La implementación corresponde a SEM-142 y las pruebas a SEM-143.
+Propuesta de G5 el 24/11/2026. G1 confirmado: `GET /auth/validate` devuelve `valid`, `user_id`, `username` y `role`, y el SIEM exige `username` y `role` (si faltan, 503). Pendiente de confirmar con G6 (uso de `svc-soar`) y G7 (permisos del analista). La implementación corresponde a SEM-142 y las pruebas a SEM-143.

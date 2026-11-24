@@ -20,15 +20,15 @@ El SIEM actúa como **consumidor** de G1. La fuente de verdad del proveedor es e
 
 ## Operaciones protegidas
 
-| Operación | ¿Protegida? | Quién la usa | Rol esperado (propuesta para SEM-35) |
+| Operación | ¿Protegida? | Quién la usa | Permisos |
 | --- | --- | --- | --- |
 | `GET /health` | **No** | CI, healthcheck del compose, vista de salud del Dashboard | No aplica |
-| `POST /events` | Sí | G2 IDS, G3 Honeypot, G4 Escáner, G8 Pentesting | `servicio` |
-| `GET /events` | Sí | G7 Dashboard (analista) | `analista`, `admin` |
-| `GET /alerts` | Sí | G6 SOAR (servicio), G7 Dashboard (analista) | `servicio`, `analista`, `admin` |
-| `GET /alerts/{id}` | Sí | G6 SOAR, G7 Dashboard | `servicio`, `analista`, `admin` |
+| `POST /events` | Sí | G2 IDS, G3 Honeypot, G4 Escáner, G8 Pentesting | Ver [roles-permissions.md](roles-permissions.md) |
+| `GET /events` | Sí | G7 Dashboard (analista) | Ver [roles-permissions.md](roles-permissions.md) |
+| `GET /alerts` | Sí | G6 SOAR, G7 Dashboard (analista) | Ver [roles-permissions.md](roles-permissions.md) |
+| `GET /alerts/{id}` | Sí | G6 SOAR, G7 Dashboard | Ver [roles-permissions.md](roles-permissions.md) |
 
-En SEM-34 solo se comprueba la identidad; los roles se aplican en SEM-35. La matriz se incluye aquí para que G1 la revise junto al resto del contrato.
+En SEM-34 solo se comprueba la identidad. Qué cuenta o rol puede usar cada operación se define únicamente en [roles-permissions.md](roles-permissions.md) (SEM-141) y se aplica en SEM-35.
 
 ## Petición y transporte
 
