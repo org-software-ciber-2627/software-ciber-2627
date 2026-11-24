@@ -111,5 +111,5 @@ Las respuestas 409, 413 y 507 llegan a main con la integración de SEM-72.
 
 ## Alcance y limitaciones
 
-- Las alertas se guardan en memoria: se pierden al reiniciar el SIEM.
+- Las alertas se guardan en PostgreSQL y se conservan al reiniciar el SIEM con el mismo `alert_id`.
 - Pendiente de G3: añadir `SIEM_URL: http://siem:80/events` al servicio honeypot del docker-compose común. Mientras tanto, la prueba usa `.local/hu5/compose.yml`.

@@ -410,6 +410,21 @@ class PersistentEventHttpTests {
     }
 
     @Test
+    void concurrentReplaysOfAnEventWithoutAlertAllSucceedWithOneAlert() throws Exception {
+        var input = event("grupo_3_honeypot.json");
+        repository.save(mapper.convertValue(input, com.ciberurjc.siem.models.Event.class));
+        var body = mapper.writeValueAsString(input);
+        var responses = new ArrayList<CompletableFuture<HttpResponse<String>>>();
+        for (int i = 0; i < 8; i++) {
+            responses.add(client.sendAsync(postRequest(body), HttpResponse.BodyHandlers.ofString()));
+        }
+        for (var response : responses) {
+            assertEquals(200, response.get().statusCode(), response.get().body());
+        }
+        assertEquals(1, alertRows());
+    }
+
+    @Test
     void informationalEventStoresNoAlertRow() throws Exception {
         var input = event("grupo_3_honeypot.json");
         input.put("severity", "info");

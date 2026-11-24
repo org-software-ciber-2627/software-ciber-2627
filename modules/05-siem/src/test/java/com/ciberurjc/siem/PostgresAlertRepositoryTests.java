@@ -34,6 +34,7 @@ class PostgresAlertRepositoryTests {
     @Autowired EventRepository events;
     @Autowired JdbcClient jdbc;
     @Autowired ObjectMapper mapper;
+    @Autowired org.springframework.transaction.support.TransactionTemplate transaction;
     final AlertConverter converter = new AlertConverter();
     final String prefix = "sem147-repo-" + UUID.randomUUID() + "-";
 
@@ -90,6 +91,40 @@ class PostgresAlertRepositoryTests {
         mismatched.put("alert_id", "SIEM-ALERT-forged");
         mismatched.put("event_id", prefix + "other");
         assertThrows(DataIntegrityViolationException.class, () -> alerts.insertIfAbsent(mismatched));
+    }
+
+    @Test
+    void alertIdAlreadyUsedByAnotherEventIsAnIntegrityErrorNotAReplay() {
+        var first = converter.convert(storedEvent("d1"));
+        alerts.insertIfAbsent(first);
+        var colliding = new LinkedHashMap<>(converter.convert(storedEvent("d2")));
+        colliding.put("alert_id", first.get("alert_id"));
+        assertThrows(DataIntegrityViolationException.class, () -> alerts.insertIfAbsent(colliding));
+        assertEquals(0L, jdbc.sql("SELECT count(*) FROM alerts WHERE event_id = :id")
+            .param("id", colliding.get("event_id")).query(Long.class).single());
+    }
+
+    @Test
+    void failedAlertInsertRollsBackTheEventInPostgres() {
+        AlertRepository failing = new AlertRepository() {
+            public SaveResult insertIfAbsent(Map<String, Object> alert) {
+                alerts.insertIfAbsent(alert); // the row is written inside the transaction, then the store fails
+                throw new org.springframework.dao.DataAccessResourceFailureException("connection lost after insert");
+            }
+            public List<Map<String, Object>> findAll() { throw new UnsupportedOperationException(); }
+            public java.util.Optional<Map<String, Object>> findById(String id) { throw new UnsupportedOperationException(); }
+        };
+        var factory = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        factory.addBean("events", events);
+        var service = new com.ciberurjc.siem.services.EventService(factory.getBeanProvider(EventRepository.class), failing,
+            converter, new com.ciberurjc.siem.services.AlertService(notification -> {}),
+            new com.ciberurjc.siem.services.RepeatedAuthenticationFailureEvaluator(), transaction);
+        var event = new Event(prefix + "rollback", "2026-11-24T12:00:00Z", "honeypot", "ssh_login_attempt", "high",
+            "Login attempt", "Rollback check", Map.of("source_ip", "203.0.113.9"));
+        assertThrows(com.ciberurjc.siem.services.EventStorageUnavailableException.class, () -> service.processIncomingEvent(event));
+        assertTrue(events.findById(event.source(), event.event_id()).isEmpty(), "event must roll back with its alert");
+        assertEquals(0L, jdbc.sql("SELECT count(*) FROM alerts WHERE event_id = :id")
+            .param("id", event.event_id()).query(Long.class).single());
     }
 
     @Test

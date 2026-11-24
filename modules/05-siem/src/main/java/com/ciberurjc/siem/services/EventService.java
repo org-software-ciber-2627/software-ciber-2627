@@ -6,6 +6,9 @@ import com.ciberurjc.siem.repositories.EventRepository;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.RecoverableDataAccessException;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.support.TransactionOperations;
 import org.slf4j.Logger;
@@ -65,9 +68,16 @@ public class EventService {
         try {
             // Event and alert commit or roll back together (SEM-146 D3).
             outcome = transactions.execute(status -> store(repository, event));
-        } catch (DataAccessException | TransactionException exception) {
+        } catch (DataAccessResourceFailureException | TransientDataAccessException | RecoverableDataAccessException
+                 | TransactionException exception) {
+            // Availability problems: the producer may retry the same event (503).
             logger.warn("Event storage failed: id={}, source={}", logValue(event.event_id()), event.source());
             throw new EventStorageUnavailableException();
+        } catch (DataAccessException exception) {
+            // Schema or integrity errors need a fix, not a retry (500, SEM-146 D3). Type only, no payload.
+            logger.error("Event storage error: id={}, source={}, error={}", logValue(event.event_id()), event.source(),
+                exception.getClass().getName());
+            throw new EventStorageFailureException();
         }
         logger.info("Event storage confirmed: id={}, source={}, result={}", logValue(event.event_id()), event.source(), outcome.result());
         if (outcome.createdAlert() != null) {
@@ -96,7 +106,8 @@ public class EventService {
         try {
             alertService.emitAlert(alert);
         } catch (RuntimeException exception) {
-            logger.warn("Alert notification failed: alert_id={}", alert.get("alert_id"));
+            // Exception type only: messages could carry alert content.
+            logger.warn("Alert notification failed: alert_id={}, error={}", alert.get("alert_id"), exception.getClass().getName());
         }
     }
 

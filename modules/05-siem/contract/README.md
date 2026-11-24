@@ -7,7 +7,7 @@ Especificación de la rama actual: ingesta persistente de HU8, histórico de HU1
 | Método | Ruta | Respuesta |
 | --- | --- | --- |
 | GET | `/health` | 200 con `status: ok` y `module: 05-siem` |
-| POST | `/events` | 200 al guardar/reconocer reenvío; 400 inválido; 409 conflicto; 413 cuerpo demasiado grande; 415 tipo incorrecto; 503 sin almacenamiento de eventos; 507 almacén de alertas lleno |
+| POST | `/events` | 200 al guardar/reconocer reenvío; 400 inválido; 409 conflicto; 413 cuerpo demasiado grande; 415 tipo incorrecto; 500 error de esquema o integridad del almacén; 503 sin almacenamiento de eventos; 507 almacén de alertas lleno |
 | GET | `/events` | 200 con `events`, `next_offset`, `next`; 400 consulta inválida; 503 indisponibilidad/timeout; 500 error inesperado |
 | GET | `/alerts` | 200 con `{"alerts": [...]}` o `{"alerts":[]}`; 503/500 ante fallo de consulta |
 | GET | `/alerts/{id}` | 200 con una alerta o 404 con `error.code: ALERT_NOT_FOUND`; 503/500 ante fallo de consulta |
@@ -47,7 +47,7 @@ Códigos de ingesta: `INVALID_JSON`, `VALIDATION_ERROR`, `UNSUPPORTED_MEDIA_TYPE
 
 Cada alerta conserva todos los campos del evento y añade `alert_id`, `source_ip` y `target_ip`. IDS toma las IP de `details`; Honeypot tiene destino null; Escáner tiene origen null y destino `details.target.ip`. Pentesting conserva su URL en `details.target` y deja las dos IP a null. El modelo de alerta no incluye `status`, `priority`, `risk_score`, `recommended_action` ni `related_events`.
 
-`GET /alerts` lista las alertas generadas y `GET /alerts/{id}` consulta el mismo almacén mediante un identificador exacto. Las alertas se guardan en memoria y se pierden al reiniciar. Un evento informativo se conserva únicamente en el histórico.
+`GET /alerts` lista las alertas generadas y `GET /alerts/{id}` consulta el mismo almacén mediante un identificador exacto. Las alertas se guardan en PostgreSQL y se conservan al reiniciar con el mismo `alert_id`; sin el perfil `persistence` ambas consultas responden 503. Un evento informativo se conserva únicamente en el histórico.
 
 ## Integración del Escáner
 

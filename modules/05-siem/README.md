@@ -33,7 +33,7 @@ Acceso local: `http://localhost:8005`. La red Docker compartida usa `http://siem
 | Ruta | Resultado |
 | --- | --- |
 | `GET /health` | 200 con estado del servicio |
-| `POST /events` | 200 al guardar o reconocer un reenvío idéntico; 400 evento inválido; 409 conflicto de identificador; 413 cuerpo demasiado grande; 415 tipo de contenido no admitido; 503 PostgreSQL no disponible; 507 almacén de alertas lleno |
+| `POST /events` | 200 al guardar o reconocer un reenvío idéntico; 400 evento inválido; 409 conflicto de identificador; 413 cuerpo demasiado grande; 415 tipo de contenido no admitido; 500 error de esquema o integridad del almacén; 503 PostgreSQL no disponible; 507 almacén de alertas lleno |
 | `GET /events?limit=100&offset=0` | 200 con histórico paginado; 400 consulta inválida; 503 almacenamiento no disponible/timeout; 500 error inesperado |
 | `GET /alerts` | 200 con `{"alerts":[]}` si está vacío, 503/500 ante fallo de consulta |
 | `GET /alerts/{id}` | 200 con una alerta o 404 si no existe, 503/500 ante fallo de consulta |

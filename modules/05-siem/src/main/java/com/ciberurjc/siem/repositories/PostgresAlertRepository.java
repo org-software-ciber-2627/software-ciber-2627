@@ -4,6 +4,7 @@ import com.ciberurjc.siem.services.AlertRepository;
 import com.ciberurjc.siem.services.AlertStorageUnavailableException;
 import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.QueryTimeoutException;
 import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -48,19 +49,33 @@ public class PostgresAlertRepository implements AlertRepository {
         }
     }
 
+    // No conflict target: two concurrent replays of an event without alert collide on both
+    // alerts_pkey and alerts_event_unique, and a targeted clause would turn one into a unique violation.
     @Override
     public SaveResult insertIfAbsent(Map<String, Object> alert) {
         int inserted = jdbc.sql("""
             INSERT INTO alerts (alert_id, source, event_id, alert)
             VALUES (:alertId, :source, :eventId, CAST(:alert AS jsonb))
-            ON CONFLICT (source, event_id) DO NOTHING
+            ON CONFLICT DO NOTHING
             """)
             .param("alertId", alert.get("alert_id"))
             .param("source", alert.get("source"))
             .param("eventId", alert.get("event_id"))
             .param("alert", mapper.writeValueAsString(alert))
             .update();
-        return inserted == 1 ? SaveResult.CREATED : SaveResult.UNCHANGED;
+        if (inserted == 1) {
+            return SaveResult.CREATED;
+        }
+        // DO NOTHING also skips an alert_id already used by another event: that is an
+        // integrity error, not a replay, and must not leave this event silently without alert.
+        boolean ownAlertExists = jdbc.sql("SELECT EXISTS (SELECT 1 FROM alerts WHERE source = :source AND event_id = :eventId)")
+            .param("source", alert.get("source"))
+            .param("eventId", alert.get("event_id"))
+            .query(Boolean.class).single();
+        if (!ownAlertExists) {
+            throw new DataIntegrityViolationException("alert_id is already used by another event");
+        }
+        return SaveResult.UNCHANGED;
     }
 
     @Override

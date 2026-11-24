@@ -52,7 +52,7 @@ def check_refs(value):
         for child in value:
             check_refs(child)
 check_refs(api)
-assert set(api["paths"]["/events"]["post"]["responses"]) == {"200", "400", "409", "413", "415", "503", "507"}
+assert set(api["paths"]["/events"]["post"]["responses"]) == {"200", "400", "409", "413", "415", "500", "503", "507"}
 api_event = api["components"]["schemas"]["SecurityEvent"]
 assert schema["properties"]["severity"]["enum"] == api_event["properties"]["severity"]["enum"] == ["info", "low", "medium", "high", "critical"]
 assert api["components"]["schemas"]["Alert"]["properties"]["severity"]["enum"] == ["low", "medium", "high", "critical"]

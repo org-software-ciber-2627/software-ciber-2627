@@ -55,6 +55,20 @@ class EventServiceTransactionTests {
     }
 
     @Test
+    void integrityErrorRollsBackAndReturns500InsteadOf503() {
+        AlertRepository failing = new InMemoryAlertRepository() {
+            @Override
+            public SaveResult insertIfAbsent(Map<String, Object> alert) {
+                throw new org.springframework.dao.DataIntegrityViolationException("alert_id is already used");
+            }
+        };
+        assertThrows(com.ciberurjc.siem.services.EventStorageFailureException.class,
+            () -> service(failing, false).processIncomingEvent(event("tx-8", "high")));
+        assertEquals(List.of("begin", "rollback"), transactionLog);
+        assertTrue(notifications.isEmpty());
+    }
+
+    @Test
     void transactionThatCannotStartReturns503() {
         var service = new EventService(provider(), alerts, new AlertConverter(),
             new AlertService(notifications::add), new RepeatedAuthenticationFailureEvaluator(),
