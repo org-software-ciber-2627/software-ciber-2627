@@ -12,7 +12,7 @@ La [especificación Escáner → SIEM](contract/scanner-events.md) define el for
 
 `GET /events` consulta los eventos realmente almacenados. Devuelve `events`, `next_offset` y `next`; la colección vacía es un 200 y la ausencia de almacenamiento un 503. Consulta el [contrato del histórico](contract/history-events.md) y su [matriz de pruebas](docs/history-events-tests.md).
 
-`GET /alerts` y `GET /alerts/{id}` consultan un mismo almacén de alertas en memoria. Los eventos `info` se almacenan sin generar alertas. Los demás eventos pasan por el conversor y P004 usa el [evaluador de intentos repetidos](docs/sem29-deteccion-intentos-fallidos.md). El almacén de alertas se vacía al reiniciar.
+`GET /alerts` y `GET /alerts/{id}` consultan la tabla `alerts` de PostgreSQL; sin el perfil `persistence` responden 503. Los eventos `info` se almacenan sin generar alertas. Los demás eventos pasan por el conversor y P004 usa el [evaluador de intentos repetidos](docs/sem29-deteccion-intentos-fallidos.md). Evento y alerta se guardan en la misma transacción y la alerta se conserva al reiniciar con el mismo `alert_id` ([diseño SEM-146](docs/sem146-diseno-persistencia-alertas.md)).
 
 ## Arranque sin persistencia
 

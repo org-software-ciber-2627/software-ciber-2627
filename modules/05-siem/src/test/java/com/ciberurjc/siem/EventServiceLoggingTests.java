@@ -56,9 +56,10 @@ class EventServiceLoggingTests {
         var factory = new StaticListableBeanFactory();
         factory.addBean("repository", storage);
         var service = new EventService(factory.getBeanProvider(EventRepository.class),
-            new com.ciberurjc.siem.services.AlertRepository(), new com.ciberurjc.siem.services.AlertConverter(),
+            new InMemoryAlertRepository(), new com.ciberurjc.siem.services.AlertConverter(),
             new com.ciberurjc.siem.services.AlertService(notification -> {}),
-            new com.ciberurjc.siem.services.RepeatedAuthenticationFailureEvaluator());
+            new com.ciberurjc.siem.services.RepeatedAuthenticationFailureEvaluator(),
+            org.springframework.transaction.support.TransactionOperations.withoutTransaction());
         var logger = (Logger) LoggerFactory.getLogger(EventService.class);
         var appender = new ListAppender<ILoggingEvent>();
         appender.start();

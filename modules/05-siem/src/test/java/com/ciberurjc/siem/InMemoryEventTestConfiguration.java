@@ -4,6 +4,7 @@ import com.ciberurjc.siem.models.Event;
 import com.ciberurjc.siem.repositories.EventRepository;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 
 import java.util.List;
 import java.util.Map;
@@ -12,6 +13,13 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @TestConfiguration(proxyBeanMethods = false)
 class InMemoryEventTestConfiguration {
+    // Replaces the 503-only store used without the persistence profile.
+    @Bean
+    @Primary
+    InMemoryAlertRepository testAlertRepository() {
+        return new InMemoryAlertRepository();
+    }
+
     @Bean
     EventRepository testEventRepository() {
         return new EventRepository() {

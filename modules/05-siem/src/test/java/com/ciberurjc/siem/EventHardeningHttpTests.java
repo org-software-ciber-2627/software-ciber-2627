@@ -103,16 +103,15 @@ class EventHardeningHttpTests {
     }
 
     @Test
-    void rejectsNewAlertsWhenStorageIsFull() throws Exception {
+    void keepsCreatingAlertsBeyondTheFormerCap() throws Exception {
+        // SEM-146 D7: the old siem.alerts.max-stored cap (3 here) no longer produces 507.
         var event = new LinkedHashMap<>(honeypotEvent());
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             event.put("event_id", "HP-CAP-" + i);
             assertEquals(200, post(event).statusCode());
         }
         assertEquals(200, post(event).statusCode());
-        event.put("event_id", "HP-CAP-3");
-        assertError(post(event), 507, "STORAGE_FULL");
-        assertEquals(3, mapper.readTree(alerts()).get("alerts").size());
+        assertEquals(4, mapper.readTree(alerts()).get("alerts").size());
     }
 
     @Test

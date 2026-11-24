@@ -4,12 +4,16 @@ import com.ciberurjc.siem.models.Event;
 import com.ciberurjc.siem.exceptions.EventValidationException;
 import com.ciberurjc.siem.repositories.EventRepository;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
+import org.springframework.transaction.TransactionException;
+import org.springframework.transaction.support.TransactionOperations;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.util.Map;
 
 @Service
 public class EventService {
@@ -20,15 +24,28 @@ public class EventService {
     private final AlertConverter converter;
     private final AlertService alertService;
     private final RepeatedAuthenticationFailureEvaluator authenticationFailures;
+    private final TransactionOperations transactions;
 
+    @Autowired
     public EventService(ObjectProvider<EventRepository> repositories, AlertRepository alerts,
             AlertConverter converter, AlertService alertService,
-            RepeatedAuthenticationFailureEvaluator authenticationFailures) {
+            RepeatedAuthenticationFailureEvaluator authenticationFailures,
+            ObjectProvider<TransactionOperations> transactions) {
+        this(repositories, alerts, converter, alertService, authenticationFailures,
+            transactions.getIfAvailable(TransactionOperations::withoutTransaction));
+    }
+
+    // Without the persistence profile (tests, in-memory stores) there is no transaction manager.
+    public EventService(ObjectProvider<EventRepository> repositories, AlertRepository alerts,
+            AlertConverter converter, AlertService alertService,
+            RepeatedAuthenticationFailureEvaluator authenticationFailures,
+            TransactionOperations transactions) {
         this.repositories = repositories;
         this.alerts = alerts;
         this.converter = converter;
         this.alertService = alertService;
         this.authenticationFailures = authenticationFailures;
+        this.transactions = transactions;
     }
 
     public void processIncomingEvent(Event event) {
@@ -44,27 +61,46 @@ public class EventService {
         if (repository == null) {
             throw new EventStorageUnavailableException();
         }
-        EventRepository.SaveResult result;
+        Outcome outcome;
         try {
-            result = repository.saveIfAbsent(event);
-            if (result == EventRepository.SaveResult.CONFLICT) {
-                throw new EventIdConflictException();
-            }
-            logger.info("Event storage confirmed: id={}, source={}, result={}", logValue(event.event_id()), event.source(), result);
-        } catch (DataAccessException exception) {
+            // Event and alert commit or roll back together (SEM-146 D3).
+            outcome = transactions.execute(status -> store(repository, event));
+        } catch (DataAccessException | TransactionException exception) {
             logger.warn("Event storage failed: id={}, source={}", logValue(event.event_id()), event.source());
             throw new EventStorageUnavailableException();
         }
+        logger.info("Event storage confirmed: id={}, source={}, result={}", logValue(event.event_id()), event.source(), outcome.result());
+        if (outcome.createdAlert() != null) {
+            notifyAfterCommit(outcome.createdAlert());
+        }
+    }
+
+    private Outcome store(EventRepository repository, Event event) {
+        EventRepository.SaveResult result = repository.saveIfAbsent(event);
+        if (result == EventRepository.SaveResult.CONFLICT) {
+            throw new EventIdConflictException();
+        }
         if ("info".equals(event.severity())) {
-            return;
+            return new Outcome(result, null);
         }
         var alert = converter.convert(event);
         authenticationFailures.evaluate(event).ifPresent(
             detection -> alert.put("source_ip", detection.sourceIp().orElse(null)));
-        if (alerts.save(alert, result == EventRepository.SaveResult.REPLAY) == AlertRepository.SaveResult.CREATED) {
+        // A replay creates the alert only if it is missing, e.g. for events stored before 005.
+        boolean created = alerts.insertIfAbsent(alert) == AlertRepository.SaveResult.CREATED;
+        return new Outcome(result, created ? alert : null);
+    }
+
+    // The write is already committed: a listener failure must not change the acknowledgement (SEM-146 D4).
+    private void notifyAfterCommit(Map<String, Object> alert) {
+        try {
             alertService.emitAlert(alert);
+        } catch (RuntimeException exception) {
+            logger.warn("Alert notification failed: alert_id={}", alert.get("alert_id"));
         }
     }
+
+    private record Outcome(EventRepository.SaveResult result, Map<String, Object> createdAlert) {}
 
     private static String logValue(String value) {
         var safe = new StringBuilder(value.length());

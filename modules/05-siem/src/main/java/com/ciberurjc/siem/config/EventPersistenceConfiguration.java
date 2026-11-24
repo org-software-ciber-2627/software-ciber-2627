@@ -8,6 +8,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.support.JdbcTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.DeserializationFeature;
 
 import javax.sql.DataSource;
@@ -38,5 +41,19 @@ public class EventPersistenceConfiguration {
     @Bean
     JdbcClient jdbcClient(DataSource dataSource) {
         return JdbcClient.create(dataSource);
+    }
+
+    @Bean
+    JdbcTransactionManager transactionManager(DataSource dataSource) {
+        return new JdbcTransactionManager(dataSource);
+    }
+
+    // One transaction per ingested event and its alert (SEM-146 D3). READ COMMITTED lets
+    // saveIfAbsent see the winner of a concurrent insert in its follow-up statement.
+    @Bean
+    TransactionTemplate eventTransaction(JdbcTransactionManager transactionManager) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        return template;
     }
 }

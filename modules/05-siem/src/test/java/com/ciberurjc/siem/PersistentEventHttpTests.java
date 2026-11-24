@@ -54,6 +54,7 @@ class PersistentEventHttpTests {
 
     @AfterEach
     void removeOnlyThisTestsEvents() {
+        jdbc.sql("DELETE FROM alerts WHERE event_id LIKE :prefix").param("prefix", prefix + "%").update();
         jdbc.sql("DELETE FROM events WHERE event_id LIKE :prefix").param("prefix", prefix + "%").update();
     }
 
@@ -363,4 +364,57 @@ class PersistentEventHttpTests {
         assertTrue(repository.findById((String) input.get("source"), (String) input.get("event_id")).isPresent());
     }
 
+    long alertRows() {
+        return jdbc.sql("SELECT count(*) FROM alerts WHERE event_id LIKE :prefix")
+            .param("prefix", prefix + "%").query(Long.class).single();
+    }
+
+    @Test
+    void generatedAlertIsStoredInPostgresAndServedFromIt() throws Exception {
+        var input = event("grupo_3_honeypot.json");
+        assertEquals(200, post(input).statusCode());
+        assertEquals(1, alertRows());
+        String storedJson = jdbc.sql("SELECT alert::text FROM alerts WHERE event_id = :id")
+            .param("id", input.get("event_id")).query(String.class).single();
+        var stored = mapper.readTree(storedJson);
+        var detail = client.send(HttpRequest.newBuilder(
+            URI.create(baseUrl + "/alerts/" + stored.get("alert_id").asText())).GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, detail.statusCode());
+        assertEquals(stored, mapper.readTree(detail.body()));
+        assertEquals(11, stored.size());
+    }
+
+    @Test
+    void replayOfAnEventStoredBeforeMigration005CreatesItsAlertOnce() throws Exception {
+        var input = event("grupo_3_honeypot.json");
+        repository.save(mapper.convertValue(input, com.ciberurjc.siem.models.Event.class));
+        assertEquals(0, alertRows());
+        assertEquals(200, post(input).statusCode());
+        assertEquals(200, post(input).statusCode());
+        assertEquals(1, count());
+        assertEquals(1, alertRows());
+    }
+
+    @Test
+    void concurrentIdenticalEventsStoreOneEventAndOneAlert() throws Exception {
+        var body = mapper.writeValueAsString(event("grupo_3_honeypot.json"));
+        var responses = new ArrayList<CompletableFuture<HttpResponse<String>>>();
+        for (int i = 0; i < 8; i++) {
+            responses.add(client.sendAsync(postRequest(body), HttpResponse.BodyHandlers.ofString()));
+        }
+        for (var response : responses) {
+            assertEquals(200, response.get().statusCode());
+        }
+        assertEquals(1, count());
+        assertEquals(1, alertRows());
+    }
+
+    @Test
+    void informationalEventStoresNoAlertRow() throws Exception {
+        var input = event("grupo_3_honeypot.json");
+        input.put("severity", "info");
+        assertEquals(200, post(input).statusCode());
+        assertEquals(1, count());
+        assertEquals(0, alertRows());
+    }
 }

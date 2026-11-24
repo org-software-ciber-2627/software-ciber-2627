@@ -23,7 +23,7 @@ class AlertErrorsHttpTest {
 
     @Test
     void unsupportedMethodRemains405() throws Exception {
-        var repository = new AlertRepository();
+        var repository = new InMemoryAlertRepository();
         var mvc = MockMvcBuilders.standaloneSetup(new AlertController(new AlertQueryService(repository), repository))
             .setControllerAdvice(new AlertErrorHandler(), new ApiErrorHandler()).build();
         mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/alerts"))

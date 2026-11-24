@@ -1,102 +1,24 @@
-
 package com.ciberurjc.siem.services;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Repository;
-
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-@Repository
-public class AlertRepository {
+/**
+ * Alert store shared by ingestion and the GET /alerts endpoints (SEM-121 / HU23).
+ * Implementations must keep one alert per (source, event_id) and never replace a stored alert.
+ */
+public interface AlertRepository {
 
-    public static final int DEFAULT_MAX_ALERTS = 10_000;
-
-    public enum SaveResult { CREATED, UNCHANGED }
-
-    private final Map<String, Map<String, Object>> alerts =
-        new LinkedHashMap<>();
-
-    private final int maxAlerts;
-
-    public AlertRepository() {
-        this(DEFAULT_MAX_ALERTS);
-    }
-
-    @Autowired
-    public AlertRepository(@Value("${siem.alerts.max-stored:" + DEFAULT_MAX_ALERTS + "}") int maxAlerts) {
-        if (maxAlerts < 1) {
-            throw new IllegalArgumentException("siem.alerts.max-stored must be at least 1");
-        }
-        this.maxAlerts = maxAlerts;
-    }
+    enum SaveResult { CREATED, UNCHANGED }
 
     /**
-     * Stores a new alert. A retry with identical content is accepted without
-     * changes; different content for an existing alert_id is rejected so a
-     * stored alert can never be silently replaced.
+     * Stores the alert unless its event already has one. An existing alert is kept as stored,
+     * even if the current converter would produce different fields.
      */
-    public SaveResult save(Map<String, Object> alert) {
-        return save(alert, false);
-    }
+    SaveResult insertIfAbsent(Map<String, Object> alert);
 
-    public synchronized SaveResult save(Map<String, Object> alert, boolean confirmedReplay) {
-        String id = (String) alert.get("alert_id");
-        Map<String, Object> existing = alerts.get(id);
+    List<Map<String, Object>> findAll();
 
-        if (existing != null) {
-            if (confirmedReplay || existing.equals(alert)) {
-                return SaveResult.UNCHANGED;
-            }
-            throw new AlertConflictException(id);
-        }
-
-        if (alerts.size() >= maxAlerts) {
-            throw new AlertStorageFullException();
-        }
-
-        alerts.put(id, copyAlert(alert));
-        return SaveResult.CREATED;
-    }
-
-    public synchronized List<Map<String, Object>> findAll() {
-        return alerts.values()
-            .stream()
-            .map(AlertRepository::copyAlert)
-            .toList();
-    }
-
-    public synchronized Optional<Map<String, Object>> findById(String id) {
-        Map<String, Object> alert = alerts.get(id);
-
-        if (alert == null) {
-            return Optional.empty();
-        }
-
-        return Optional.of(copyAlert(alert));
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> copyAlert(Map<String, Object> alert) {
-        return (Map<String, Object>) deepCopy(alert);
-    }
-
-    // Nested details must not be shared with callers, otherwise stored alerts could be mutated.
-    private static Object deepCopy(Object value) {
-        if (value instanceof Map<?, ?> map) {
-            Map<String, Object> copy = new LinkedHashMap<>();
-            map.forEach((key, item) -> copy.put(String.valueOf(key), deepCopy(item)));
-            return copy;
-        }
-        if (value instanceof List<?> list) {
-            List<Object> copy = new ArrayList<>(list.size());
-            list.forEach(item -> copy.add(deepCopy(item)));
-            return copy;
-        }
-        return value;
-    }
+    Optional<Map<String, Object>> findById(String alertId);
 }
