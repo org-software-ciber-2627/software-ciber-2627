@@ -205,8 +205,12 @@ La saturación descrita en D7 puede impedir que se creen alertas nuevas incluso 
 
 Con el Compose común y el volumen persistente: generar una alerta, reiniciar el contenedor `siem`, comprobar que `GET /alerts` devuelve el mismo `alert_id`, reenviar el evento sin que aparezca un duplicado, y detener PostgreSQL para comprobar el 503. `efe6cc5` ya incluye PostgreSQL en el Compose común. Queda verificar la integración de SEM-118 y el consumo real desde SOAR y Dashboard.
 
-## Pendiente de revisión
+## Resultado de la revisión (24/11/2026)
 
-1. D7: mantener el límite blando o retirar el 507 tras acordar el coste del listado con SOAR y Dashboard. Si se mantiene, confirmar la aceptación del riesgo de saturación hasta SEM-133, el procedimiento de limpieza manual y cómo se evita que el tráfico legítimo agote el cupo: un umbral dimensionado con aviso, o una política de retención.
-2. D6: 503 en los GET cuando se arranca sin perfil `persistence`.
-3. D8: comprobación de la tabla `alerts` al arrancar.
+Mario, como revisor técnico y PO, acepta el diseño de SEM-146 y da paso a SEM-147.
+
+1. D7: opción 2. Se retiran el límite de 10 000 alertas y el 507, para que el SIEM no deje de generar alertas al alcanzar un cupo. Antes de modificar el contrato hay que ratificarlo con SOAR (G6) y Dashboard (G7), acordando cómo acotar el listado. Quedan pendientes la política de retención y el control del crecimiento del almacenamiento.
+2. D6: aprobado. Sin persistencia disponible, los GET responden 503 en lugar de una lista vacía.
+3. D8: aprobado. Con el perfil `persistence`, el SIEM falla al arrancar si falta la migración 005; se documenta cómo aplicarla sin perder los datos existentes.
+
+Los hallazgos de seguridad se resuelven en sus subtareas y los riesgos pendientes se registran en el ROAM.
