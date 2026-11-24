@@ -44,7 +44,8 @@ Si `event_type` no es `fuerza_bruta` ni `brute_force`, lanza `ValueError`.
 | Sprint | Acciones | Ejecuta |
 |---|---|---|
 | Sprint 2 | `notify` | Módulo 6 |
-| Sprint 3 (previsto) | `block_ip`, `disable_account` | Equipo 1 (módulo de identidad) |
+| Sprint 3 (previsto, HU19) | `block_ip`: lista negra simulada de IPs (ver `blacklist.md`) | Módulo 6 |
+| Backlog futuro | `disable_account` y el bloqueo real en Identidad | Equipo 1 (acordado el 24/11) |
 
 ## Acción `notify`
 

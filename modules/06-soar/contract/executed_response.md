@@ -63,7 +63,9 @@ Estos estados son un catálogo **distinto** de los estados del incidente (`open`
 | --- | --- | --- | --- |
 | `brute_force` | `notify` | Sprint 2 | Módulo 6, envía el incidente al grupo 7 |
 
-En el Sprint 3 está previsto añadir `block_ip` y `disable_account`, ejecutadas por el equipo 1.
+En el Sprint 3 está previsto añadir `block_ip` (HU19), que ejecuta el módulo 6 sobre una lista negra
+simulada (ver `blacklist.md`). `disable_account` y el bloqueo real en Identidad pasan al backlog
+futuro (acordado con el equipo 1 el 24/11).
 
 ## Equivalencias con la salida del playbook (HU14 → HU15)
 
