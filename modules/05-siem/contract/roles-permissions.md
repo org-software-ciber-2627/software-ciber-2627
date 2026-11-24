@@ -89,4 +89,4 @@ Ante un 403, el cliente registra el fallo y **no reintenta**: repetir la petici�
 
 ## Estado
 
-Propuesta de G5 el 24/11/2026. G1 confirmado: `GET /auth/validate` devuelve `valid`, `user_id`, `username` y `role`, y el SIEM exige `username` y `role` (si faltan, 503). Pendiente de confirmar con G6 (uso de `svc-soar`) y G7 (permisos del analista). La implementación corresponde a SEM-142 y las pruebas a SEM-143.
+Propuesta de G5 el 24/11/2026. G1 confirmado: `GET /auth/validate` devuelve `valid`, `user_id`, `username` y `role`, y el SIEM exige `username` y `role` (si faltan, 503). G7 confirmó los permisos del analista en su revisión. Pendiente de confirmar con G6 (uso de `svc-soar`). La implementación corresponde a SEM-142 y las pruebas a SEM-143.
