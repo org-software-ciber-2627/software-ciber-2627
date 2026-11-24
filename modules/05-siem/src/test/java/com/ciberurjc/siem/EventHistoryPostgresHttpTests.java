@@ -41,7 +41,7 @@ class EventHistoryPostgresHttpTests {
     @Autowired EventRepository repository;
     @Autowired JdbcClient jdbc;
     @Autowired DataSource dataSource;
-    final HttpClient client = HttpClient.newHttpClient();
+    final HttpClient client = TestIdentity.authenticatedClient();
     final String prefix = "sem99-" + UUID.randomUUID() + "-";
     URI origin;
 

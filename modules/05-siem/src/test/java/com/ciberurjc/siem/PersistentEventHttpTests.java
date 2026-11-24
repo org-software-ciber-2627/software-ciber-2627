@@ -38,7 +38,7 @@ class PersistentEventHttpTests {
     @Autowired ObjectMapper mapper;
     @Autowired JdbcClient jdbc;
     @Autowired EventRepository repository;
-    final HttpClient client = HttpClient.newHttpClient();
+    final HttpClient client = TestIdentity.authenticatedClient();
     final String prefix = "sem65-http-" + UUID.randomUUID() + "-";
     String baseUrl;
 
