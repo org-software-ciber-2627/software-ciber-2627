@@ -210,8 +210,6 @@
 
     <div id="error-soar" style="display:none;color:#b91c1c"></div>
 
-
-    <!-- Al final del body, junto al script del SIEM -->
     <script type="module" src="SOAR-alert.js"></script>
 
     <!-- SECCIÓN HONEYPOT (DASHG7-32): eventos con origen honeypot del historial del SIEM -->
@@ -234,6 +232,23 @@
     <script type="module" src="HONEYPOT-actividad.js"></script>
 
 
+        <!-- Hallazgos del escaner -->
+    <h2 style="margin-top: 40px;">Hallazgos del último escaneo</h2>
+    <p>Escaneo: <strong><span id="escaneo-id">-</span></strong></p>
+    <table>
+        <thead>
+            <tr>
+                <th>Objetivo</th>
+                <th>Puerto</th>
+                <th>Servicio</th>
+                <th>Vulnerabilidad</th>
+                <th>Severidad</th>
+            </tr>
+        </thead>
+        <tbody id="hallazgos-body"></tbody>
+    </table>
+    <div id="error-escaner" style="display:none;color:#b91c1c"></div>
+    <script type="module" src="ESCANER-alert.js"></script>
 </body>
 
 </html>
