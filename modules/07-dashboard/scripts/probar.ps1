@@ -91,6 +91,23 @@ function Step($m) { Write-Host ''; Write-Host "== $m" -ForegroundColor Cyan }
 function Get-Text($url) {
     try { return (Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 5).Content } catch { return '' }
 }
+# Get-ErrorBody URL -> cuerpo de la respuesta AUNQUE sea un error HTTP (404, 500...).
+# Get-Text devuelve '' en esos casos porque Invoke-WebRequest lanza una excepcion con cualquier
+# codigo de error; esta funcion lee el cuerpo desde la excepcion (PowerShell 5.1 y 7).
+function Get-ErrorBody($url) {
+    try {
+        return (Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 5).Content
+    } catch {
+        if ($_.ErrorDetails -and $_.ErrorDetails.Message) { return $_.ErrorDetails.Message }
+        if ($_.Exception.Response) {
+            try {
+                $sr = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+                return $sr.ReadToEnd()
+            } catch { return '' }
+        }
+        return ''
+    }
+}
 # Test-Url URL -> $true si la URL responde con exito (codigo 2xx).
 function Test-Url($url) {
     try { $null = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 3; return $true } catch { return $false }
@@ -205,7 +222,7 @@ try {
         $codigo = $LASTEXITCODE
         Pop-Location
         if ($codigo -ne 0) {
-            Write-Host 'docker compose fallo (puertos 8001-8007 ocupados?).'
+            Write-Host 'docker compose fallo (puertos 8001-8008 ocupados? Si tienes tu entorno levantado, ejecuta antes: docker compose down).'
             $script:Limpiar = $true   # aunque se pidiera -m, si el arranque falla no dejamos restos a medias
             exit 1
         }
@@ -276,12 +293,20 @@ try {
         Bad 'dashboard: el proxy deja pasar metodos distintos de GET (revisar limit_except en default.conf)'
     }
 
-    # Higiene: el Dockerfile solo debe publicar el mock del SIEM, no el codigo de los mocks de Python.
     # Proxy hacia el Escaner real (nginx reenvia /api/escaner/ a escaner:80). Solo GET.
+    # El informe de un escaneo inexistente responde 404: se lee el cuerpo con Get-ErrorBody porque
+    # Get-Text devuelve cadena vacia ante cualquier codigo de error.
     if ((Get-Text 'http://localhost:8007/ESCANER-client.js') -match '/api/escaner/scans') { Ok 'dashboard: el JS pide los escaneos al proxy /api/escaner/scans' } else { Bad 'dashboard: ESCANER-client.js no apunta a /api/escaner/scans' }
     if ((Get-Code 'http://localhost:8007/api/escaner/scans') -eq 200) { Ok 'dashboard: el proxy llega a GET /scans del Escaner real' } else { Bad 'dashboard: /api/escaner/scans no responde 200 (502 = Escaner no alcanzable)' }
-    if ((Get-Text 'http://localhost:8007/api/escaner/scans/no-existe/report') -match 'SCAN_NOT_FOUND') { Ok 'dashboard: el informe de un escaneo inexistente devuelve SCAN_NOT_FOUND' } else { Bad 'dashboard: el informe del Escaner no cumple el contrato (404 con SCAN_NOT_FOUND)' }
+    $urlNoExiste = 'http://localhost:8007/api/escaner/scans/no-existe/report'
+    if (((Get-Code $urlNoExiste) -eq 404) -and ((Get-ErrorBody $urlNoExiste) -match 'SCAN_NOT_FOUND')) {
+        Ok 'dashboard: el informe de un escaneo inexistente devuelve 404 con SCAN_NOT_FOUND'
+    } else {
+        Bad 'dashboard: el informe del Escaner no cumple el contrato (404 con SCAN_NOT_FOUND)'
+    }
     if ((Get-Code 'http://localhost:8007/api/escaner/scans' 'Post') -eq 403) { Ok 'dashboard: el proxy del Escaner rechaza metodos distintos de GET (403)' } else { Bad 'dashboard: el proxy del Escaner deja pasar metodos distintos de GET' }
+
+    # Higiene: el Dockerfile solo debe publicar el mock del SIEM, no el codigo de los mocks de Python.
     if ((Get-Code 'http://localhost:8007/mocks/mock_SOAR/app.py') -eq 404) {
         Ok 'dashboard: el codigo de los mocks de Python no se publica en la web'
     } else {
