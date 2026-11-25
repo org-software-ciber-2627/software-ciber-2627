@@ -1,4 +1,3 @@
-import ipaddress
 from datetime import datetime
 
 from util.pattern_loader import pattern
@@ -18,10 +17,6 @@ class EndpointScan(PatternBase):
         self.window = int(window)
         self.args = args
         self.kwargs = kwargs
-
-        self.whitelist_networks = [
-            ipaddress.ip_network(entry, strict=False) for entry in self.whitelist
-        ]
 
     def run(self, eventos):
         # {"192.168.1.50": [(timestamp, destino, puerto), ...]}
@@ -127,13 +122,6 @@ class EndpointScan(PatternBase):
             escaneos.append((i, j))
             i = j + 1
         return escaneos
-
-    def _in_whitelist(self, ip):
-        try:
-            direccion = ipaddress.ip_address(ip)
-        except ValueError:
-            return False
-        return any(direccion in red for red in self.whitelist_networks)
 
     @staticmethod
     def _parse_time(timestamp):
