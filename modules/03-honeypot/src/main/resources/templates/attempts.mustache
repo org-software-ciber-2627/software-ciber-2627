@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Intentos registrados | HoneyPot</title>
+    <style>
+        :root { font-family: "Segoe UI", sans-serif; color: #20332b; background: #eef3f0; }
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 32px; }
+        main { max-width: 1400px; margin: 0 auto; }
+        header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+        h1 { margin: 0; font-size: 26px; }
+        a { color: #286544; font-weight: 600; }
+        .header-actions { display: flex; align-items: center; gap: 16px; }
+        button { padding: 9px 13px; border: 1px solid #b74343; border-radius: 4px; background: #fff; color: #a52f2f; font: inherit; font-weight: 600; cursor: pointer; }
+        button:hover { background: #fff1f1; }
+        .table-wrap { overflow-x: auto; background: #fff; border: 1px solid #dce6df; border-radius: 6px; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th, td { padding: 12px 14px; border-bottom: 1px solid #e5ebe7; text-align: left; vertical-align: top; }
+        th { background: #e5eee8; color: #324b3d; white-space: nowrap; }
+        tbody tr:last-child td { border-bottom: 0; }
+        td { overflow-wrap: anywhere; }
+        .empty { padding: 24px; background: #fff; border: 1px solid #dce6df; border-radius: 6px; }
+        @media (max-width: 600px) { body { padding: 20px 14px; } header, .header-actions { align-items: flex-start; flex-direction: column; } }
+    </style>
+</head>
+<body>
+<main>
+    <header>
+        <h1>Intentos registrados</h1>
+        <div class="header-actions">
+            <form action="/attempts/clear" method="post" onsubmit="return confirm('¿Borrar todos los logs registrados?');">
+                <button type="submit">Borrar logs</button>
+            </form>
+            <a href="/">Volver al login</a>
+        </div>
+    </header>
+
+    {{^attempts}}
+    <p class="empty">Todavía no hay intentos registrados.</p>
+    {{/attempts}}
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+            <tr>
+                <th>ID</th>
+                <th>IP de origen</th>
+                <th>Timestamp (UTC, ISO 8601)</th>
+                <th>Servicio atacado</th>
+                <th>Usuario</th>
+                <th>Credencial intentada</th>
+            </tr>
+            </thead>
+            <tbody>
+            {{#attempts}}
+            <tr>
+                <td>{{id}}</td>
+                <td>{{sourceIp}}</td>
+                <td>{{occurredAt}}</td>
+                <td>{{serviceAttacked}}</td>
+                <td>{{username}}</td>
+                <td>{{credentialAttempt}}</td>
+            </tr>
+            {{/attempts}}
+            </tbody>
+        </table>
+    </div>
+</main>
+</body>
+</html>

@@ -1,10 +1,11 @@
 // Pide una lista a un servicio externo y siempre devuelve { estado, datos, mensaje }.
 // estado: "ok" | "vacio" | "error" | "sin_permiso" | "pendiente"
 export async function pedirLista(url, extraer = (d) => d, nombre = "el servicio") {
-    const token = sessionStorage.getItem("token") || "token-de-prueba";
+    // Sin token no se envía credencial: el servidor responde 401 y se vuelve al login (falla cerrado).
+    const token = sessionStorage.getItem("token");
     let r;
     try {
-        r = await fetch(url, { headers: { "Authorization": "Bearer " + token } });
+        r = await fetch(url, { headers: token ? { "Authorization": "Bearer " + token } : {} });
     } catch {
         return { estado: "error", datos: [], mensaje: `No se pudo conectar con ${nombre}.` };
     }
@@ -21,7 +22,7 @@ export async function pedirLista(url, extraer = (d) => d, nombre = "el servicio"
 
     let datos;
     try { datos = extraer(await r.json()); } catch { datos = null; }
-    if (!Array.isArray(datos)) return { estado: "error", datos: [], mensaje: `Respuesta inesperada de ${nombre}.` };
+    if (!Array.isArray(datos)) return { estado: "error", datos: [], mensaje: `Respuesta inesperada al consultar ${nombre}.` };
 
     return datos.length === 0
         ? { estado: "vacio", datos, mensaje: "Sin datos." }

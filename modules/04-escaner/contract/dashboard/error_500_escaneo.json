@@ -1,0 +1,6 @@
+{
+  "error": {
+    "codigo": "SCAN_FAILED",
+    "mensaje": "El escaneo ha fallado y no hay un informe disponible"
+  }
+}

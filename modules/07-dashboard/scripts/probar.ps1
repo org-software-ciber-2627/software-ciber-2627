@@ -115,7 +115,7 @@ function Count-Key($url, $key) {
 function Stop-Prueba {
     docker rm -f mock-soar mock-scanner *> $null
     Push-Location $Raiz
-    docker compose --env-file $EnvF -p $Proj down *> $null
+    docker compose --env-file $EnvF -p $Proj down -v *> $null
     Pop-Location
 }
 # Start-Mock NOMBRE IMAGEN CARPETA PUERTO -> construye (salvo con -s y si la imagen ya existe) y
@@ -158,7 +158,14 @@ try {
 
     # --- 2. Variables de entorno ------------------------------------------------
     # docker compose lee las URLs de los modulos de un fichero de variables. Partimos de .env.example.
-    Copy-Item (Join-Path $Raiz '.env.example') $EnvF
+    # El compose exige SIEM_DB_PASSWORD (contrasena de PostgreSQL del SIEM). Se usa la de la terminal si
+    # existe y, si no, una de usar y tirar que solo vive en esta copia temporal. Stop-Prueba borra los
+    # volumenes de este proyecto, asi que la base de datos no sobrevive con una contrasena ya desconocida.
+    $clave = $env:SIEM_DB_PASSWORD
+    if (-not $clave) { $clave = [guid]::NewGuid().ToString('N') }
+    $lineas = (Get-Content (Join-Path $Raiz '.env.example')) | Where-Object { $_ -notmatch '^SIEM_DB_PASSWORD=' }
+    $lineas += "SIEM_DB_PASSWORD=$clave"
+    [System.IO.File]::WriteAllText($EnvF, (($lineas -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
 
     # --- Modo -p: parar lo que dejo -m y salir ----------------------------------
     if ($Parar) {
@@ -237,11 +244,13 @@ try {
     if ((Get-Text 'http://localhost:8007/health') -match '"ok"') { Ok 'dashboard: /health responde 200 (lo que exige el CI)' } else { Bad 'dashboard: /health' }
     if ((Get-Text 'http://localhost:8007/') -match 'Dashboard Principal') { Ok 'dashboard: la pagina principal se sirve' } else { Bad 'dashboard: pagina principal' }
 
-    # Login (maqueta): la pagina existe y la principal esta protegida y tiene boton de cierre de sesion.
-    # OJO: es una maqueta, no consulta a Identidad; aqui solo se comprueba que los ficheros estan.
+    # Login: la pagina existe, la principal exige sesion (requireSession) y tiene boton de cierre de sesion,
+    # y auth-client.js redirige a login.html. Solo se comprueba que los ficheros estan; el login real
+    # contra Identidad se prueba a mano en el navegador.
     if ((Get-Text 'http://localhost:8007/login.html') -match 'Acceso CiberURJC') { Ok 'login: login.html se sirve' } else { Bad 'login: falta login.html' }
     $principal = Get-Text 'http://localhost:8007/'
-    if (($principal -match 'login\.html') -and ($principal -match 'logout')) {
+    $cliente = Get-Text 'http://localhost:8007/auth-client.js'
+    if (($principal -match 'requireSession') -and ($principal -match 'logout-btn') -and ($cliente -match 'login\.html')) {
         Ok 'login: la pagina principal redirige al login si no hay sesion y tiene cierre de sesion'
     } else {
         Bad 'login: la pagina principal no tiene la proteccion o el boton de cerrar sesion'
@@ -307,7 +316,7 @@ try {
     Write-Host ''
     if (-not $script:Fallo) { Write-Host 'TODO CORRECTO' -ForegroundColor Green } else { Write-Host 'HAY FALLOS (arriba)' -ForegroundColor Red }
     Write-Host ''
-    Write-Host 'Prueba visual: abre http://localhost:8007. Te lleva al login: entra con cualquier usuario y contrasena.'
+    Write-Host 'Prueba visual: abre http://localhost:8007. Te lleva al login: inicia sesion con una cuenta valida del servicio Identidad.'
     Write-Host 'Despues deberias ver las alertas reales del SIEM ordenadas por severidad (si el SIEM no tiene ninguna,'
     Write-Host "la lista sale vacia), la hora real en 'Ultima actualizacion' (cambia sola cada 30 s) y el boton"
     Write-Host "'Cerrar Sesion', que te devuelve al login."

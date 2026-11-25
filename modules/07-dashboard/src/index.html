@@ -1,31 +1,143 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <title>Dashboard CiberURJC - Grupo 7</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        .sev { padding: 2px 10px; border-radius: 12px; font-weight: 600; }
-        .critical { background: #7f1d1d; color: #fff; }
-        .high { background: #fee2e2; color: #b91c1c; }
-        .medium { background: #fef3c7; color: #b45309; }
-        .low { background: #dcfce7; color: #15803d; }
-        .header-bar { display: flex; justify-content: space-between; align-items: center; }
-        .logout-btn { background-color: #b91c1c; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; }
-        .logout-btn:hover { background-color: #991b1b; }
-        .aviso-error { color: #b91c1c; background: #fee2e2; padding: 8px; border-radius: 4px; margin-top: 12px; }
-        .aviso-vacio { color: #555; background: #f2f2f2; padding: 8px; border-radius: 4px; margin-top: 12px; } 
-    </style>
-    <script>
-        // Protección: Si no se ha iniciado sesión, redirige inmediatamente a login.html
-        if (!sessionStorage.getItem("logged_in")) {
-            window.location.href = "login.html";
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
         }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        .sev {
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-weight: 600;
+        }
+
+        .critical {
+            background: #7f1d1d;
+            color: #fff;
+        }
+
+        .high {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+
+        .medium {
+            background: #fef3c7;
+            color: #b45309;
+        }
+
+        .low {
+            background: #dcfce7;
+            color: #15803d;
+        }
+
+        .header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logout-btn {
+            background-color: #b91c1c;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .logout-btn:hover {
+            background-color: #991b1b;
+        }
+
+        .aviso-error {
+            color: #b91c1c;
+            background: #fee2e2;
+            padding: 8px;
+            border-radius: 4px;
+            margin-top: 12px;
+        }
+
+        .aviso-vacio {
+            color: #555;
+            background: #f2f2f2;
+            padding: 8px;
+            border-radius: 4px;
+            margin-top: 12px;
+        }
+        .metricas-soar {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin: 12px 0 16px 0;
+        }
+
+        .tarjeta-metrica {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 12px 18px;
+            background: #f9fafb;
+            min-width: 180px;
+        }
+
+        .tarjeta-metrica .titulo-metrica {
+            font-size: 12px;
+            color: #555;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .tarjeta-metrica .valor-metrica {
+            font-size: 20px;
+            font-weight: bold;
+            color: #111;
+        }
+
+        .ver-alerta-origen {
+            background: none;
+            border: none;
+            color: #1d4ed8;
+            text-decoration: underline;
+            cursor: pointer;
+            padding: 0;
+            font: inherit;
+        }
+    </style>
+    <style id="guard-style">
+        body {
+            visibility: hidden;
+        }
+    </style>
+    <script type="module">
+        import { requireSession } from "./auth-client.js";
+        requireSession();
+        // Si el navegador restaura la página desde la caché (botón Atrás), se vuelve a validar.
+        window.addEventListener("pageshow", (e) => { if (e.persisted) requireSession(); });
     </script>
 </head>
+
 <body>
     <div class="header-bar">
         <div>
@@ -33,7 +145,9 @@
             <h2>Últimas Alertas (Consumidas desde SIEM)</h2>
         </div>
         <div>
-            <button class="logout-btn" onclick="logout()">Cerrar Sesión</button>
+            <button class="logout-btn" id="logout-btn" data-action="logout" type="button">
+                Cerrar Sesión
+            </button>
         </div>
     </div>
     <p>Última actualización: <strong><span id="hora-actualizacion">Cargando...</span></strong></p>
@@ -61,17 +175,26 @@
         <div id="contenido-detalle"></div>
     </section>
 
-    <script>
-        function logout() {
-            sessionStorage.removeItem("logged_in");
-            sessionStorage.removeItem("token");
-            window.location.href = "login.html";
-        }
-    </script>
     <script type="module" src="SIEM-alert.js"></script>
 
-    <!-- SECCIÓN SOAR (DASHG7-26) -->
+    <!-- SECCIÓN SOAR (DASHG7-26, DASHG7-27, DASHG7-28) -->
     <h2 style="margin-top: 40px;">Incidentes del SOAR</h2>
+
+    <div class="metricas-soar" id="metricas-soar">
+        <div class="tarjeta-metrica">
+            <div class="titulo-metrica">MTTD (Tiempo medio detección)</div>
+            <div class="valor-metrica" id="soar-mttd">Cargando...</div>
+        </div>
+        <div class="tarjeta-metrica">
+            <div class="titulo-metrica">MTTR (Tiempo medio resolución)</div>
+            <div class="valor-metrica" id="soar-mttr">Cargando...</div>
+        </div>
+        <div class="tarjeta-metrica">
+            <div class="titulo-metrica">Periodo de cálculo</div>
+            <div class="valor-metrica" id="soar-periodo" style="font-size: 15px;">Cargando...</div>
+        </div>
+    </div>
+
     <table>
         <thead>
             <tr>
@@ -107,4 +230,5 @@
     <div id="error-escaner" style="display:none;color:#b91c1c"></div>
     <script type="module" src="ESCANER-alert.js"></script>
 </body>
+
 </html>

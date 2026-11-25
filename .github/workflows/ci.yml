@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, equipo-**]
   push:
-    branches: [main]
+    branches: [main, equipo-**]
 
 permissions:
   contents: read
@@ -13,8 +13,15 @@ jobs:
   build-and-health:
     name: build-and-health
     runs-on: ubuntu-latest
+    if: github.base_ref == 'main' || github.ref_name == 'main'
     steps:
       - uses: actions/checkout@v4
+
+      - name: Generate throwaway SIEM database password
+        run: |
+          password="$(openssl rand -hex 16)"
+          echo "::add-mask::${password}"
+          echo "SIEM_DB_PASSWORD=${password}" >> "$GITHUB_ENV"
 
       - name: Build images
         run: docker compose build
@@ -29,6 +36,15 @@ jobs:
             echo "Comprobando puerto $port..."
             curl -f "http://localhost:${port}/health"
           done
+
+      - name: Check SIEM stores events (PostgreSQL)
+        run: |
+          status="$(curl -s -o /dev/null -w '%{http_code}' \
+            -X POST "http://localhost:8005/events" \
+            -H 'Content-Type: application/json' \
+            --data @modules/05-siem/contract/examples/grupo_4_scanner_info.json)"
+          echo "POST /events -> ${status}"
+          test "${status}" = "200"
 
       - name: Stop services
         if: always()
@@ -58,6 +74,27 @@ jobs:
           fi
           check-jsonschema --schemafile shared/event-schema.json "${files[@]}"
 
+  honeypot-tests:
+    name: Honeypot Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Run honeypot tests
+        working-directory: modules/03-honeypot
+        run: |
+          chmod +x mvnw
+          ./mvnw -B test
+
   test-identidad:
     name: test-identidad
     runs-on: ubuntu-latest
@@ -81,3 +118,43 @@ jobs:
           AES_KEY: "0123456789abcdef0123456789abcdef"
         run: |
           python -m unittest discover -s modules/01-identidad/tests -p 'test_*.py'
+
+  test-ids:
+    name: test-ids
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r modules/02-ids/src/requirements.txt
+      
+      - name: Run tests
+        run: python -m unittest discover -s modules/02-ids/src/tests -p '*.py'
+
+  dashboard-tests:
+    name: dashboard-tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modules/07-dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: modules/07-dashboard/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run dashboard tests
+        run: npm test

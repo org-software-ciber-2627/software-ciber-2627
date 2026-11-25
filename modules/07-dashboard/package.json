@@ -1,0 +1,16 @@
+{
+  "name": "dashboard-grupo7",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pruebas automáticas del Dashboard (módulo 07). El Dashboard en sí es estático y no usa npm en producción.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0"
+  }
+}
