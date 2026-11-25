@@ -1,11 +1,14 @@
 # Contrato de incidentes del SOAR
 
-> **Nota:** este documento describe el **modelo interno** `Incident` del módulo 6. El formato
-> público de la API (`GET /incidents` y el resto de endpoints) está en [`contract/README.md`](README.md).
+> **Nota:** la primera sección describe el **modelo interno** `Incident` del módulo 6. La segunda
+> sección fija el **contrato público congelado de `GET /incidents`** acordado con el Módulo 7
+> (Dashboard) en **HU12.2 (`SB-71`)**. El resto de endpoints está en [`contract/README.md`](README.md).
 
-Este documento define la estructura de un incidente utilizada por el módulo 6 (SOAR ligero).
+Este documento define tanto la estructura interna de un incidente como el contrato de exposición HTTP utilizado por el módulo 6 (SOAR ligero).
 
-## Modelo Incident
+---
+
+## 1. Modelo interno `Incident`
 
 ```json
 {
@@ -25,7 +28,6 @@ Este documento define la estructura de un incidente utilizada por el módulo 6 (
   "details": {"service": "ssh", "username": "root"},
   "alert_key": "SIEM-ALERT-EJEMPLO-002"
 }
-```
 
 ## Campos
 
