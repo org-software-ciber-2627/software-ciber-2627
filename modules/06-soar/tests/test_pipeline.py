@@ -162,7 +162,7 @@ class TestPipeline(PipelineTestCase):
         new_row = self.find_incident("SIEM-ALERT-EJEMPLO-002")
         legacy_row = self.find_incident("SIEM-SPRINT-1")
 
-        self.assertEqual(new_row["alert"], BRUTE_FORCE_ALERT)
+        self.assertEqual(new_row["alert"], app.sanitize_alert(BRUTE_FORCE_ALERT))
         self.assertEqual(new_row["alert_key"], "SIEM-ALERT-EJEMPLO-002")
         self.assertIsInstance(new_row["id"], int)
         self.assertIsNotNone(new_row["first_seen"])

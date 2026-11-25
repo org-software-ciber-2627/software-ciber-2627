@@ -106,6 +106,22 @@ EMPTY_INCIDENT_VIEW = {
     "responses": [],
 }
 
+# SB-70 (HU12.1): Campos sensibles a enmascarar dentro de alert al exponer GET /incidents
+SENSITIVE_ALERT_KEYS = {"credential", "username"}
+MASKED_VALUE = "***"
+
+
+def sanitize_alert(data: Any) -> Any:
+    """Enmascara recursivamente credential y username dentro de alert sin mutar el origen."""
+    if isinstance(data, dict):
+        return {
+            key: (MASKED_VALUE if key.lower() in SENSITIVE_ALERT_KEYS and value is not None else sanitize_alert(value))
+            for key, value in data.items()
+        }
+    if isinstance(data, list):
+        return [sanitize_alert(item) for item in data]
+    return data
+
 
 def list_incidents() -> list[dict[str, Any]]:
     connection = connect_database()
@@ -120,7 +136,7 @@ def list_incidents() -> list[dict[str, Any]]:
         {
             "id": row["id"],
             "alert_key": row["alert_key"],
-            "alert": json.loads(row["alert_json"]),
+            "alert": sanitize_alert(json.loads(row["alert_json"])),
             "first_seen": row["first_seen"],
             **views.get(row["alert_key"], EMPTY_INCIDENT_VIEW),
         }
