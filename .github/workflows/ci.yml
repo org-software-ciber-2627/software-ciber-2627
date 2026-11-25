@@ -184,4 +184,5 @@ jobs:
             tests/login.test.js \
             tests/sesion.test.js \
             tests/mock-soar.test.js \
-            tests/mock-scanner.test.js
+            tests/mock-scanner.test.js \
+            tests/contrato-proveedores.test.js
