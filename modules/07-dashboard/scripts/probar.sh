@@ -245,6 +245,15 @@ contiene http://localhost:8007/SIEM-client.js "/api/siem/alerts" && ok "dashboar
   || bad "dashboard: el proxy deja pasar métodos distintos de GET (revisar limit_except en default.conf)"
 
 # Higiene: el Dockerfile solo debe publicar el mock del SIEM, no el código de los mocks de Python.
+# Proxy hacia el Escáner real (nginx reenvía /api/escaner/ a escaner:80). Solo GET.
+contiene http://localhost:8007/ESCANER-client.js "/api/escaner/scans" && ok "dashboard: el JS pide los escaneos al proxy /api/escaner/scans" || bad "dashboard: ESCANER-client.js no apunta a /api/escaner/scans"
+[ "$(codigo http://localhost:8007/api/escaner/scans)" = "200" ] && ok "dashboard: el proxy llega a GET /scans del Escáner real" || bad "dashboard: /api/escaner/scans no responde 200 (502 = Escáner no alcanzable)"
+curl -s http://localhost:8007/api/escaner/scans/no-existe/report | grep -q SCAN_NOT_FOUND \
+  && ok "dashboard: el informe de un escaneo inexistente devuelve SCAN_NOT_FOUND" \
+  || bad "dashboard: el informe del Escáner no cumple el contrato (404 con SCAN_NOT_FOUND)"
+[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:8007/api/escaner/scans 2>/dev/null)" = "403" ] \
+  && ok "dashboard: el proxy del Escáner rechaza métodos distintos de GET (403)" \
+  || bad "dashboard: el proxy del Escáner deja pasar métodos distintos de GET"
 [ "$(codigo http://localhost:8007/mocks/mock_SOAR/app.py)" = "404" ] \
   && ok "dashboard: el código de los mocks de Python no se publica en la web" \
   || bad "dashboard: /mocks/mock_SOAR/app.py es accesible desde la web (revisar el Dockerfile)"
@@ -257,6 +266,16 @@ if [ "$HAY_MOCKS" = 1 ]; then
   contiene http://localhost:5002/health '"ok"' && ok "mock Escáner: /health responde" || bad "mock Escáner: /health"
   N=$(cuenta http://localhost:5002/events scan_id)
   [ "$N" = "2" ] && ok "mock Escáner: GET /events devuelve 2 escaneos" || bad "mock Escáner: /events devuelve $N (esperaba 2)"
+    E=http://localhost:5002
+  ID_OK=5b0f1c6e-7a3d-4e21-9c58-0d1f2a3b4c01
+  ID_CURSO=5b0f1c6e-7a3d-4e21-9c58-0d1f2a3b4c02
+  [ "$(codigo $E/scans)" = "200" ] && ok "mock Escáner: GET /scans responde 200" || bad "mock Escáner: GET /scans"
+  N=$(cuenta $E/scans/$ID_OK/report event_id)
+  [ "$N" = "3" ] && ok "mock Escáner: el informe del escaneo terminado trae 3 hallazgos" || bad "mock Escáner: el informe trae $N hallazgos (esperaba 3)"
+  contiene $E/scans/$ID_OK/report '"source":[ ]*"scanner"' && ok 'mock Escáner: los hallazgos usan source "scanner"' || bad 'mock Escáner: source distinto de "scanner"'
+  [ "$(codigo $E/scans/$ID_CURSO/report)" = "202" ] && ok "mock Escáner: escaneo en curso devuelve 202" || bad "mock Escáner: el escaneo en curso no devuelve 202"
+  [ "$(codigo $E/scans/no-existe/report)" = "404" ] && ok "mock Escáner: escaneo inexistente devuelve 404" || bad "mock Escáner: el inexistente no devuelve 404"
+  [ "$(codigo $E/scans/scan-fallo/report)" = "500" ] && ok "mock Escáner: el fallo devuelve 500" || bad "mock Escáner: el fallo no devuelve 500"
 elif [ "$SIN_MOCKS" = 1 ]; then
   echo "  (mocks de SOAR y Escáner: omitidos por -n)"
 else
