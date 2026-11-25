@@ -1,7 +1,10 @@
 import { getAlerts, getAlertById } from "./SIEM-client.js";
+import { filtrarAlertas } from "./SIEM-filtros.js";
 
 const PESO = { critical: 4, high: 3, medium: 2, low: 1 };
 const TIEMPO_REFRESCO = 30000;
+
+let todasAlertas = [];
 
 function esc(t) {
   const d = document.createElement("div");
@@ -14,6 +17,26 @@ function ordenar(alertas) {
     (PESO[b.severity] || 0) - (PESO[a.severity] || 0) ||
     new Date(b.timestamp) - new Date(a.timestamp)
   );
+}
+
+function actualizarOrigenes(alertas){
+  const selector = document.getElementById("filtro-origen");
+  const origenSeleccionado = selector.value;
+
+  const origenes = [...new Set(
+    alertas.map(a => a.source).filter(Boolean)
+  )].sort();
+
+  selector.innerHTML = '<option value="">Todos</option>';
+
+  origenes.forEach(origen => {
+    const opcion = document.createElement("option");
+    opcion.value = origen;
+    opcion.textContent = origen;
+    selector.appendChild(opcion);
+  });
+
+  selector.value = origenSeleccionado;
 }
 
 function pintar(alertas) {
@@ -36,6 +59,19 @@ function pintar(alertas) {
     }).join("");
 }
 
+function aplicarFiltros() {
+  const filtros = {
+    severidad: document.getElementById("filtro-severidad").value,
+    origen: document.getElementById("filtro-origen").value,
+    desde: document.getElementById("filtro-desde").value,
+    hasta: document.getElementById("filtro-hasta").value
+  };
+
+  const alertasFiltradas = filtrarAlertas(todasAlertas, filtros);
+
+  pintar(alertasFiltradas);
+}
+
 function mostrarDetalle(alerta) {
   const contenido = document.getElementById("contenido-detalle");
 
@@ -56,7 +92,7 @@ function mostrarDetalle(alerta) {
     `<p><strong>${esc(nombre)}:</strong> ${esc(valor)}</p>`
   ).join("") +
     `<p><strong>Detalles adicionales:</strong></p>
-     <pre>${esc(JSON.stringify(alerta.details ?? {}, null, 2))}</pre>`;
+    <pre>${esc(JSON.stringify(alerta.details ?? {}, null, 2))}</pre>`;
 
   document.getElementById("tabla").style.display = "none";
   document.getElementById("hora-actualizacion").parentElement.parentElement.style.display = "none";
@@ -80,6 +116,17 @@ async function abrirDetalle(id) {
   }
 }
 
+document.getElementById("aplicar-filtros").addEventListener("click", aplicarFiltros);
+
+document.getElementById("limpiar-filtros").addEventListener("click", () =>{
+  document.getElementById("filtro-severidad").value = "";
+  document.getElementById("filtro-origen").value = "";
+  document.getElementById("filtro-desde").value = "";
+  document.getElementById("filtro-hasta").value = "";
+
+  pintar(todasAlertas);
+})
+
 document.querySelector("#tabla tbody").addEventListener("click", e => {
   const boton = e.target.closest(".ver-detalle");
   if (boton) abrirDetalle(boton.dataset.alertId);
@@ -99,12 +146,15 @@ async function cargar() {
   }
 
   try {
-    pintar(await getAlerts());
+    todasAlertas = await getAlerts();
+    actualizarOrigenes(todasAlertas);
+    aplicarFiltros();
     document.getElementById("error").style.display = "none";
     document.getElementById("tabla").style.display = "";
     document.getElementById("hora-actualizacion").textContent =
       new Date().toLocaleTimeString();
   } catch (e) {
+    console.error("ERROR REAL AL CARGAR ALERTAS:", e);
     document.getElementById("tabla").style.display = "none";
     document.getElementById("error").textContent =
       e.message === "Sin permiso"
