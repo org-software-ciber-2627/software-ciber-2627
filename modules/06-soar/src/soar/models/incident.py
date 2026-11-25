@@ -10,6 +10,7 @@ class Incident(BaseModel):
     status: str
     created_at: str
     resolved_at: Optional[str] = None
+    alert_timestamp: Optional[str] = None
     # Campos opcionales añadidos en la integración del Sprint 2
     priority: Optional[str] = None
     source: Optional[str] = None

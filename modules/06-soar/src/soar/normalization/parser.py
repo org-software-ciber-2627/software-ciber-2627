@@ -24,6 +24,7 @@ def parse_and_normalize_alert(raw_alert_dict: dict) -> Incident:
         source_ip=validated_dto.source_ip,
         status="open",
         created_at=datetime.now(timezone.utc).isoformat(),
+        alert_timestamp=validated_dto.timestamp.isoformat(),
         source=validated_dto.source,
         target_ip=validated_dto.target_ip,
         title=validated_dto.title,
