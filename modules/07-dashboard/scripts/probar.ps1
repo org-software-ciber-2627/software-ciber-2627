@@ -287,7 +287,7 @@ try {
         if ((Get-Text 'http://localhost:5002/health') -match '"ok"') { Ok 'mock Escaner: /health responde' } else { Bad 'mock Escaner: /health' }
         $n = Count-Key 'http://localhost:5002/events' 'scan_id'
         if ($n -eq 2) { Ok 'mock Escaner: GET /events devuelve 2 escaneos' } else { Bad "mock Escaner: /events devuelve $n (esperaba 2)" }
-                $e = 'http://localhost:5002'
+        $e = 'http://localhost:5002'
         $idOk = '5b0f1c6e-7a3d-4e21-9c58-0d1f2a3b4c01'
         $idCurso = '5b0f1c6e-7a3d-4e21-9c58-0d1f2a3b4c02'
         if ((Get-Code "$e/scans") -eq 200) { Ok 'mock Escaner: GET /scans responde 200' } else { Bad 'mock Escaner: GET /scans' }
