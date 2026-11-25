@@ -180,6 +180,7 @@ def _run_job_worker(job, xml_outfile):
             raise RuntimeError("No se pudo leer el informe XML de Nmap") from error
 
         job["events"] = parse_xml(xml_content, scan_id, job["profile"])
+        publish_events_to_siem(job["events"], scan_id=scan_id)
         job["status"] = "completed"
         _persist(job)
 

@@ -74,7 +74,7 @@ def save_job(job):
 def _row_to_job(row, with_events=True):
     job = {
         "scan_id": row["scan_id"],
-        "created_at": row["created_at"],
+        "created_at": row["created_at"] or None,
         "target": row["target"],
         "profile": row["profile"],
         "status": row["status"],

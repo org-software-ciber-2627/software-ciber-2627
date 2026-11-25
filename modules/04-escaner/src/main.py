@@ -29,7 +29,8 @@ def health():
 @require_roles("admin", "analista", "servicio")
 def listar_escaneos():
     limit = request.args.get("limit", default=100, type=int)
-    return jsonify(list_jobs(limit=max(1, min(limit, 1000)))), 200
+    escaneos = list_jobs(limit=max(1, min(limit, 1000)))
+    return jsonify([{k: v for k, v in e.items() if k != "events"} for e in escaneos]), 200
 
 @app.route("/scan", methods=["POST"])
 @require_roles("admin", "analista") 
