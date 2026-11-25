@@ -102,15 +102,56 @@ services:
     build: ./modules/08-pentesting
     ports:
       - "8008:80"
+    environment:
+      SERVER_PORT: 80
+      SPRING_DATASOURCE_URL: jdbc:mysql://pentest-mysql:3306/g8_sw?createDatabaseIfNotExist=true
+      SPRING_DATASOURCE_USERNAME: ${PENTEST_MYSQL_USER:?Set PENTEST_MYSQL_USER in .env}
+      SPRING_DATASOURCE_PASSWORD: ${PENTEST_MYSQL_PASSWORD:?Set PENTEST_MYSQL_PASSWORD in .env}
+      PENTEST_E2E_TARGET_URL: ${PENTEST_E2E_TARGET_URL:-http://honeypot/health}
+      PENTEST_E2E_PORTS: ${PENTEST_E2E_PORTS:-80}
+      PENTEST_E2E_USER_PASSWORD: ${PENTEST_E2E_USER_PASSWORD:-}
+      PENTEST_E2E_HYDRA_SERVICE: ${PENTEST_E2E_HYDRA_SERVICE:-http-post-form}
+      PENTEST_E2E_HYDRA_USER: ${PENTEST_E2E_HYDRA_USER:-admin@juice-sh.op}
+      PENTEST_E2E_HYDRA_FORM: ${PENTEST_E2E_HYDRA_FORM:-}
+    depends_on:
+      pentest-mysql:
+        condition: service_healthy
+      honeypot:
+        condition: service_started
     networks:
       - ciberurjc
+      - pentest-data
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
       interval: 10s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      start_period: 60s
+
+  pentest-mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: g8_sw
+      MYSQL_ROOT_PASSWORD: ${PENTEST_MYSQL_ROOT_PASSWORD:?Set PENTEST_MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_USER: ${PENTEST_MYSQL_USER:?Set PENTEST_MYSQL_USER in .env}
+      MYSQL_PASSWORD: ${PENTEST_MYSQL_PASSWORD:?Set PENTEST_MYSQL_PASSWORD in .env}
+    volumes:
+      - pentest-db-data:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping --host=127.0.0.1 --user=root --password=\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    networks:
+      - pentest-data
 
 networks:
   ciberurjc:
     driver: bridge
+  pentest-data:
+    internal: true
+
+volumes:
+  pentest-db-data:

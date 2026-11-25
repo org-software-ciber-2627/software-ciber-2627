@@ -23,6 +23,19 @@ docker compose up --build
 ```
 
 Cada módulo responde en `http://localhost:80NN/health` con `{"status":"ok","module":"NN-nombre"}`.
+El módulo 8 ejecuta su aplicación Spring Boot en la red compartida y usa una base MySQL interna.
+Configura `PENTEST_MYSQL_ROOT_PASSWORD`, `PENTEST_MYSQL_USER` y `PENTEST_MYSQL_PASSWORD` en `.env`;
+el preset E2E apunta por defecto al
+`/health` del honeypot y permite cambiar objetivo y puertos con `PENTEST_E2E_TARGET_URL`
+y `PENTEST_E2E_PORTS`. Para crear el usuario dedicado a la campaña E2E,
+configura también `PENTEST_E2E_USER_PASSWORD`; el botón solo aparece para ese
+usuario y el endpoint está protegido por su rol. La campaña no prueba
+credenciales libremente: ejecuta Nmap TCP acotado, una petición HTTP GET sin
+autenticación ni seguimiento de redirecciones, y hasta 10 intentos Hydra con
+un diccionario fijo de prueba. La URL introducida debe coincidir en esquema,
+host y puerto con el objetivo privado configurado. El objetivo predeterminado
+`/health` del honeypot no tiene formulario de login; para usar Hydra, configura
+un objetivo de laboratorio privado y su `PENTEST_E2E_HYDRA_FORM`.
 
 ## Flujo de trabajo
 
@@ -36,7 +49,8 @@ El equipo de Dashboard (`equipo-07-dashboard`) mantiene el CI y la infraestructu
 
 ## Cómo sustituir vuestro placeholder por el servicio real
 
-Cada módulo arranca hoy como un contenedor `nginx:alpine` mínimo que solo responde en `/health`. Para sustituirlo:
+Los módulos 1–7 arrancan hoy como contenedores `nginx:alpine` mínimos que solo responden en `/health`.
+El módulo 8 ya ejecuta la aplicación Java real y conserva ese endpoint para el CI. Para sustituir otro módulo:
 
 1. Reemplazad el `Dockerfile` de vuestra carpeta (`modules/NN-nombre/Dockerfile`) por el de vuestra aplicación real.
 2. Mantened el mismo puerto interno (80) y el endpoint `GET /health` respondiendo `200` — el CI y el docker-compose dependen de ello.
