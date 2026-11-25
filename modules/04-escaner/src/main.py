@@ -15,6 +15,8 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
+init_db()
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({
