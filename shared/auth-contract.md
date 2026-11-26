@@ -2,12 +2,13 @@
 
 El equipo `equipo-01-identidad` publica aquí el contrato de los endpoints que expone.
 La fuente de verdad es [`modules/01-identidad/contract/openapi.yaml`](../modules/01-identidad/contract/openapi.yaml)
-(versión 1.4.0); si este resumen y el YAML difieren, manda el YAML. Los cambios se hacen por Pull Request
+(versión 1.5.0); si este resumen y el YAML difieren, manda el YAML. Los cambios se hacen por Pull Request
 y se avisan por Teams a los equipos que usen el endpoint.
 
 Servicio en local con `docker compose up`: `http://localhost:8001` (puerto interno `80` dentro del compose).
 
 **Historial.** 
+1.5.0: se añade `PUT /secrets/{clave}`; sólo la cuenta `admin` puede rotar secretos; rota secretos de cualquier módulo; se registra `secret_rotated` si se consigue rotar; se registra `secret_rotation_denied` si el token es válido, pero el rol no es `admin` o si no se encontró un secreto para la clave proporcionada.
 1.4.0: una cuenta de servicio por módulo; pedir un secreto de otro módulo devuelve `403` y se registra `secret_denied`. 1.3.2: se documenta que el `404` de `/secrets` registra `secret_denied`, que la caducidad del JWT es configurable, que el 5.º fallo de login ya devuelve `429`, el envío al IDS en lotes de hasta 200 y el valor de `IDS_REINTENTOS`. 1.3.1: se documentan CORS, variables de entorno, el envío de logs al IDS y la auditoría de `/secrets`. 1.3.0: se retiran `GET /audit` (nunca se implementó) y `GET /logs` (existía en el código); ningún módulo los usa; se documentan el `429` del login y el evento `limit_exceeded`; CORS también en `GET /auth/validate` y `POST /auth/logout`. 1.2.0: se añade `POST /auth/logout` (cierre de sesión). 1.1.0: se añade `GET /audit` (registro de auditoría, solo `admin`). Todos son compatibles salvo 1.4.0, que deniega con `403` leer un secreto de otro módulo. 27/10: se documenta CORS para el Dashboard (sin cambios en los endpoints).
 
 ## Endpoints
@@ -52,6 +53,20 @@ Servicio en local con `docker compose up`: `http://localhost:8001` (puerto inter
 - **Errores:** `400` clave no válida · `401` token inválido o ausente · `403` token válido pero rol distinto de `servicio` o el secreto pertenece a otro módulo · `404` clave inexistente · `500` error inesperado.
 - Auditoría: el `200` se registra como `secret_read`; el `403` y el `404`, como `secret_denied`. El `401` no se registra (sin token válido no se sabe quién pide). Los eventos se envían al IDS y nunca contienen valores de secretos.
 
+### `PUT /secrets/{clave}` (novedad 1.5.0)
+- **Request:** cabecera `Authorization: Bearer <jwt>` de la cuenta `admin`, la clave en la ruta y el valor nuevo en el cuerpo:
+  ```json
+  { "valor": "<valor-nuevo>" }
+  ```
+- **Response `200`:**
+  ```json
+  { "clave": "siem_db_password", "message": "Secreto rotado" }
+  ```
+- **Errores:** `400` clave no válida, falta `valor`, viene vacío o el cuerpo no es JSON · `401` token inválido, expirado, revocado o ausente · `403` token válido pero rol distinto de `admin` · `404` no existe un secreto con esa clave · `500` error inesperado. Cuerpo: `{ "error": "<mensaje>" }`.
+- Sustituye el valor de un secreto que ya existe. No crea secretos, no cambia el dueño y **nunca devuelve el valor**. `admin` puede rotar cualquier secreto, sea cual sea su dueño.
+- Auditoría: el `200` se registra como `secret_rotated`; el `403` y el `404`, como `secret_rotation_denied`. El `401` no se registra. Los eventos se envían al IDS y nunca contienen valores de secretos.
+- No admite CORS: se usa desde la terminal (`curl`), no desde el navegador.
+
 ### Endpoints adicionales
 
 - `POST /auth/register`: registro de un usuario con rol `analista`.
@@ -63,7 +78,7 @@ Servicio en local con `docker compose up`: `http://localhost:8001` (puerto inter
 
 Valores exactos, en minúsculas:
 
-- `admin`: cuenta de administración precargada, que se crea si existe `ADMIN_PASSWORD`; hoy no tiene endpoints propios.
+- `admin`: cuenta de administración precargada, que se crea si existe `ADMIN_PASSWORD`; puede rotar secretos con `PUT /secrets/{clave}`, pero no leerlos.
 - `analista`: rol de los usuarios registrados con `POST /auth/register`.
 - `servicio`: una cuenta propia por módulo; es el único rol que puede leer secretos.
 
@@ -168,9 +183,7 @@ npx @stoplight/prism-cli mock modules/01-identidad/contract/openapi.yaml -p 4010
 Responde con los ejemplos del contrato. Cualquier equipo puede levantarlo con ese comando en cuanto se fusione el PR del contrato.
 
 ## Pendiente de confirmar
-
-- Que el rol `admin` no necesite leer secretos (a confirmar con el profesorado).
-- Rotación manual de secretos (Sprint 3). El límite de intentos de login ya está implementado: 5 fallos en 15 minutos por usuario e IP.
+- Que el rol admin no necesite leer secretos (a confirmar con el profesorado)
 
 ## Contacto
 
