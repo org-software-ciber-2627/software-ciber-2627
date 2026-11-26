@@ -23,6 +23,15 @@ Nada obligatorio. Si el SIEM no responde, los intentos se guardan igual. Para pr
 - *Pruebas:* `./mvnw test`
 - *Mock del SIEM:* `java mocks/SiemMockServer.java` (escucha `POST /events` en el puerto `8081`)
 
+### Ejecución integrada con el SIEM real (Docker Compose)
+
+En el `docker-compose.yml` de la raíz del repositorio, el servicio `honeypot` tiene configurada la variable `SIEM_URL=http://siem:80/events` y comparte la red interna `honeypot-siem` con el servicio `siem`.
+
+Para levantar ambos servicios juntos desde la raíz del proyecto:
+
+```bash
+docker compose up --build siem honeypot
+```
 ## Perfil dev
 La página `/attempts` (ver y borrar intentos) solo existe arrancando con
 `./mvnw spring-boot:run -Dspring-boot.run.profiles=dev`.
@@ -31,7 +40,7 @@ La página `/attempts` (ver y borrar intentos) solo existe arrancando con
 ## Estado
 - Hecho: login web, FTP y SSH señuelo (`HP-6`, `HP-2`), registro de intentos, envío al SIEM, detección de fuerza bruta (`HP-12`) y de credenciales por defecto (`HP-25`), aislamiento del contenedor (`HP-30`: puertos solo en local, sin root, red interna con el SIEM) y límites de peticiones y de recursos con resumen de rechazos (`HP-32`).
 - Sprint 3: conectar con el SIEM real en Docker (`HP-21`), enviar el resumen de rechazos (`HP-86`), bloquear la salida a internet (`HP-89`) y credenciales por defecto en el FTP (`HP-90`).
-
+- **HP-21 (Hecho):** El honeypot envía los eventos al SIEM real (`http://siem:80/events`) mediante la configuración del `docker-compose.yml` global.
 ## Configuración de la detección de fuerza bruta
 
 Se configura en `src/main/resources/application.properties`:
@@ -103,3 +112,8 @@ En el Sprint 3 el grupo 8 hará pentesting contra el honeypot.
 | HP-22 | Si el SIEM no responde o da error, el evento queda pendiente | `SiemSenderServiceTest`: `siElSiemNoRespondeElEventoQuedaPendiente` y `siElSiemDaErrorElEventoQuedaPendiente` | Unitaria | Sí | Hecho |
 | HP-22 | Cuando el SIEM vuelve, los pendientes se reenvían en orden | `ReintentoSiemServiceTest`: `cuandoElSiemVuelveLosPendientesLleganEnOrden` y `siFallaUnoSeParaParaNoDesordenar` | Unitaria | Sí | Hecho |
 | HP-22 | Con el SIEM caído no se pierde ningún evento | Mock apagado, 3 intentos en `/login`; al encender el mock llegan los 3 en orden en menos de 30 s | Manual | No | Hecho |
+| HP-21 | El honeypot envía eventos al SIEM real en Docker Compose | `docker compose up --build siem honeypot`, intento en `/login` y verificación de envío a `http://siem:80/events` y consulta en `GET http://localhost:8005/events` | Manual | No | Hecho |
+| HP-90 (HP-93) | El FTP recuerda el USER de cada sesión, un USER nuevo sustituye al anterior y se olvida al cerrar la conexión | `FtpUsuarioSesionTest` (5 pruebas, una por criterio de HP-93) | Unitaria | Sí | Hecho |
+| HP-90 | USER y PASS de la lista en la misma sesión se etiquetan `credenciales_por_defecto` | `FtpCredencialesPorDefectoIntegracionTest`: `userYPassDeLaListaSeEtiquetanComoCredencialesPorDefecto` y `unaParejaQueNoEstaEnLaListaNoSeEtiqueta`; `FtpEventServiceSiemTest`: llega al SIEM con esa etiqueta | Integración y unitaria | Sí | Hecho |
+| HP-90 | Si además es fuerza bruta, prevalece `fuerza_bruta` | `FtpCredencialesPorDefectoIntegracionTest`: `siAdemasEsFuerzaBrutaGanaFuerzaBruta` | Integración | Sí | Hecho |
+| HP-90 | Un PASS sin USER previo se registra sin la etiqueta de credenciales | `FtpCredencialesPorDefectoIntegracionTest`: `unPassSinUserPrevioNoSeEtiquetaComoCredencialPorDefecto`; `FtpPassConUsuarioTest`: `unPassSinUserPrevioLlegaSinUsuarioYResponde530` | Integración y unitaria | Sí | Hecho |

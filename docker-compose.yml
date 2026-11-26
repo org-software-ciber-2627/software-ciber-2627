@@ -51,6 +51,7 @@ services:
       - "127.0.0.1:2222:2222"
     environment:
       - HONEYPOT_SSH_HOSTKEY=/http/data/hostkey.ser
+      - SIEM_URL=http://siem:80/events
     volumes:
       - honeypot-data:/http/data
     networks:

@@ -3,10 +3,13 @@ package com.honeypot.honeypot.ssh;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.apache.sshd.common.config.keys.KeyUtils;
+import org.apache.sshd.common.session.Session;
+import org.apache.sshd.common.session.SessionListener;
 import org.apache.sshd.core.CoreModuleProperties;
 import org.apache.sshd.server.SshServer;
 import org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider;
 import org.apache.sshd.server.session.ServerSession;
+import com.honeypot.honeypot.service.DetectorEscaneoService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -34,10 +37,15 @@ public class SshHoneypotServer {
     private String hostKeyPath;
 
     private final List<SshAttemptListener> listeners;
+    private final DetectorEscaneoService detectorEscaneoService;
     private SshServer sshd;
 
-    public SshHoneypotServer(List<SshAttemptListener> listeners) {
+    public SshHoneypotServer(
+            List<SshAttemptListener> listeners,
+            DetectorEscaneoService detectorEscaneoService
+    ) {
         this.listeners = listeners;
+        this.detectorEscaneoService = detectorEscaneoService;
     }
 
     @PostConstruct
@@ -46,6 +54,16 @@ public class SshHoneypotServer {
         sshd.setPort(port);
         sshd.setKeyPairProvider(new SimpleGeneratorHostKeyProvider(Paths.get(hostKeyPath)));
         CoreModuleProperties.SERVER_IDENTIFICATION.set(sshd, serverVersion);
+        sshd.addSessionListener(new SessionListener() {
+            @Override
+            public void sessionCreated(Session session) {
+                if (session instanceof ServerSession serverSession
+                        && serverSession.getClientAddress() instanceof InetSocketAddress inet) {
+                    detectorEscaneoService.registrarContacto(
+                            inet.getAddress().getHostAddress(), "honeypot-ssh", Instant.now());
+                }
+            }
+        });
 
         // Contraseña (también cubre keyboard-interactive, que MINA delega aquí)
         sshd.setPasswordAuthenticator((username, password, session) -> {

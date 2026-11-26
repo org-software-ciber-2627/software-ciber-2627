@@ -6,6 +6,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.Set;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -78,4 +80,37 @@ class EventoMapperTest {
 
         assertEquals("fuerza_bruta", evento.eventType());
     }
+
+    @Test
+    @DisplayName("HP-100: severidadDe devuelve la severidad de cada tipo del contrato")
+    void severidadDeCadaTipo() {
+        assertEquals("high", EventoMapper.severidadDe(ClasificadorAtaquesService.CREDENCIALES_POR_DEFECTO));
+        assertEquals("medium", EventoMapper.severidadDe(ClasificadorAtaquesService.FUERZA_BRUTA));
+        assertEquals("low", EventoMapper.severidadDe(ClasificadorAtaquesService.ESCANEO));
+        assertEquals("low", EventoMapper.severidadDe(ClasificadorAtaquesService.INTENTO_LOGIN));
+    }
+
+    @Test
+    @DisplayName("HP-100: un tipo null, vacío o desconocido devuelve la severidad por defecto")
+    void severidadDeTipoDesconocido() {
+        assertEquals(EventoMapper.SEVERIDAD_POR_DEFECTO, EventoMapper.severidadDe(null));
+        assertEquals(EventoMapper.SEVERIDAD_POR_DEFECTO, EventoMapper.severidadDe(" "));
+        assertEquals(EventoMapper.SEVERIDAD_POR_DEFECTO, EventoMapper.severidadDe("tipo_inventado"));
+    }
+
+    @Test
+    @DisplayName("HP-101: toda severidad devuelta pertenece a la escala acordada con el grupo 5 (HP-102)")
+    void severidadDeTodoTipoEstaEnLaEscalaDelSiem() {
+        Set<String> escala = Set.of("info", "low", "medium", "high", "critical");
+        for (String tipo : List.of(
+                ClasificadorAtaquesService.CREDENCIALES_POR_DEFECTO,
+                ClasificadorAtaquesService.FUERZA_BRUTA,
+                ClasificadorAtaquesService.ESCANEO,
+                ClasificadorAtaquesService.INTENTO_LOGIN,
+                "tipo_inventado")) {
+            String severidad = EventoMapper.severidadDe(tipo);
+            assertTrue(escala.contains(severidad), tipo + " devuelve " + severidad + ", fuera de la escala");
+        }
+    }
+
 }

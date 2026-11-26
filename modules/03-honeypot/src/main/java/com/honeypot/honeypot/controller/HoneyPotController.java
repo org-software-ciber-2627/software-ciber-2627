@@ -4,6 +4,7 @@ import com.honeypot.honeypot.model.EventoContrato;
 import com.honeypot.honeypot.model.LoginAttempt;
 import com.honeypot.honeypot.repository.LoginAttemptRepository;
 import com.honeypot.honeypot.service.ClasificadorAtaquesService;
+import com.honeypot.honeypot.service.DetectorEscaneoService;
 import com.honeypot.honeypot.service.EventoMapper;
 import com.honeypot.honeypot.service.IpRateLimiterService;
 import com.honeypot.honeypot.service.RechazoResumenService;
@@ -33,6 +34,7 @@ public class HoneyPotController {
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
     private final IpRateLimiterService ipRateLimiterService;
     private final ClasificadorAtaquesService clasificadorAtaquesService;
+    private final DetectorEscaneoService detectorEscaneoService;
     private final RechazoResumenService rechazoResumenService;
 
     public HoneyPotController(
@@ -41,6 +43,7 @@ public class HoneyPotController {
             SiemSenderService siemSenderService,
             IpRateLimiterService ipRateLimiterService,
             ClasificadorAtaquesService clasificadorAtaquesService,
+            DetectorEscaneoService detectorEscaneoService,
             RechazoResumenService rechazoResumenService
     ) {
         this.loginAttemptRepository = loginAttemptRepository;
@@ -48,11 +51,13 @@ public class HoneyPotController {
         this.siemSenderService = siemSenderService;
         this.ipRateLimiterService = ipRateLimiterService;
         this.clasificadorAtaquesService = clasificadorAtaquesService;
+        this.detectorEscaneoService = detectorEscaneoService;
         this.rechazoResumenService = rechazoResumenService;
     }
 
     @GetMapping({"/", "/login"})
-    public String login() {
+    public String login(HttpServletRequest request) {
+        detectorEscaneoService.registrarContacto(request.getRemoteAddr(), "honeypot-web", Instant.now());
         return "login";
     }
 
@@ -78,6 +83,8 @@ public class HoneyPotController {
         attempt.setSourceIp(request.getRemoteAddr());
         attempt.setOccurredAt(Instant.now());
         attempt.setServiceAttacked("honeypot-web");
+        detectorEscaneoService.registrarContacto(
+                attempt.getSourceIp(), attempt.getServiceAttacked(), attempt.getOccurredAt());
         attempt.setUsername(truncate(firstValue(parameters, "email", "username", "user"), 320));
         attempt.setCredentialAttempt(truncate(password, 2000));
         attempt.setPasswordLength(password == null ? null : password.length());
