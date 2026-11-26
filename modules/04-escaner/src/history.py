@@ -21,6 +21,16 @@ CREATE TABLE IF NOT EXISTS scans (
     events         TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS idx_scans_created ON scans(created_at DESC);
+CREATE TABLE IF NOT EXISTS event_deliveries (
+    event_id        TEXT PRIMARY KEY,
+    scan_id         TEXT,
+    status          TEXT NOT NULL,
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    event_json      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_deliveries_status ON event_deliveries(status);
+CREATE INDEX IF NOT EXISTS idx_deliveries_scan ON event_deliveries(scan_id);
 """
 
 
@@ -103,3 +113,69 @@ def list_jobs(limit=100):
             (limit,),
         ).fetchall()
     return [_row_to_job(r, with_events=True) for r in rows]
+
+
+def record_event_delivery(event, status, scan_id=None):
+    """Registra el estado de entrega de un evento sin alterar su contenido."""
+    event_id = event.get("event_id") if isinstance(event, dict) else None
+    if not event_id:
+        return
+
+    raw_event = json.dumps(event)
+    with _write_lock, closing(_connect()) as conn, conn:
+        existing = conn.execute(
+            "SELECT attempts FROM event_deliveries WHERE event_id = ?",
+            (event_id,),
+        ).fetchone()
+        attempts = (existing["attempts"] if existing else 0) + 1
+
+        conn.execute(
+            """
+            INSERT INTO event_deliveries (event_id, scan_id, status, attempts, event_json)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(event_id) DO UPDATE SET
+                scan_id=COALESCE(excluded.scan_id, event_deliveries.scan_id),
+                status=excluded.status,
+                attempts=excluded.attempts,
+                event_json=excluded.event_json,
+                updated_at=strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+            """,
+            (event_id, scan_id, status, attempts, raw_event),
+        )
+
+
+def get_pending_events(limit=None):
+    """Devuelve lista de tuplas (scan_id, event_dict) pendientes de entrega."""
+    query = (
+        "SELECT scan_id, event_json FROM event_deliveries "
+        "WHERE status = 'pending' ORDER BY updated_at ASC"
+    )
+    params = ()
+    if limit is not None:
+        query += " LIMIT ?"
+        params = (limit,)
+
+    with closing(_connect()) as conn:
+        rows = conn.execute(query, params).fetchall()
+
+    return [(r["scan_id"], json.loads(r["event_json"])) for r in rows]
+
+
+def get_delivery_summary(scan_id):
+    """Devuelve resumen de estados de entrega para un escaneo."""
+    summary = {
+        "delivered": 0,
+        "pending": 0,
+        "rejected_conflict": 0,
+        "rejected": 0,
+    }
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) AS cnt FROM event_deliveries "
+            "WHERE scan_id = ? GROUP BY status",
+            (scan_id,),
+        ).fetchall()
+    for r in rows:
+        st = r["status"]
+        summary[st] = r["cnt"]
+    return summary

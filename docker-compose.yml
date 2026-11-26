@@ -57,9 +57,12 @@ services:
       - ciberurjc
     environment:
       PORT: "80"
-      SIEM_URL: "http://siem:80/events"
-      IDENTITY_URL: "http://identidad:80"
+      SIEM_URL: ${SIEM_URL:-http://siem:80/events}
+      IDENTITY_URL: ${IDENTITY_URL:-http://identidad:80}
       SCAN_DB_PATH: /data/scans.db
+      SIEM_SVC_USER: ${SIEM_SVC_USER:-svc-escaner}
+      SIEM_SVC_PASSWORD: ${SIEM_SVC_PASSWORD:-}
+      SIEM_TOKEN_REFRESH_SECONDS: ${SIEM_TOKEN_REFRESH_SECONDS:-1500}
     volumes:
       - escaner-data:/data
     healthcheck:
