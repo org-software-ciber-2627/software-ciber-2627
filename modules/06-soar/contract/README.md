@@ -8,6 +8,94 @@ Devuelve `200`:
 {"status":"ok","module":"06-soar"}
 ```
 
+## Autenticación (HU20)
+
+Salvo `GET /health`, todos los endpoints exigen `Authorization: Bearer <token>`. El SOAR no valida
+el JWT localmente: valida cada petición, sin caché, mediante `GET {AUTH_URL}/auth/validate` del
+Módulo 1 (grupo 1). Identidad devuelve `200` con `{valid, user_id, username, role}` si el token es
+válido, o `401` si no lo es.
+
+### Permisos por endpoint
+
+| Endpoint | Roles permitidos |
+|---|---|
+| `GET /incidents` | `analista`, `admin`, `servicio` |
+| `GET /incidents/{id}/responses` | `analista`, `admin`, `servicio` |
+| `GET /incidents/{id}/history` | `analista`, `admin`, `servicio` |
+| `GET /metrics` | `analista`, `admin`, `servicio` |
+| `GET /blacklist` (disponible con HU19.4) | `analista`, `admin`, `servicio` |
+| `POST /incidents/{id}/status` | `analista`, `admin` |
+| `POST /poll` | `analista`, `admin` |
+| `GET /health` | Público (lo usan el healthcheck de `docker-compose` y el CI) |
+
+### Errores de autenticación
+
+- `401` `{"error": "unauthorized"}`: falta el token, no usa esquema Bearer o Identidad indica que no es válido.
+- `403` `{"error": "forbidden"}`: el token es válido, pero su rol no tiene permiso para el endpoint.
+- `503` `{"error": "identity_unavailable"}`: Identidad no responde, tarda más de 5 segundos o devuelve un error.
+
+La autenticación se comprueba antes de procesar la ruta: una petición a un incidente inexistente sin token
+devuelve `401`, no `404`.
+
+> **IMPORTANTE para el Dashboard:** el SOAR NUNCA devuelve `401` cuando Identidad está caído; devuelve
+> `503`. Así, `api-estado.js` del grupo 7, que borra la sesión al recibir un `401`, no expulsa a los
+> usuarios si Identidad se cae durante la demo. Tratad `503` como «servicio no disponible, reintentar».
+
+### Identidad de quien cambia un estado
+
+Si la petición trae un token válido, `changed_by` se toma del `username` del token. El valor
+`changed_by` enviado en el cuerpo se ignora sin error. Los cambios automáticos siguen usando
+`soar-automation`. El Dashboard debe reenviar el token del usuario que ha iniciado sesión (no un
+token de servicio), para que `changed_by` sea el analista real.
+
+### Configuración
+
+La URL de Identidad se lee de `AUTH_URL` o, si no está definida, de `IDENTITY_URL`. Es la misma
+configuración que usa HU21 para el login de `svc-soar`. Si ninguna está configurada, el SOAR deja los
+endpoints abiertos y escribe un `WARNING` en el log (modo de desarrollo y tests); en el `docker-compose`
+global debe configurarse.
+
+### Ejemplos con `curl`
+
+`<SOAR_URL>` es la URL del SOAR; dentro de la red del docker-compose, `http://soar` (puerto 80).
+
+Petición autenticada:
+
+```sh
+curl -i -H "Authorization: Bearer <token>" '<SOAR_URL>/metrics'
+```
+
+Respuestas de error:
+
+```sh
+# Token ausente, no Bearer o inválido:
+curl -i '<SOAR_URL>/incidents/INC-INEXISTENTE/history'
+```
+
+```json
+{"error": "unauthorized"}
+```
+
+```sh
+# Token válido con rol servicio (sin permiso para POST):
+curl -i -H "Authorization: Bearer <token>" -X POST '<SOAR_URL>/poll'
+```
+
+```json
+{"error": "forbidden"}
+```
+
+```sh
+# Identidad no disponible:
+curl -i -H "Authorization: Bearer <token>" '<SOAR_URL>/metrics'
+```
+
+```json
+{"error": "identity_unavailable"}
+```
+
+Fecha efectiva: pendiente de anunciar en el SoS.
+
 ## `GET /incidents`
 
 Devuelve `200` con una lista directa de incidentes (`[]` si no hay ninguno). Es el **formato único
