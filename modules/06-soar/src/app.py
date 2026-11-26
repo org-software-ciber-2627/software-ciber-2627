@@ -16,6 +16,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 
+from soar.models.identity import AuthenticatedUser
 from soar.repositories.incident_repository import SqliteIncidentRepository
 from soar.services.auth_client import AuthClientError, IdentityAuthClient
 from soar.services.metrics_service import MetricsService
@@ -25,6 +26,12 @@ from soar.services.status_service import (
     InvalidTransitionError,
     MissingJustificationError,
     MissingResolutionReasonError,
+)
+from soar.services.token_validator import (
+    IdentityUnavailableError,
+    TokenValidator,
+    UnauthorizedError,
+    identity_url_from_env,
 )
 
 
@@ -36,6 +43,11 @@ SIEM_URL = os.getenv("SIEM_URL") or os.getenv("SIEM_API_URL") or "http://siem:80
 SIEM_URL = SIEM_URL.rstrip("/").removesuffix("/alerts")
 POLL_INTERVAL_SECONDS = float(os.getenv("POLL_INTERVAL_SECONDS", os.getenv("SOAR_POLLING_INTERVAL", "0")))
 AUTH_CLIENT = IdentityAuthClient()
+READ_ROLES = {"analista", "admin", "servicio"}
+WRITE_ROLES = {"analista", "admin"}
+_auth_warning_lock = threading.Lock()
+_auth_warning_emitted = False
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -242,6 +254,42 @@ def request_identity(body: dict[str, Any]) -> str | None:
 
 
 class SoarHandler(BaseHTTPRequestHandler):
+    def authenticate(
+        self,
+        allowed_roles: set[str],
+    ) -> tuple[bool, AuthenticatedUser | None]:
+        self.current_user: AuthenticatedUser | None = None
+        path = urlparse(self.path).path
+        if self.command == "GET" and path == "/health":
+            return True, None
+
+        identity_url = identity_url_from_env()
+        if not identity_url:
+            warn_authentication_disabled()
+            return True, None
+
+        authorization = self.headers.get("Authorization", "")
+        scheme, separator, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not separator or not token.strip():
+            self.send_json(401, {"error": "unauthorized"})
+            return False, None
+
+        try:
+            user = TokenValidator(identity_url).validate(token.strip())
+        except UnauthorizedError:
+            self.send_json(401, {"error": "unauthorized"})
+            return False, None
+        except IdentityUnavailableError:
+            self.send_json(503, {"error": "identity_unavailable"})
+            return False, None
+
+        if user.role not in allowed_roles:
+            self.send_json(403, {"error": "forbidden"})
+            return False, None
+
+        self.current_user = user
+        return True, user
+
     def send_json(self, status: int, payload: dict[str, Any] | list[Any]) -> None:
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
@@ -252,6 +300,9 @@ class SoarHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         try:
+            authenticated, _ = self.authenticate(READ_ROLES)
+            if not authenticated:
+                return
             self.handle_get(urlparse(self.path).path)
         except Exception:
             logger.exception("Error no previsto en GET %s", self.path)
@@ -259,6 +310,9 @@ class SoarHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         try:
+            authenticated, _ = self.authenticate(WRITE_ROLES)
+            if not authenticated:
+                return
             self.handle_post(urlparse(self.path).path)
         except Exception:
             logger.exception("Error no previsto en POST %s", self.path)
@@ -357,7 +411,18 @@ def poll_loop() -> None:
             logger.exception("El sondeo periodico fallo")
 
 
+def warn_authentication_disabled() -> None:
+    global _auth_warning_emitted
+    with _auth_warning_lock:
+        if _auth_warning_emitted:
+            return
+        logger.warning("AUTH_URL no configurada: endpoints del SOAR sin autenticación")
+        _auth_warning_emitted = True
+
+
 def main() -> None:
+    if not identity_url_from_env():
+        warn_authentication_disabled()
     connect_database().close()
     if POLL_INTERVAL_SECONDS > 0:
         threading.Thread(target=poll_loop, daemon=True, name="siem-poller").start()
