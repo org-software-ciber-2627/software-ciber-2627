@@ -190,3 +190,35 @@ test("con Identidad caída (validate 500) no pide las alertas", async () => {
   assert.equal(peticionesDatos, 0);
   assert.equal(filasTabla(dom).length, 0);
 });
+test("si falla el SIEM después de una consulta correcta conserva las alertas", async () => {
+  let peticiones = 0;
+
+  const { dom, temporizadores } = montarPagina({
+    fetchImpl: async () => {
+      peticiones++;
+
+      if (peticiones === 1) {
+        return respuesta(200, {
+          alerts: [alerta({ title: "Alerta conservada" })],
+        });
+      }
+
+      return respuesta(500, {});
+    },
+  });
+
+  await cargarSiemAlert();
+
+  assert.equal(filasTabla(dom).length, 1);
+
+  temporizadores[0].fn();
+
+  for (let i = 0; i < 5; i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+
+  assert.equal(visible(dom, "tabla"), true);
+  assert.equal(visible(dom, "error"), true);
+  assert.equal(filasTabla(dom).length, 1);
+  assert.equal(filasTabla(dom)[0].titulo, "Alerta conservada");
+});
