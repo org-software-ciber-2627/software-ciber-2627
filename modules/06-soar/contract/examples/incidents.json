@@ -1,0 +1,77 @@
+[
+  {
+    "id": 1,
+    "alert_key": "SIEM-ALERT-EJEMPLO-002",
+    "alert": {
+      "alert_id": "SIEM-ALERT-EJEMPLO-002",
+      "description": "El honeypot ha registrado un evento clasificado como fuerza bruta sobre SSH.",
+      "details": {
+        "command": null,
+        "credential": "***",
+        "service": "ssh",
+        "source_ip": "192.168.1.50",
+        "username": "***"
+      },
+      "event_id": "HP-981839239323",
+      "event_type": "fuerza_bruta",
+      "severity": "medium",
+      "source": "honeypot",
+      "source_ip": "192.168.1.50",
+      "target_ip": null,
+      "timestamp": "2026-11-26T09:59:58Z",
+      "title": "Intento de fuerza bruta en el honeypot"
+    },
+    "first_seen": "2026-11-26T10:00:00.003000+00:00",
+    "incident_id": "INC-4F9A2C",
+    "alert_id": "SIEM-ALERT-EJEMPLO-002",
+    "event_type": "fuerza_bruta",
+    "severity": "medium",
+    "priority": "medium",
+    "source_ip": "192.168.1.50",
+    "status": "contained",
+    "created_at": "2026-11-26T10:00:00.000000+00:00",
+    "resolved_at": null,
+    "applied_playbook": "brute_force",
+    "automation": {
+      "automatable": true,
+      "playbook": "brute_force",
+      "reason": "Incidente compatible con automatizacion"
+    },
+    "responses": [
+      {
+        "response_id": "RES-1B07E4",
+        "incident_id": "INC-4F9A2C",
+        "playbook": "brute_force",
+        "action": "block_ip",
+        "status": "success",
+        "triggered_by": "automatic",
+        "executed_at": "2026-11-26T10:00:00.009000Z",
+        "finished_at": null,
+        "message": "IP 192.168.1.50 bloqueada",
+        "error": null,
+        "details": {
+          "target": "192.168.1.50",
+          "execution_id": "4f31ca91-ab2b-416f-b420-1711ad4b6a11",
+          "playbook_status": "PARTIAL"
+        }
+      },
+      {
+        "response_id": "RES-20A761",
+        "incident_id": "INC-4F9A2C",
+        "playbook": "brute_force",
+        "action": "notify",
+        "status": "skipped",
+        "triggered_by": "automatic",
+        "executed_at": "2026-11-26T10:00:00.009000Z",
+        "finished_at": null,
+        "message": null,
+        "error": "GROUP7_NOTIFY_URL no está configurada",
+        "details": {
+          "target": "group7",
+          "execution_id": "4f31ca91-ab2b-416f-b420-1711ad4b6a11",
+          "playbook_status": "PARTIAL"
+        }
+      }
+    ]
+  }
+]

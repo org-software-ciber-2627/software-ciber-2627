@@ -1,0 +1,36 @@
+[
+  {
+    "response_id": "RES-1B07E4",
+    "incident_id": "INC-4F9A2C",
+    "playbook": "brute_force",
+    "action": "block_ip",
+    "status": "success",
+    "triggered_by": "automatic",
+    "executed_at": "2026-11-26T10:00:00.009000Z",
+    "finished_at": null,
+    "message": "IP 192.168.1.50 bloqueada",
+    "error": null,
+    "details": {
+      "target": "192.168.1.50",
+      "execution_id": "4f31ca91-ab2b-416f-b420-1711ad4b6a11",
+      "playbook_status": "PARTIAL"
+    }
+  },
+  {
+    "response_id": "RES-20A761",
+    "incident_id": "INC-4F9A2C",
+    "playbook": "brute_force",
+    "action": "notify",
+    "status": "skipped",
+    "triggered_by": "automatic",
+    "executed_at": "2026-11-26T10:00:00.009000Z",
+    "finished_at": null,
+    "message": null,
+    "error": "GROUP7_NOTIFY_URL no está configurada",
+    "details": {
+      "target": "group7",
+      "execution_id": "4f31ca91-ab2b-416f-b420-1711ad4b6a11",
+      "playbook_status": "PARTIAL"
+    }
+  }
+]

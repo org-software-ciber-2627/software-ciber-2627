@@ -37,6 +37,11 @@ publicado** para el grupo 7: los campos nunca se renombran ni se eliminan; como 
 Las filas guardadas antes del Sprint 2 no tienen incidente normalizado: devuelven todos los campos
 que admiten `null` a `null` y `responses` como `[]`.
 
+**Datos sensibles (HU12.1).** `credential` y `username` se sustituyen por `"***"` en cualquier nivel de
+`alert` (también dentro de `details`); en la base de datos la alerta se guarda entera.
+
+Hay ejemplos generados con la API real en [`examples/`](examples/README.md).
+
 ### Regla de `applied_playbook`
 
 - Vale el nombre del playbook (campo `playbook` de sus respuestas ejecutadas, hoy `"brute_force"`)
@@ -61,10 +66,10 @@ negra simulada (HU19), así que el incidente pasa a `in_progress` y después a `
     "description": "El honeypot ha registrado un evento clasificado como fuerza bruta sobre SSH.",
     "details": {
       "command": null,
-      "credential": "123456",
+      "credential": "***",
       "service": "ssh",
       "source_ip": "192.168.1.50",
-      "username": "root"
+      "username": "***"
     },
     "event_id": "HP-981839239323",
     "event_type": "fuerza_bruta",
@@ -190,15 +195,25 @@ y `changed_at` (UTC, terminado en `Z`). Detalle de los campos en `status.md`.
 - Sin cambios de estado: `200` con `[]`.
 - Si el incidente no existe devuelve `404` `{"error":"incident_not_found"}`.
 
+Ejemplo de un incidente de fuerza bruta contenido automáticamente (es `examples/history.json`):
+
 ```json
 [
   {
     "from_status": "open",
     "to_status": "in_progress",
-    "justification": "Respuesta automática ejecutada: notify",
+    "justification": "Respuesta automática ejecutada: block_ip",
+    "changed_at": "2026-11-26T10:00:00.018000Z",
     "resolution_reason": null,
-    "changed_by": "soar-automation",
-    "changed_at": "2026-11-20T10:00:00.120000Z"
+    "changed_by": "soar-automation"
+  },
+  {
+    "from_status": "in_progress",
+    "to_status": "contained",
+    "justification": "IP 192.168.1.50 bloqueada en la lista negra",
+    "changed_at": "2026-11-26T10:00:00.024000Z",
+    "resolution_reason": null,
+    "changed_by": "soar-automation"
   }
 ]
 ```
