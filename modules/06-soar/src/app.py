@@ -236,18 +236,25 @@ STATUS_ERRORS = (
 MAX_CHANGED_BY_LENGTH = 100
 
 
-def request_identity(body: dict[str, Any]) -> str | None:
+def request_identity(
+    body: dict[str, Any],
+    user: AuthenticatedUser | None,
+) -> str | None:
     """
-    Devuelve quién hace el cambio de estado (changed_by), sin espacios al principio ni al final,
-    o None si no viene. Lanza ValueError si no es texto o supera MAX_CHANGED_BY_LENGTH.
+    Devuelve el username autenticado o, sin autenticación, el changed_by del cuerpo,
+    sin espacios al principio ni al final. Lanza ValueError si el valor supera
+    MAX_CHANGED_BY_LENGTH o, para el cuerpo, no es texto.
     """
-    # Hoy sale del cuerpo JSON; más adelante vendrá del token del Módulo 1 (grupo 1).
-    value = body.get("changed_by")
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValueError("changed_by debe ser texto")
-    value = value.strip()
+    if user is not None:
+        value = user.username.strip()
+    else:
+        value = body.get("changed_by")
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("changed_by debe ser texto")
+        value = value.strip()
+
     if len(value) > MAX_CHANGED_BY_LENGTH:
         raise ValueError(f"changed_by no puede superar {MAX_CHANGED_BY_LENGTH} caracteres")
     return value or None
@@ -375,7 +382,7 @@ class SoarHandler(BaseHTTPRequestHandler):
             # El 404 tiene prioridad sobre cualquier error de changed_by
             pipeline.get_incident(incident_id)
             try:
-                changed_by = request_identity(body)
+                changed_by = request_identity(body, self.current_user)
             except ValueError as error:
                 self.send_json(400, {"error": str(error)})
                 return
