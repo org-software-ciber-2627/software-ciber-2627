@@ -99,4 +99,6 @@ Sin incidentes:
 
 El formato queda congelado desde el 26/11; cualquier cambio va al registro de cambios del SoS.
 
-A partir de HU20 exige Authorization: Bearer (ver README, sección Autenticación).
+Con autenticación activa (HU20), exige `Authorization: Bearer <token>`; si `AUTH_URL` no está
+configurada, se aplica el modo abierto de desarrollo y tests descrito en
+[`README.md`](README.md#autenticación-hu20).

@@ -35,14 +35,17 @@ Cada cambio de estado debe incluir:
 
 | Origen del cambio | `changed_by` |
 |---|---|
-| `POST /incidents/{incident_id}/status` que cierra el incidente (`status: closed`) | **Obligatorio** |
-| `POST /incidents/{incident_id}/status` con cualquier otro estado | Opcional; si no viene, `null` |
+| `POST /incidents/{incident_id}/status` con autenticación activa | Username del token; no se necesita en el cuerpo |
+| `POST /incidents/{incident_id}/status` al cerrar sin autenticación | **Obligatorio en el cuerpo** |
+| `POST /incidents/{incident_id}/status` con otro estado y sin autenticación | Opcional; si no viene, `null` |
 | Paso automático a `in_progress` tras una respuesta con éxito | `soar-automation` |
 | Paso automático a `contained` tras `block_ip` con éxito (HU19.3) | `soar-automation` |
 
 - Se quitan los espacios al principio y al final. Una cadena vacía o solo con espacios se trata como si no viniera.
 - Máximo 100 caracteres.
-- Hoy se envía en el cuerpo JSON. Más adelante vendrá del token del Módulo 1 (identidad).
+- Con autenticación activa, `changed_by` es el `username` del token validado mediante
+  `GET /auth/validate` del Módulo 1 (Identidad); el `changed_by` del cuerpo se ignora sin error.
+- Sin `AUTH_URL` (desarrollo y tests), se toma del cuerpo JSON como antes.
 - Se guarda dentro del registro de cada cambio (`change_json`) en la tabla `status_history`. Los
   cambios registrados antes de HU7 no tienen ese dato y se leen con `changed_by = null`.
 
@@ -50,12 +53,13 @@ Cada cambio de estado debe incluir:
 
 `POST /incidents/{incident_id}/status`
 
+Con un token válido, `changed_by` en el cuerpo es opcional:
+
 ```json
 {
   "status": "closed",
   "justification": "Revisado por el analista",
-  "resolution_reason": "IP bloqueada en el cortafuegos",
-  "changed_by": "analista.fer"
+  "resolution_reason": "IP bloqueada en el cortafuegos"
 }
 ```
 
@@ -63,12 +67,14 @@ Cada cambio de estado debe incluir:
   Al cerrar, `resolved_at` se rellena.
 - `400` `{"error": "..."}`, sin cambiar el estado, si:
   - el cuerpo no es JSON o falta `status`;
-  - `changed_by` no es texto: `changed_by debe ser texto`;
-  - `changed_by` tiene más de 100 caracteres: `changed_by no puede superar 100 caracteres`;
-  - se cierra sin `changed_by`: `changed_by es obligatorio para cerrar un incidente`;
+  - sin autenticación, `changed_by` no es texto: `changed_by debe ser texto`;
+  - el `changed_by` efectivo (username del token o valor del cuerpo sin autenticación) tiene más de 100 caracteres:
+    `changed_by no puede superar 100 caracteres`;
+  - sin autenticación, se cierra sin `changed_by`: `changed_by es obligatorio para cerrar un incidente`;
   - HU6 rechaza el cambio (transición no permitida, justificación vacía, cierre sin `resolution_reason`
     o incidente ya cerrado).
 - `404` `{"error": "incident_not_found"}` si el incidente no existe. Tiene prioridad sobre los errores de `changed_by`.
+- `401`, `403` o `503` por errores de autenticación; ver [Autenticación (HU20)](README.md#autenticación-hu20).
 
 Ejemplo de respuesta `200` al cerrar (se omiten algunos campos del incidente):
 
