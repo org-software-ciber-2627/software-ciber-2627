@@ -15,6 +15,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlparse
 
+
+from soar.services.auth_client import AuthClientError, IdentityAuthClient
 from soar.services.pipeline import IncidentNotFoundError, SoarPipeline
 from soar.services.status_service import (
     IncidentClosedError,
@@ -31,7 +33,7 @@ DATABASE_PATH = os.getenv("DATABASE_PATH", "/data/soar.db")
 SIEM_URL = os.getenv("SIEM_URL") or os.getenv("SIEM_API_URL") or "http://siem:80"
 SIEM_URL = SIEM_URL.rstrip("/").removesuffix("/alerts")
 POLL_INTERVAL_SECONDS = float(os.getenv("POLL_INTERVAL_SECONDS", os.getenv("SOAR_POLLING_INTERVAL", "0")))
-
+AUTH_CLIENT = IdentityAuthClient()
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -144,11 +146,34 @@ def list_incidents() -> list[dict[str, Any]]:
     ]
 
 
+def _request_siem_alerts(token: str | None) -> Any:
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(f"{SIEM_URL}/alerts", headers=headers)
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
 def fetch_alerts() -> list[dict[str, Any]]:
-    request = urllib.request.Request(f"{SIEM_URL}/alerts", headers={"Accept": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+        token = AUTH_CLIENT.get_token() if AUTH_CLIENT.is_configured else None
+        try:
+            payload = _request_siem_alerts(token)
+        except urllib.error.HTTPError as error:
+            if error.code == 401 and AUTH_CLIENT.is_configured:
+                logger.warning("SIEM devolvió 401; renovando token de servicio y reintentando una vez")
+                AUTH_CLIENT.invalidate_token()
+                refreshed_token = AUTH_CLIENT.get_token(force_refresh=True)
+                payload = _request_siem_alerts(refreshed_token)
+            else:
+                raise
+    except AuthClientError as error:
+        logger.error("Fallo de autenticación al consultar el SIEM: %s", error)
+        raise RuntimeError(str(error)) from error
+    except urllib.error.HTTPError as error:
+        logger.error("El SIEM respondió con error HTTP %s: %s", error.code, error)
+        raise RuntimeError(f"El SIEM devolvió HTTP {error.code}") from error
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
         logger.error("No se pudieron consultar las alertas del SIEM: %s", error)
         raise RuntimeError("No se pudieron consultar las alertas del SIEM") from error
