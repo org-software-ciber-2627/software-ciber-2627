@@ -61,3 +61,42 @@ denominar MTTD. Hasta esa confirmación, la fórmula es provisional.
 HU16: cálculo de métricas.
 HU18: exposición HTTP mediante GET /metrics.
 HU17: visualización e integración con Grupo 7.
+
+## Exposición HTTP (HU18)
+
+`GET /metrics` no requiere parámetros y devuelve un objeto con exactamente estos cuatro campos:
+
+| Nombre | Tipo | Admite `null` | Significado | Unidad |
+|---|---|---|---|---|
+| `mttd_seconds` | número | Sí | Media de los MTTD válidos | segundos |
+| `mttr_seconds` | número | Sí | Media de los MTTR válidos de incidentes cerrados | segundos |
+| `total_incidents` | entero | No | Número total de incidentes | incidentes |
+| `closed_incidents` | entero | No | Número de incidentes cerrados | incidentes |
+
+### Códigos de respuesta
+
+- `200` siempre que las métricas se puedan calcular. Sin datos, las medias son `null` y los contadores `0`.
+- `500` `{"error":"internal_error"}` si se produce un error no previsto.
+
+### Ejemplos
+
+Con datos:
+
+```json
+{
+  "mttd_seconds": 12.4,
+  "mttr_seconds": 85.7,
+  "total_incidents": 10,
+  "closed_incidents": 6
+}
+```
+
+Sin incidentes:
+
+```json
+{"mttd_seconds": null, "mttr_seconds": null, "total_incidents": 0, "closed_incidents": 0}
+```
+
+El formato queda congelado desde el 26/11; cualquier cambio va al registro de cambios del SoS.
+
+A partir de HU20 exige Authorization: Bearer (ver README, sección Autenticación).

@@ -16,7 +16,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 
+from soar.repositories.incident_repository import SqliteIncidentRepository
 from soar.services.auth_client import AuthClientError, IdentityAuthClient
+from soar.services.metrics_service import MetricsService
 from soar.services.pipeline import IncidentNotFoundError, SoarPipeline
 from soar.services.status_service import (
     IncidentClosedError,
@@ -90,6 +92,11 @@ def save_alert(alert: dict[str, Any]) -> bool:
 
 def build_pipeline() -> SoarPipeline:
     return SoarPipeline(DATABASE_PATH, register_alert=save_alert, alert_key=alert_key)
+
+
+def get_metrics() -> dict[str, Any]:
+    repository = SqliteIncidentRepository(DATABASE_PATH)
+    return MetricsService(repository).calculate_metrics().model_dump(mode="json")
 
 
 # Campos añadidos en el Sprint 2; las filas anteriores sin Incident normalizado los devuelven vacíos
@@ -264,6 +271,8 @@ class SoarHandler(BaseHTTPRequestHandler):
             self.send_json(200, {"status": "ok", "module": "06-soar"})
         elif path == "/incidents":
             self.send_json(200, list_incidents())
+        elif path == "/metrics":
+            self.send_json(200, get_metrics())
         elif responses_match:
             try:
                 responses = build_pipeline().list_responses(responses_match.group(1))
