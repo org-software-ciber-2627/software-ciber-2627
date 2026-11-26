@@ -24,7 +24,17 @@ public class TestIdentityValidator implements IdentityValidator {
     public AuthenticatedIdentity validate(String token) {
         calls.incrementAndGet();
         if (TestIdentity.VALID_TOKEN.equals(token)) {
-            return new AuthenticatedIdentity("test-analista", "analista", 1L);
+            // Identidad sin restricciones de rol (ver TestAccessPolicy): la usan los tests que
+            // prueban otras funciones del SIEM y no la autorización.
+            return new AuthenticatedIdentity(TestIdentity.UNRESTRICTED_USERNAME, "analista", 1L);
+        }
+        if (token.startsWith(TestIdentity.AS_PREFIX)) {
+            // SEM-142: "test-as.<cuenta>.<rol>" simula la identidad que devolvería G1.
+            String identity = token.substring(TestIdentity.AS_PREFIX.length());
+            int dot = identity.lastIndexOf('.');
+            if (dot > 0) {
+                return new AuthenticatedIdentity(identity.substring(0, dot), identity.substring(dot + 1), 2L);
+            }
         }
         if (TestIdentity.UNAVAILABLE_TOKEN.equals(token)) {
             throw new IdentityUnavailableException("Identity test stub unavailable", true);
