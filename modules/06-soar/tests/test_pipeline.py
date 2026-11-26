@@ -589,6 +589,53 @@ class TestPipelineBlockIp(BlacklistPipelineTestCase):
         self.assertEqual(self.blacklist_rows(), [(EXTERNAL_IP, self.find_incident("SIEM-BF-1")["incident_id"])])
 
 
+# Alerta de pentesting tal como la documenta el SIEM (grupo 5): sin source_ip
+PENTESTING_ALERT = {
+    "alert_id": "SIEM-ALERT-PENTESTING-001",
+    "event_id": "pt-zap-0001",
+    "timestamp": "2026-11-04T12:00:00Z",
+    "source": "pentesting",
+    "event_type": "vulnerability_detected",
+    "severity": "medium",
+    "title": "Cross-Domain Misconfiguration",
+    "description": "CORS misconfiguration permits cross-domain read requests from arbitrary origins.",
+    "details": {"tool": "OWASP ZAP", "target": "http://juice-shop:3000", "instances": 15},
+}
+
+
+class TestPentestingAlerts(BlacklistPipelineTestCase):
+    def test_pentesting_alert_creates_an_open_incident(self):
+        outcome = self.build_pipeline().process_alert(PENTESTING_ALERT)
+
+        self.assertEqual(outcome, {"result": "created", "automated": False})
+        incident = self.find_incident("SIEM-ALERT-PENTESTING-001")
+        self.assertEqual(incident["status"], "open")
+        self.assertEqual(incident["priority"], "medium")
+        self.assertEqual(incident["event_type"], "vulnerability_detected")
+        self.assertIsNone(incident["source_ip"])
+        stored = SqliteIncidentRepository(self.database_path).find_by_alert_key("SIEM-ALERT-PENTESTING-001")
+        self.assertEqual(stored.source, "pentesting")
+
+    def test_pentesting_alert_is_not_automated(self):
+        self.build_pipeline().process_alert(PENTESTING_ALERT)
+
+        incident = self.find_incident("SIEM-ALERT-PENTESTING-001")
+        self.assertFalse(incident["automation"]["automatable"])
+        self.assertEqual(incident["responses"], [])
+        self.assertIsNone(incident["applied_playbook"])
+        self.assertEqual(self.blacklist_rows(), [])
+        self.assertEqual(self.http_post.calls, [])
+
+    def test_unknown_source_is_still_rejected(self):
+        alert = {**PENTESTING_ALERT, "alert_id": "SIEM-ALERT-FIREWALL", "source": "firewall"}
+
+        with self.assertLogs("soar", level="WARNING"):
+            outcome = self.build_pipeline().process_alert(alert)
+
+        self.assertEqual(outcome, {"result": "rejected", "automated": False})
+        self.assertEqual(app.list_incidents(), [])
+
+
 class TestDemoConditions(BlacklistPipelineTestCase):
     """
     Condiciones de la demo del 30/11: app.build_pipeline() real, sin GROUP7_NOTIFY_URL.

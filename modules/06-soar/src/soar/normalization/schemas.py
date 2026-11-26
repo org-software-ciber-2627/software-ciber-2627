@@ -13,7 +13,7 @@ class AlertPayloadDTO(BaseModel):
     alert_id: str = Field(..., description="Identificador estable asignado por SIEM")
     event_id: str = Field(..., description="Identificador único del evento original")
     timestamp: datetime = Field(..., description="Fecha y hora de detección en UTC (ISO 8601)")
-    source: str = Field(..., description="Productor: ids, honeypot o scanner")
+    source: str = Field(..., description="Productor: ids, honeypot, scanner o pentesting")
     event_type: str = Field(..., description="Tipo de evento detectado")
     severity: str = Field(..., description="Nivel: low, medium, high o critical")
     title: str = Field(..., description="Resumen legible")
@@ -45,7 +45,8 @@ class AlertPayloadDTO(BaseModel):
     @field_validator('source')
     @classmethod
     def validate_source(cls, v: str) -> str:
-        if v.lower() not in {'ids', 'honeypot', 'scanner'}:
+        # Productores que documenta el contrato del SIEM (grupo 5, openapi 0.3.0-sprint2)
+        if v.lower() not in {'ids', 'honeypot', 'scanner', 'pentesting'}:
             raise ValueError("Productor (source) desconocido")
         return v.lower()
 

@@ -4,7 +4,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import app
-import pytest
 from soar.models.playbook import BruteForcePlaybookInput
 from soar.normalization.parser import parse_and_normalize_alert
 from soar.services.automation_detector import evaluate_automation
@@ -100,8 +99,11 @@ def test_sem112_honeypot_and_pentesting_examples_have_expected_decisions():
 
     assert evaluate_automation(honeypot_incident).automatable is True
     assert BruteForcePlaybookInput.from_incident(honeypot_incident).usernames == ["admin"]
-    with pytest.raises(ValueError):
-        parse_and_normalize_alert(pentesting)
+    # El SIEM documenta source "pentesting": se acepta, pero no se automatiza
+    pentesting_incident = parse_and_normalize_alert(pentesting)
+    assert pentesting_incident.source == "pentesting"
+    assert pentesting_incident.source_ip is None
+    assert evaluate_automation(pentesting_incident).automatable is False
 
 
 def test_sem112_poll_counts_ids_honeypot_and_pentesting(tmp_path, monkeypatch):
@@ -128,4 +130,5 @@ def test_sem112_poll_counts_ids_honeypot_and_pentesting(tmp_path, monkeypatch):
     with patch.object(app, "fetch_alerts", return_value=alerts):
         result = app.poll_siem()
 
-    assert result == {"received": 3, "created": 2, "ignored": 0, "rejected": 1, "automated": 2}
+    # La alerta de pentesting ya no se rechaza: se crea su incidente, pero no se automatiza
+    assert result == {"received": 3, "created": 3, "ignored": 0, "rejected": 0, "automated": 2}

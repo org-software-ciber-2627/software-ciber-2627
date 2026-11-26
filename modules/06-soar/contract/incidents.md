@@ -42,7 +42,7 @@ Este documento define tanto la estructura interna de un incidente como el contra
 | `created_at` | string ISO 8601 | Sí | Fecha y hora de creación del incidente |
 | `resolved_at` | string ISO 8601 / null | No | Fecha y hora de cierre del incidente (se rellena al pasar a `closed`) |
 | `priority` | string / null | No | Prioridad calculada por HU5 (ver `priority.md`) |
-| `source` | string / null | No | Productor de la alerta: `ids`, `honeypot` o `scanner` |
+| `source` | string / null | No | Productor de la alerta: `ids`, `honeypot`, `scanner` o `pentesting` |
 | `target_ip` | string / null | No | IP de destino |
 | `title` | string / null | No | Resumen legible de la alerta |
 | `description` | string / null | No | Explicación legible de la alerta |

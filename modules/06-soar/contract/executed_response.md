@@ -50,7 +50,7 @@ la implemente el playbook.
 - `skipped`: la acción no se ha ejecutado
 
 Estos estados son un catálogo **distinto** de los estados del incidente (`open`, `in_progress`,
-`contained`, `resolved`). Registrar una respuesta no modifica el estado del incidente.
+`contained`, `closed`). Registrar una respuesta no modifica el estado del incidente.
 
 ## Orígenes previstos
 
