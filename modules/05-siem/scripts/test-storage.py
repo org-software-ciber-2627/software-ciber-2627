@@ -174,13 +174,26 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
         app_env['SPRING_PROFILES_ACTIVE'] = 'persistence'
         app_env['SERVER_PORT'] = str(http_port)
 
-        # SEM-133: stand-in for Identity (G1). Only GET /auth/validate with this random token is valid.
-        identity_token = secrets.token_urlsafe(32)
+        # SEM-133: stand-in for Identity (G1). Only GET /auth/validate with one of these random tokens is valid.
+        # SEM-142: one token per account of roles-permissions.md, so every request passes the role matrix.
+        accounts = {
+            'analista': ('ana-ci', 'analista'),
+            'ids': ('svc-ids', 'servicio'),
+            'honeypot': ('svc-honeypot', 'servicio'),
+            'scanner': ('svc-escaner', 'servicio'),
+            'pentesting': ('svc-pentesting', 'servicio'),
+            'soar': ('svc-soar', 'servicio'),
+            'generic': ('servicio', 'servicio'),
+        }
+        tokens = {name: secrets.token_urlsafe(32) for name in accounts}
+        identities = {'Bearer ' + tokens[name]: account for name, account in accounts.items()}
+        identity_token = tokens['analista']
 
         class IdentityStub(BaseHTTPRequestHandler):
             def do_GET(self):
-                if self.path == '/auth/validate' and self.headers.get('Authorization') == 'Bearer ' + identity_token:
-                    status, body = 200, {'valid': True, 'user_id': 1, 'username': 'svc-test', 'role': 'servicio'}
+                account = identities.get(self.headers.get('Authorization')) if self.path == '/auth/validate' else None
+                if account:
+                    status, body = 200, {'valid': True, 'user_id': 1, 'username': account[0], 'role': account[1]}
                 else:
                     status, body = 401, {'valid': False, 'error': 'Token inválido'}
                 data = json.dumps(body).encode()
@@ -200,7 +213,10 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
 
         history_responses = []
 
-        def request(path, event=None, authorization='Bearer ' + identity_token):
+        def request(path, event=None, authorization=''):
+            # SEM-142: by default each event is sent by the account of its source and reads use the analyst.
+            if authorization == '':
+                authorization = 'Bearer ' + (tokens[event['source']] if event else identity_token)
             data = json.dumps(event).encode() if event else None
             headers = {'Content-Type': 'application/json'} if data else {}
             if authorization:
@@ -242,6 +258,18 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                 assert status == 401 and body['error']['code'] == 'UNAUTHENTICATED', (status, body)
                 assert sql("SELECT count(*) FROM events WHERE event_id='" + rejected['event_id'] + "'") == '0'
                 passed('packaged application validates tokens with Identity and stores nothing without one')
+                rejected['event_id'] = PROJECT + '-forbidden'
+                for account in ('generic', 'soar', 'analista', 'ids'):
+                    status, body = request('/events', rejected, authorization='Bearer ' + tokens[account])
+                    expected = 'SOURCE_MISMATCH' if account == 'ids' else 'FORBIDDEN'
+                    assert status == 403 and body['error']['code'] == expected, (account, status, body)
+                assert sql("SELECT count(*) FROM events WHERE event_id='" + rejected['event_id'] + "'") == '0'
+                for account in ('soar', 'honeypot'):
+                    status, body = request('/events', authorization='Bearer ' + tokens[account])
+                    assert status == 403 and body['error']['code'] == 'FORBIDDEN', (account, status, body)
+                assert request('/alerts', authorization='Bearer ' + tokens['soar'])[0] == 200
+                assert request('/alerts', authorization='Bearer ' + tokens['honeypot'])[0] == 403
+                passed('packaged application applies the role matrix and stores nothing it denies')
                 assert request('/events') == (200, {'events': [], 'next_offset': None, 'next': None})
                 assert request('/events?limit=0')[0] == 400
                 event = json.loads((MODULE / 'contract/examples/grupo_3_honeypot.json').read_text())
@@ -284,7 +312,9 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                 passed('packaged application stores scanner info and acknowledges an identical replay')
 
                 smoke = subprocess.run(['python3', str(MODULE / 'scripts/smoke-test.py'), base_url],
-                                       env=dict(ENV, SIEM_TOKEN=identity_token),
+                                       env=dict(ENV, SIEM_TOKEN=identity_token,
+                                                SIEM_TOKEN_IDS=tokens['ids'], SIEM_TOKEN_HONEYPOT=tokens['honeypot'],
+                                                SIEM_TOKEN_SCANNER=tokens['scanner'], SIEM_TOKEN_PENTESTING=tokens['pentesting']),
                                        capture_output=True, text=True, timeout=30)
                 (HERE / 'smoke-test.json').write_text(smoke.stdout)
                 assert smoke.returncode == 0, smoke.stderr
@@ -296,7 +326,8 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                 assert status == 503 and body['error']['code'] == 'IDENTITY_UNAVAILABLE', (status, body)
                 assert request('/health')[0] == 200
                 passed('identity outage denies access with 503 while health stays available')
-                assert identity_token not in (HERE / 'application.log').read_text(), 'Token written to the application log'
+                application_log = (HERE / 'application.log').read_text()
+                assert not any(token in application_log for token in tokens.values()), 'Token written to the application log'
                 passed('application log does not contain the bearer token')
                 if args.verify_contract:
                     observed = HERE / 'history-responses.json'
