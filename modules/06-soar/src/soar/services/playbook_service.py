@@ -14,6 +14,21 @@ from soar.models.playbook import (
     BruteForcePlaybookOutput,
     playbook_status,
 )
+from soar.services.blacklist_service import (
+    ALREADY_BLOCKED,
+    BLOCKED,
+    EXCLUDED,
+    INVALID_IP,
+    BlacklistService,
+)
+
+# HU19.2: resultado de la lista negra → estado de la acción block_ip
+BLOCK_IP_STATUSES = {
+    BLOCKED: "success",
+    ALREADY_BLOCKED: "success",
+    EXCLUDED: "skipped",
+    INVALID_IP: "failed",
+}
 
 NOTIFY_TIMEOUT_SECONDS = 5
 NOTIFY_TARGET = "group7"
@@ -43,11 +58,14 @@ class PlaybookService:
         notify_url: Optional[str] = None,
         http_post: HttpPost = post_json,
         clock: Optional[Callable[[], datetime]] = None,
+        blacklist_service: Optional[BlacklistService] = None,
     ) -> None:
         # Si no se indica, la URL del grupo 7 sale de GROUP7_NOTIFY_URL
         self._notify_url = notify_url if notify_url is not None else os.getenv("GROUP7_NOTIFY_URL", "")
         self._http_post = http_post
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        # Sin lista negra, block_ip se omite (skipped); la conexión con SQLite llega en HU19.3
+        self._blacklist = blacklist_service
 
     def execute_brute_force_playbook(
         self,
@@ -71,11 +89,42 @@ class PlaybookService:
         )
 
     def _run_action(self, name: str, playbook_input: BruteForcePlaybookInput, reason: str) -> ActionResult:
+        if name == "block_ip":
+            return self._block_ip(playbook_input, reason)
         if name == "notify":
             return self._notify(playbook_input, reason)
         return ActionResult(
             action_name=name, target=playbook_input.source_ip, status="skipped",
             details="Acción no implementada en este Sprint",
+        )
+
+    def _block_ip(self, playbook_input: BruteForcePlaybookInput, reason: str) -> ActionResult:
+        """
+        HU19.2: mete la IP atacante en la lista negra simulada del SOAR.
+        Un error de la lista negra no detiene el playbook: block_ip queda en failed y se sigue con notify.
+        """
+        target = playbook_input.source_ip
+        if self._blacklist is None:
+            return ActionResult(
+                action_name="block_ip", target=target, status="skipped",
+                details="Lista negra no configurada",
+            )
+        try:
+            result = self._blacklist.block(target, playbook_input.incident_id, reason)
+        except Exception as error:
+            return ActionResult(
+                action_name="block_ip", target=target, status="failed",
+                details=f"No se pudo bloquear la IP: {error}",
+            )
+
+        if result.outcome == ALREADY_BLOCKED:
+            details = f"{result.message}: la IP ya está contenida"
+        elif result.outcome == EXCLUDED:
+            details = f"{result.message}: es una IP protegida"
+        else:
+            details = result.message
+        return ActionResult(
+            action_name="block_ip", target=target, status=BLOCK_IP_STATUSES[result.outcome], details=details,
         )
 
     def _notify(self, playbook_input: BruteForcePlaybookInput, reason: str) -> ActionResult:

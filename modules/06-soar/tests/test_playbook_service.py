@@ -6,6 +6,8 @@ from pydantic import ValidationError
 
 from soar.models.incident import Incident
 from soar.models.playbook import ActionResult, BruteForcePlaybookInput, BruteForcePlaybookOutput, playbook_status
+from soar.repositories.blacklist_repository import BlacklistRepository
+from soar.services.blacklist_service import BlacklistService
 from soar.services.playbook_service import NOTIFY_TIMEOUT_SECONDS, PlaybookService
 
 
@@ -31,6 +33,11 @@ def create_incident(**overrides):
 
 def action(status):
     return ActionResult(action_name="notify", target="group7", status=status, details="d")
+
+
+def notify_action(output):
+    # HU19.2: el playbook ejecuta block_ip antes de notify
+    return next(action for action in output.actions_taken if action.action_name == "notify")
 
 
 class FakeHttpPost:
@@ -84,20 +91,24 @@ class TestPlaybookInput(unittest.TestCase):
 
 
 class TestPlaybookService(unittest.TestCase):
-    def execute(self, http_post, notify_url=NOTIFY_URL):
-        service = PlaybookService(notify_url=notify_url, http_post=http_post, clock=lambda: FIXED_TIME)
+    def execute(self, http_post, notify_url=NOTIFY_URL, blacklist_service=None):
+        # Sin lista negra, block_ip queda en skipped y el estado global depende solo de notify
+        service = PlaybookService(
+            notify_url=notify_url, http_post=http_post, clock=lambda: FIXED_TIME, blacklist_service=blacklist_service
+        )
         playbook_input = BruteForcePlaybookInput.from_incident(create_incident())
         return service.execute_brute_force_playbook(playbook_input, reason="Incidente compatible con automatizacion")
 
     def test_notify_success(self):
         http_post = FakeHttpPost(status_code=201)
+        blacklist = BlacklistService(BlacklistRepository(), clock=lambda: FIXED_TIME, excluded_networks=[])
 
-        output = self.execute(http_post)
+        output = self.execute(http_post, blacklist_service=blacklist)
 
         self.assertEqual(output.status, "COMPLETED")
         self.assertEqual(output.playbook, "brute_force")
-        self.assertEqual([a.action_name for a in output.actions_taken], ["notify"])
-        self.assertEqual(output.actions_taken[0].status, "success")
+        self.assertEqual([a.action_name for a in output.actions_taken], ["block_ip", "notify"])
+        self.assertEqual(notify_action(output).status, "success")
         url, payload, timeout = http_post.calls[0]
         self.assertEqual(url, NOTIFY_URL)
         self.assertEqual(timeout, NOTIFY_TIMEOUT_SECONDS)
@@ -139,25 +150,25 @@ class TestPlaybookService(unittest.TestCase):
         output = self.execute(FakeHttpPost(error=error))
 
         self.assertEqual(output.status, "FAILED")
-        self.assertEqual(output.actions_taken[0].status, "failed")
-        self.assertIn("503", output.actions_taken[0].details)
+        self.assertEqual(notify_action(output).status, "failed")
+        self.assertIn("503", notify_action(output).details)
 
     def test_notify_with_status_code_400_or_more_fails(self):
         output = self.execute(FakeHttpPost(status_code=404))
 
-        self.assertEqual(output.actions_taken[0].status, "failed")
+        self.assertEqual(notify_action(output).status, "failed")
 
     def test_notify_with_timeout_fails(self):
         output = self.execute(FakeHttpPost(error=TimeoutError("timed out")))
 
         self.assertEqual(output.status, "FAILED")
-        self.assertEqual(output.actions_taken[0].status, "failed")
-        self.assertIn("timed out", output.actions_taken[0].details)
+        self.assertEqual(notify_action(output).status, "failed")
+        self.assertIn("timed out", notify_action(output).details)
 
     def test_notify_with_network_error_fails(self):
         output = self.execute(FakeHttpPost(error=urllib.error.URLError("connection refused")))
 
-        self.assertEqual(output.actions_taken[0].status, "failed")
+        self.assertEqual(notify_action(output).status, "failed")
 
     def test_notify_without_url_is_skipped(self):
         http_post = FakeHttpPost()
@@ -165,8 +176,8 @@ class TestPlaybookService(unittest.TestCase):
         output = self.execute(http_post, notify_url="")
 
         self.assertEqual(output.status, "FAILED")
-        self.assertEqual(output.actions_taken[0].status, "skipped")
-        self.assertIn("GROUP7_NOTIFY_URL", output.actions_taken[0].details)
+        self.assertEqual(notify_action(output).status, "skipped")
+        self.assertIn("GROUP7_NOTIFY_URL", notify_action(output).details)
         self.assertEqual(http_post.calls, [])
 
     def test_executed_at_has_utc_timezone(self):

@@ -61,11 +61,36 @@ Estos estados son un catálogo **distinto** de los estados del incidente (`open`
 
 | Playbook | Acción | Sprint | Ejecuta |
 | --- | --- | --- | --- |
+| `brute_force` | `block_ip` | Sprint 3 (HU19) | Módulo 6, mete la IP de origen en la lista negra simulada (ver `blacklist.md`) |
 | `brute_force` | `notify` | Sprint 2 | Módulo 6, envía el incidente al grupo 7 |
 
-En el Sprint 3 está previsto añadir `block_ip` (HU19), que ejecuta el módulo 6 sobre una lista negra
-simulada (ver `blacklist.md`). `disable_account` y el bloqueo real en Identidad pasan al backlog
-futuro (acordado con el equipo 1 el 24/11).
+El playbook `brute_force` registra una respuesta por acción, en este orden: `block_ip` y después `notify`.
+`disable_account` y el bloqueo real en Identidad pasan al backlog futuro (acordado con el equipo 1 el 24/11).
+
+Ejemplo de respuesta de `block_ip` (la tabla de estados está en `playbook.md`):
+
+```json
+{
+  "response_id": "RES-7C21D0",
+  "incident_id": "INC-F98CDC",
+  "playbook": "brute_force",
+  "action": "block_ip",
+  "status": "success",
+  "triggered_by": "automatic",
+  "executed_at": "2026-11-26T12:00:00Z",
+  "finished_at": null,
+  "message": "IP 192.168.1.50 bloqueada",
+  "error": null,
+  "details": {
+    "target": "192.168.1.50",
+    "execution_id": "4f31ca91-ab2b-416f-b420-1711ad4b6a11",
+    "playbook_status": "PARTIAL"
+  }
+}
+```
+
+Mientras la lista negra no esté conectada al flujo (HU19.3), `block_ip` se registra con
+`status: "skipped"`, `message: null` y `error: "Lista negra no configurada"`.
 
 ## Equivalencias con la salida del playbook (HU14 → HU15)
 

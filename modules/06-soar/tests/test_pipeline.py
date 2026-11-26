@@ -76,9 +76,10 @@ class TestPipeline(PipelineTestCase):
         self.assertEqual(incident["status"], "in_progress")
         self.assertEqual(incident["automation"]["automatable"], True)
         self.assertEqual(incident["automation"]["playbook"], "brute_force")
-        self.assertEqual(len(incident["responses"]), 1)
-        self.assertEqual(incident["responses"][0]["action"], "notify")
-        self.assertEqual(incident["responses"][0]["status"], "success")
+        # HU19.2: block_ip va primero; sin lista negra conectada en el pipeline (HU19.3) queda en skipped
+        self.assertEqual(
+            [(r["action"], r["status"]) for r in incident["responses"]], [("block_ip", "skipped"), ("notify", "success")]
+        )
         self.assertEqual(self.http_post.calls[0]["incident_id"], incident["incident_id"])
 
     def test_status_change_is_recorded_in_history(self):
@@ -109,7 +110,7 @@ class TestPipeline(PipelineTestCase):
         self.assertEqual(outcome, {"result": "ignored", "automated": False})
         self.assertEqual(len(app.list_incidents()), 1)
         self.assertEqual(len(self.http_post.calls), 1)
-        self.assertEqual(len(self.find_incident("SIEM-ALERT-EJEMPLO-002")["responses"]), 1)
+        self.assertEqual(len(self.find_incident("SIEM-ALERT-EJEMPLO-002")["responses"]), 2)
 
     def test_port_scan_is_stored_but_not_automated(self):
         outcome = self.build_pipeline().process_alert(PORT_SCAN_ALERT)
@@ -218,7 +219,7 @@ class TestHttpApi(PipelineTestCase):
         status, body = self.request("GET", f"/incidents/{self.incident_id}/responses")
 
         self.assertEqual(status, 200)
-        self.assertEqual([r["action"] for r in body], ["notify"])
+        self.assertEqual([r["action"] for r in body], ["block_ip", "notify"])
 
     def test_get_responses_of_unknown_incident_returns_404(self):
         self.assertEqual(self.request("GET", "/incidents/INC-NOPE/responses")[0], 404)

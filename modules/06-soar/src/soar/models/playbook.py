@@ -7,7 +7,9 @@ from soar.models.incident import Incident
 
 # Acciones que ejecuta el playbook de fuerza bruta en cada Sprint
 BRUTE_FORCE_PLAYBOOK = "brute_force"
-BRUTE_FORCE_ACTIONS = ["notify"]  # Sprint 3: block_ip y disable_account (equipo 1)
+# block_ip (HU19) mete la IP en la lista negra simulada del SOAR; el bloqueo real en Identidad
+# y disable_account quedan en el backlog futuro (acordado con el equipo 1)
+BRUTE_FORCE_ACTIONS = ["block_ip", "notify"]
 
 ACTION_STATUSES = {"success", "failed", "skipped"}
 PLAYBOOK_STATUSES = {"COMPLETED", "FAILED", "PARTIAL"}

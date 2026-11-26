@@ -28,15 +28,18 @@ Si `event_type` no es `fuerza_bruta` ni `brute_force`, lanza `ValueError`.
   "playbook": "brute_force",
   "status": "COMPLETED",
   "actions_taken": [
+    {"action_name": "block_ip", "target": "192.168.1.50", "status": "success", "details": "IP 192.168.1.50 bloqueada"},
     {"action_name": "notify", "target": "group7", "status": "success", "details": "Incidente notificado al grupo 7 (HTTP 200)"}
   ],
   "executed_at": "2026-11-03T12:00:00+00:00",
-  "summary": "notify=success"
+  "summary": "block_ip=success, notify=success"
 }
 ```
 
+- Las acciones se ejecutan en este orden: `block_ip` y después `notify`. Si una falla, las demás se ejecutan igualmente.
 - `actions_taken[].status`: `success`, `failed` o `skipped`.
 - `status`: `COMPLETED` si todas las acciones tienen éxito, `FAILED` si ninguna, `PARTIAL` si hay mezcla.
+  Por ejemplo, con la IP bloqueada y `GROUP7_NOTIFY_URL` sin configurar el estado es `PARTIAL`.
 - `executed_at` siempre en UTC con zona horaria.
 
 ## Acciones por Sprint
@@ -44,8 +47,26 @@ Si `event_type` no es `fuerza_bruta` ni `brute_force`, lanza `ValueError`.
 | Sprint | Acciones | Ejecuta |
 |---|---|---|
 | Sprint 2 | `notify` | Módulo 6 |
-| Sprint 3 (previsto, HU19) | `block_ip`: lista negra simulada de IPs (ver `blacklist.md`) | Módulo 6 |
+| Sprint 3 (HU19) | `block_ip`: lista negra simulada de IPs (ver `blacklist.md`) | Módulo 6 |
 | Backlog futuro | `disable_account` y el bloqueo real en Identidad | Equipo 1 (acordado el 24/11) |
+
+## Acción `block_ip` (HU19.2)
+
+Mete la IP de origen del incidente (`source_ip`) en la lista negra **simulada** del SOAR con
+`BlacklistService.block(source_ip, incident_id, reason)`, donde `reason` es el motivo de la decisión
+de HU13. No se bloquea la IP en ningún sistema real. `target` es la IP.
+
+| Caso | Estado de la acción | `details` |
+|---|---|---|
+| `blocked`: IP nueva, se guarda | `success` | `IP 192.168.1.50 bloqueada` |
+| `already_blocked`: la IP ya estaba en la lista | `success` | `La IP 192.168.1.50 ya estaba bloqueada: la IP ya está contenida` |
+| `excluded`: loopback, `0.0.0.0` o red de `BLACKLIST_EXCLUDED_NETWORKS` | `skipped` | `La IP 127.0.0.1 no se puede bloquear: es una IP protegida` |
+| `invalid_ip`: la IP no es válida | `failed` | `IP no válida: '...'` |
+| Lista negra no configurada en el `PlaybookService` | `skipped` | `Lista negra no configurada` |
+| La lista negra lanza un error | `failed` | `No se pudo bloquear la IP: <error>`; `notify` se ejecuta igualmente |
+
+`already_blocked` es `success` porque la IP ya está contenida. La lista negra se conecta al flujo de
+sondeo en HU19.3; hasta entonces el pipeline no la configura y `block_ip` queda en `skipped`.
 
 ## Acción `notify`
 
@@ -80,5 +101,6 @@ Cuerpo enviado (**provisional, pendiente de confirmar con el grupo 7**):
 
 - Cada acción se registra como una respuesta ejecutada (HU15, ver `executed_response.md`).
 - Si alguna acción tiene éxito, el incidente pasa de `open` a `in_progress` (HU6) con la justificación
-  `Respuesta automática ejecutada: <acciones>`. Si todas fallan o se omiten, sigue en `open`.
+  `Respuesta automática ejecutada: <acciones>` (solo las que tienen éxito, por ejemplo `block_ip, notify`).
+  Si todas fallan o se omiten, sigue en `open`.
 - Si el incidente ya tiene respuestas registradas, el playbook no se vuelve a ejecutar.
