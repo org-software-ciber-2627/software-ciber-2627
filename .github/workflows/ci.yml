@@ -70,6 +70,9 @@ jobs:
           echo "POST /events con token -> ${status}"
           test "${status}" = "200"
 
+      - name: Check SIEM token validation (SEM-134)
+        run: python3 modules/05-siem/scripts/test-auth.py
+
       - name: Stop services
         if: always()
         run: docker compose down
