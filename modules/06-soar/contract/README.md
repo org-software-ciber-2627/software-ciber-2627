@@ -40,7 +40,7 @@ que admiten `null` a `null` y `responses` como `[]`.
 **Datos sensibles (HU12.1).** `credential` y `username` se sustituyen por `"***"` en cualquier nivel de
 `alert` (también dentro de `details`); en la base de datos la alerta se guarda entera.
 
-Hay ejemplos generados con la API real en [`examples/`](examples/README.md).
+Hay ejemplos generados con la API real en [`api-examples/`](api-examples/README.md).
 
 ### Regla de `applied_playbook`
 
@@ -195,7 +195,7 @@ y `changed_at` (UTC, terminado en `Z`). Detalle de los campos en `status.md`.
 - Sin cambios de estado: `200` con `[]`.
 - Si el incidente no existe devuelve `404` `{"error":"incident_not_found"}`.
 
-Ejemplo de un incidente de fuerza bruta contenido automáticamente (es `examples/history.json`):
+Ejemplo de un incidente de fuerza bruta contenido automáticamente (es `api-examples/history.json`):
 
 ```json
 [

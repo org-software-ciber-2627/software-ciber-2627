@@ -1,5 +1,5 @@
 """
-Ejemplos de contract/examples/ para el grupo 7, generados con la API real del SOAR.
+Ejemplos de contract/api-examples/ para el grupo 7, generados con la API real del SOAR.
 
 - Sin variables de entorno: comprueba que cada ejemplo tiene exactamente las mismas claves,
   también las anidadas, que lo que devuelve hoy la API.
@@ -23,7 +23,8 @@ from unittest.mock import patch
 
 import app
 
-EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "contract" / "examples"
+# No es contract/examples/: el job event-schema del CI valida ahí solo eventos del SIEM
+EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "contract" / "api-examples"
 MOCK_ALERTS = json.loads(
     (Path(__file__).resolve().parent.parent / "mocks" / "alertas_mock.json").read_text(encoding="utf-8")
 )["alerts"]
