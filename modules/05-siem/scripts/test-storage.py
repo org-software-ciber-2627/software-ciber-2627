@@ -66,6 +66,8 @@ with socket.socket() as probe:
 
 with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
     HERE = Path(directory)
+    empty_env = HERE / 'empty.env'
+    empty_env.touch()
     initial = HERE / 'init'
     initial.mkdir()
     shutil.copyfile(MODULE / 'src/test/resources/db/legacy-events-before-info.sql', initial / '001-create-events.sql')
@@ -73,7 +75,7 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
     override.write_text(json.dumps({'services': {'siem-db': {'volumes': [
         {'type': 'bind', 'source': str(initial), 'target': '/docker-entrypoint-initdb.d', 'read_only': True}
     ]}}}))
-    base = ['docker', 'compose', '--env-file', '/dev/null', '-f', str(MODULE / 'compose.storage.yml'),
+    base = ['docker', 'compose', '--env-file', str(empty_env), '-f', str(MODULE / 'compose.storage.yml'),
             '-f', str(override), '-p', PROJECT]
 
     def compose(*arguments, timeout=120, **kwargs):
@@ -185,8 +187,9 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
         test_env['SIEM_TEST_DB_URL'] = 'jdbc:postgresql://127.0.0.1:' + ENV['SIEM_DB_PORT'] + '/' + ENV['SIEM_DB_NAME']
         test_env['SIEM_TEST_DB_USER'] = 'siem'
         test_env['SIEM_TEST_DB_PASSWORD'] = ENV['SIEM_DB_PASSWORD']
+        maven_wrapper = ['cmd.exe', '/c', 'mvnw.cmd'] if os.name == 'nt' else ['./mvnw']
         with (HERE / 'java-tests.log').open('w') as log:
-            tested = subprocess.run(['./mvnw'] + (['-o'] if args.offline else []) + ['--batch-mode', 'clean', 'verify'], cwd=MODULE, env=test_env,
+            tested = subprocess.run(maven_wrapper + (['-o'] if args.offline else []) + ['--batch-mode', 'clean', 'verify'], cwd=MODULE, env=test_env,
                                     stdout=log, stderr=subprocess.STDOUT, timeout=600)
         for line in (HERE / 'java-tests.log').read_text().splitlines():
             if 'Tests run:' in line or 'BUILD SUCCESS' in line or 'BUILD FAILURE' in line:
@@ -308,7 +311,7 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                 assert listed == [alert], listed
                 passed('alert keeps its alert_id and content after restarting the SIEM')
 
-                smoke = subprocess.run(['python3', str(MODULE / 'scripts/smoke-test.py'), base_url],
+                smoke = subprocess.run([sys.executable, str(MODULE / 'scripts/smoke-test.py'), base_url],
                                        capture_output=True, text=True, timeout=30)
                 (HERE / 'smoke-test.json').write_text(smoke.stdout)
                 assert smoke.returncode == 0, smoke.stderr
