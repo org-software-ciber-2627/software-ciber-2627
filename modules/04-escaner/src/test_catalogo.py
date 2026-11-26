@@ -102,6 +102,43 @@ class TestCatalogo(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.get_json()["diff"], {"new": [], "fixed": [], "unchanged": []})
 
+    def test_diff_conserva_eventos_con_firmas_duplicadas(self):
+        def evento(event_id, evidencia):
+            return {
+                "event_id": event_id,
+                "title": "Mismo hallazgo",
+                "details": {
+                    "target": {"ip": "192.0.2.10", "port": 443},
+                    "evidence": evidencia,
+                },
+            }
+
+        base_uno = evento("base-1", "evidencia 1")
+        base_dos = evento("base-2", "evidencia 2")
+        target_uno = evento("target-1", "evidencia distinta")
+        target_dos = evento("target-2", "otra evidencia")
+        target_tres = evento("target-3", "tercera evidencia")
+        self.job("a", eventos=[base_uno, base_dos])
+        self.job("b", eventos=[target_uno, target_dos, target_tres])
+
+        r = self.get("/diff?base=a&target=b")
+
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.get_json()["diff"], {
+            "new": [target_tres],
+            "fixed": [],
+            "unchanged": [base_uno, base_dos],
+        })
+
+    def test_diff_datos_de_eventos_invalidos_responden_500(self):
+        self.job("a", eventos=[{"title": "sin details.target"}])
+        self.job("b")
+
+        r = self.get("/diff?base=a&target=b")
+
+        self.assertEqual(r.status_code, 500)
+        self.assertIsInstance(r.get_json()["error"], str)
+
     def test_sin_token_responde_401(self):
         self.assertEqual(self.client.get("/scans").status_code, 401)
 

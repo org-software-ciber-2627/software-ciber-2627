@@ -6,6 +6,7 @@ from auth import require_roles
 from history import init_db, list_jobs   
 import os
 import logging
+from collections import Counter
 
 app = Flask(__name__)
 app.register_blueprint(reports_bp)
@@ -87,30 +88,56 @@ def diff():
             "error": "Uno de los escaneos tiene un estado no válido"
         }), 500
     
-    events_base = job_base.get("events", [])
-    events_target = job_target.get("events", [])
+    events_base = job_base.get("events")
+    events_target = job_target.get("events")
 
-    def get_signature(ev):
-        t = ev.get("details", {}).get("target", {})
-        return (t.get("ip"), t.get("port"), ev.get("title"))
+    def get_signature(event):
+        if not isinstance(event, dict):
+            raise ValueError("El evento no es un objeto")
+        details = event.get("details")
+        target = details.get("target") if isinstance(details, dict) else None
+        if not isinstance(target, dict):
+            raise ValueError("El evento no contiene details.target válido")
+        return (target.get("ip"), target.get("port"), event.get("title"))
 
-    base_sigs = {get_signature(ev): ev for ev in events_base}
-    target_sigs = {get_signature(ev): ev for ev in events_target}
+    try:
+        if not isinstance(events_base, list) or not isinstance(events_target, list):
+            raise ValueError("La lista de eventos no es válida")
+        base_signatures = [get_signature(event) for event in events_base]
+        target_signatures = [get_signature(event) for event in events_target]
+    except (TypeError, ValueError):
+        return jsonify({"error": "Los eventos de uno de los escaneos no son válidos"}), 500
 
-    base_keys = set(base_sigs.keys())
-    target_keys = set(target_sigs.keys())
+    # La firma acordada no es necesariamente única. Contar ocurrencias evita
+    # perder eventos cuando un escaneo registra varios hallazgos equivalentes.
+    base_counts = Counter(base_signatures)
+    target_counts = Counter(target_signatures)
+    unchanged_counts = base_counts & target_counts
 
-    new_keys = target_keys - base_keys
-    fixed_keys = base_keys - target_keys
-    unchanged_keys = base_keys.intersection(target_keys)
+    unchanged_seen = Counter()
+    fixed = []
+    unchanged = []
+    for event, signature in zip(events_base, base_signatures):
+        if unchanged_seen[signature] < unchanged_counts[signature]:
+            unchanged.append(event)
+            unchanged_seen[signature] += 1
+        else:
+            fixed.append(event)
+
+    target_seen = Counter()
+    new = []
+    for event, signature in zip(events_target, target_signatures):
+        if target_seen[signature] >= unchanged_counts[signature]:
+            new.append(event)
+        target_seen[signature] += 1
 
     return jsonify({
         "base_scan_id": base_id,
         "target_scan_id": target_id,
         "diff": {
-            "new": [target_sigs[k] for k in new_keys],
-            "fixed": [base_sigs[k] for k in fixed_keys],
-            "unchanged": [base_sigs[k] for k in unchanged_keys]
+            "new": new,
+            "fixed": fixed,
+            "unchanged": unchanged
         }
     })
 
