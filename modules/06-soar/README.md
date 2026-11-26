@@ -16,7 +16,8 @@ la misma alerta y ejecuta la respuesta automática de los incidentes de fuerza b
 El detalle de cada endpoint está en `contract/README.md`.
 
 ## Qué consume
-- `GET /alerts` del SIEM.
+- `GET /alerts` del SIEM, con `Authorization: Bearer <token>` si la autenticación está configurada (HU21).
+- `POST /auth/login` del Módulo 1 (Identidad) con la cuenta de servicio `svc-soar`, para obtener ese token.
 - `POST` a `GROUP7_NOTIFY_URL` (grupo 7) para la acción `notify` del playbook de fuerza bruta.
 
 ## Flujo de una alerta
@@ -54,6 +55,10 @@ peticiones concurrentes.
 | `DATABASE_PATH` | `/data/soar.db` | Fichero SQLite |
 | `POLL_INTERVAL_SECONDS` (o `SOAR_POLLING_INTERVAL`) | `0` | Segundos entre sondeos; con `0` solo se sondea con `POST /poll` |
 | `GROUP7_NOTIFY_URL` | vacía | URL del grupo 7 para `notify`; vacía, la acción queda `skipped` |
+| `AUTH_URL` (o `IDENTITY_URL`) | vacía | URL base del Módulo 1 (Identidad). Vacía, no se envía token al SIEM |
+| `SOAR_SERVICE_USER` | `svc-soar` | Cuenta de servicio con la que el SOAR hace login |
+| `SOAR_SERVICE_PASSWORD` | vacía | Contraseña de esa cuenta. Vacía, no se envía token al SIEM. Nunca en el repositorio |
+| `SOAR_AUTH_RETRY_SECONDS` | `300` | Segundos sin reintentar el login tras un `401` o `429` de Identidad, para no bloquear la cuenta |
 | `LOG_LEVEL` | `INFO` | Nivel de log |
 
 ## Tests

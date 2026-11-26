@@ -248,7 +248,11 @@ Consulta `GET /alerts` en `SIEM_URL`. Acepta tanto una lista de alertas como
 | `rejected` | Alertas que no cumplen el contrato del SIEM (log `WARNING`) |
 | `automated` | Incidentes en los que se ha ejecutado un playbook |
 
-Si el SIEM no está disponible devuelve `502`.
+Devuelve `502` `{"error": "..."}` y no procesa ninguna alerta si:
+
+- el SIEM no está disponible o responde con otro error;
+- falla el login con el Módulo 1 (Identidad), o está en espera tras un login rechazado (HU21);
+- el SIEM responde `401` o `403`. Ante un `401` se renueva el token y se reintenta una sola vez.
 
 ## Errores no previstos
 
