@@ -320,6 +320,22 @@
               }
             }
           },
+          "500": {
+            "description": "Storage schema or integrity error that a retry will not fix. Availability problems use 503.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "An unexpected error occurred"
+                  }
+                }
+              }
+            }
+          },
           "503": {
             "description": "Persistence disabled or storage unavailable during the request. Also returned with IDENTITY_UNAVAILABLE when the identity service cannot confirm the token (fail-closed); access is never granted.",
             "content": {
@@ -701,7 +717,7 @@
       "get": {
         "operationId": "listAlerts",
         "summary": "Consultar alertas",
-        "description": "All currently stored alerts without filtering, pagination, truncation or guaranteed order. Empty result: {\"alerts\": []}. In-memory storage is lost on restart.",
+        "description": "All currently stored alerts without filtering, pagination, truncation or guaranteed order. Empty result: {\"alerts\": []}. Alerts are stored in PostgreSQL and keep their alert_id across restarts.",
         "responses": {
           "200": {
             "description": "Lista de alertas.",

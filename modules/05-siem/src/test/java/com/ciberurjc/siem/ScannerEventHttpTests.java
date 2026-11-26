@@ -53,6 +53,7 @@ class ScannerEventHttpTests {
 
     @AfterEach
     void removeOnlyOwnedRows() {
+        jdbc.sql("DELETE FROM alerts WHERE event_id LIKE :prefix").param("prefix", prefix + "%").update();
         jdbc.sql("DELETE FROM events WHERE event_id LIKE :prefix").param("prefix", prefix + "%").update();
     }
 

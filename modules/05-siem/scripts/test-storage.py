@@ -46,7 +46,8 @@ def passed(name):
 def verify_java_reports():
     reports = list((MODULE / 'target/surefire-reports').glob('TEST-*.xml'))
     suites = {ET.parse(path).getroot().attrib['name']: ET.parse(path).getroot().attrib for path in reports}
-    for required in ('PostgresEventRepositoryTests', 'PersistentEventHttpTests', 'ScannerEventHttpTests', 'EventHistoryPostgresHttpTests', 'EventServiceLoggingTests'):
+    for required in ('PostgresEventRepositoryTests', 'PersistentEventHttpTests', 'ScannerEventHttpTests', 'EventHistoryPostgresHttpTests',
+                     'EventServiceLoggingTests', 'PostgresAlertRepositoryTests', 'EventServiceTransactionTests'):
         assert any(name.endswith('.' + required) and int(attributes['tests']) > 0
                    for name, attributes in suites.items()), 'Missing test suite: ' + required
     totals = {key: sum(int(attributes.get(key, 0)) for attributes in suites.values())
@@ -67,6 +68,8 @@ with socket.socket() as probe:
 
 with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
     HERE = Path(directory)
+    empty_env = HERE / 'empty.env'
+    empty_env.touch()
     initial = HERE / 'init'
     initial.mkdir()
     shutil.copyfile(MODULE / 'src/test/resources/db/legacy-events-before-info.sql', initial / '001-create-events.sql')
@@ -74,7 +77,7 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
     override.write_text(json.dumps({'services': {'siem-db': {'volumes': [
         {'type': 'bind', 'source': str(initial), 'target': '/docker-entrypoint-initdb.d', 'read_only': True}
     ]}}}))
-    base = ['docker', 'compose', '--env-file', '/dev/null', '-f', str(MODULE / 'compose.storage.yml'),
+    base = ['docker', 'compose', '--env-file', str(empty_env), '-f', str(MODULE / 'compose.storage.yml'),
             '-f', str(override), '-p', PROJECT]
 
     def compose(*arguments, timeout=120, **kwargs):
@@ -141,9 +144,39 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
         assert sql("SELECT severity FROM events WHERE event_id='sem95-migration-info'") == 'info'
         reject_severity(info_insert('sem95-unknown-severity', 'urgent'))
         passed('severity migration preserves old and info rows, can be reapplied and rejects unknown values')
+        alerts_migration = (MODULE / 'db/init/005-create-alerts.sql').read_text()
+        sql(alerts_migration)
+        sql(alerts_migration)
+        assert sql("SELECT row_to_json(events)::text FROM events WHERE event_id='sem65-migration-check'") == before_migration
+
+        def alert_insert(alert_id, event_id, alert_json):
+            # Fixed test constants only, never external input.
+            return ("INSERT INTO alerts (alert_id, source, event_id, alert) VALUES ('" + alert_id + "', 'ids', '" +
+                    event_id + "', '" + alert_json + "')")
+
+        def reject_alert(statement, constraint):
+            try:
+                sql(statement)
+            except RuntimeError as error:
+                assert constraint in str(error), 'Unexpected SQL failure during alert check: ' + constraint
+            else:
+                raise AssertionError('Database accepted an alert that must be rejected: ' + constraint)
+
+        identity = '"source":"ids","event_id":"sem65-migration-check"'
+        sql(alert_insert('sem147-valid', 'sem65-migration-check', '{"alert_id":"sem147-valid",' + identity + '}'))
+        sql("DELETE FROM alerts WHERE alert_id='sem147-valid'")
+        for alert_json in ('{' + identity + '}', '{"alert_id":null,' + identity + '}',
+                           '{"alert_id":"other",' + identity + '}',
+                           '{"alert_id":"sem147-check","source":"ids","event_id":1}'):
+            reject_alert(alert_insert('sem147-check', 'sem65-migration-check', alert_json), 'alerts_identity_matches')
+        reject_alert(alert_insert('sem147-orphan', 'sem147-missing-event',
+                                  '{"alert_id":"sem147-orphan","source":"ids","event_id":"sem147-missing-event"}'),
+                     'alerts_event_fk')
+        assert sql('SELECT count(*) FROM alerts') == '0'
+        passed('alert migration preserves events, can be reapplied and rejects inconsistent or orphan alerts')
         fresh_schema = "CREATE SCHEMA sem95_fresh; SET search_path TO sem95_fresh;\n"
         for filename in ('001-create-events.sql', '002-add-original-timestamp.sql', '003-allow-info-severity.sql',
-                         '004-allow-pentesting-source.sql'):
+                         '004-allow-pentesting-source.sql', '005-create-alerts.sql'):
             fresh_schema += (MODULE / 'db/init' / filename).read_text() + '\n'
         fresh_schema += info_insert('sem95-fresh-info', 'info') + "; SELECT severity FROM events WHERE event_id='sem95-fresh-info';"
         assert sql(fresh_schema).splitlines()[-1] == 'info'
@@ -156,8 +189,9 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
         test_env['SIEM_TEST_DB_URL'] = 'jdbc:postgresql://127.0.0.1:' + ENV['SIEM_DB_PORT'] + '/' + ENV['SIEM_DB_NAME']
         test_env['SIEM_TEST_DB_USER'] = 'siem'
         test_env['SIEM_TEST_DB_PASSWORD'] = ENV['SIEM_DB_PASSWORD']
+        maven_wrapper = ['cmd.exe', '/c', 'mvnw.cmd'] if os.name == 'nt' else ['./mvnw']
         with (HERE / 'java-tests.log').open('w') as log:
-            tested = subprocess.run(['./mvnw'] + (['-o'] if args.offline else []) + ['--batch-mode', 'clean', 'verify'], cwd=MODULE, env=test_env,
+            tested = subprocess.run(maven_wrapper + (['-o'] if args.offline else []) + ['--batch-mode', 'clean', 'verify'], cwd=MODULE, env=test_env,
                                     stdout=log, stderr=subprocess.STDOUT, timeout=600)
         for line in (HERE / 'java-tests.log').read_text().splitlines():
             if 'Tests run:' in line or 'BUILD SUCCESS' in line or 'BUILD FAILURE' in line:
@@ -235,20 +269,31 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                     'Content-Type': response_headers.get('Content-Type')}})
             return result
 
-        with (HERE / 'application.log').open('w') as app_log:
-            app = subprocess.Popen(['java', '-jar', str(MODULE / 'target/siem-0.0.1-SNAPSHOT.jar'), '--server.address=127.0.0.1'],
-                                   cwd=MODULE, env=app_env, stdout=app_log, stderr=subprocess.STDOUT)
+        def start_app(log):
+            process = subprocess.Popen(['java', '-jar', str(MODULE / 'target/siem-0.0.1-SNAPSHOT.jar'), '--server.address=127.0.0.1'],
+                                       cwd=MODULE, env=app_env, stdout=log, stderr=subprocess.STDOUT)
+            for attempt in range(100):
+                if process.poll() is not None:
+                    raise RuntimeError('Packaged application exited during startup')
+                try:
+                    if request('/health')[0] == 200:
+                        return process
+                except (URLError, ConnectionError):
+                    time.sleep(0.2)
+            stop_app(process)
+            raise RuntimeError('Packaged application did not become available')
+
+        def stop_app(process):
+            process.terminate()
             try:
-                for attempt in range(100):
-                    if app.poll() is not None:
-                        raise RuntimeError('Packaged application exited during startup')
-                    try:
-                        if request('/health')[0] == 200:
-                            break
-                    except (URLError, ConnectionError):
-                        time.sleep(0.2)
-                else:
-                    raise RuntimeError('Packaged application did not become available')
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+
+        with (HERE / 'application.log').open('w') as app_log:
+            app = start_app(app_log)
+            try:
                 for authorization in (None, 'Bearer not-a-valid-token'):
                     status, body = request('/alerts', authorization=authorization)
                     assert status == 401 and body['error']['code'] == 'UNAUTHENTICATED', (status, body)
@@ -280,6 +325,13 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                 history_status, history = request('/events?limit=1&offset=0')
                 assert history_status == 200 and history['events'] == [event], (history_status, history)
                 passed('packaged history returns the complete persisted event')
+                alerts_status, alerts_body = request('/alerts')
+                assert alerts_status == 200, (alerts_status, alerts_body)
+                alert = next(item for item in alerts_body['alerts'] if item['event_id'] == event['event_id'])
+                alert_path = '/alerts/' + alert['alert_id']
+                assert request(alert_path) == (200, alert)
+                assert sql("SELECT count(*) FROM alerts WHERE event_id='" + event['event_id'] + "'") == '1'
+                passed('packaged application stores the generated alert in PostgreSQL')
                 assert sql("SELECT count(*) FROM events WHERE event_id='" + event['event_id'] + "'") == '1'
                 before = sql("SELECT row_to_json(events)::text FROM events WHERE event_id='" + event['event_id'] + "'")
                 compose('stop', 'siem-db')
@@ -289,6 +341,10 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                 history_status, history = request('/events')
                 assert history_status == 503 and history['error']['code'] == 'STORAGE_UNAVAILABLE', (history_status, history)
                 passed('history reports storage outage instead of empty success')
+                for path in ('/alerts', alert_path):
+                    alert_status, body = request(path)
+                    assert alert_status == 503 and body['error']['code'] == 'STORAGE_UNAVAILABLE', (path, alert_status, body)
+                passed('alert list and detail report storage outage instead of empty success')
                 compose('rm', '-f', 'siem-db')
                 compose('up', '-d', '--wait', '--wait-timeout', '90', 'siem-db', timeout=180)
                 assert sql("SELECT row_to_json(events)::text FROM events WHERE event_id='" + event['event_id'] + "'") == before, 'Container recreation changed stored data'
@@ -298,8 +354,9 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                 passed('history remains available with identical data after storage recovery')
                 assert request('/events', event)[0] == 200
                 assert sql("SELECT count(*) FROM events WHERE event_id='" + event['event_id'] + "'") == '1'
-                event['title'] = 'Changed after database restart'
-                assert request('/events', event)[0] == 409
+                assert sql("SELECT count(*) FROM alerts WHERE event_id='" + event['event_id'] + "'") == '1'
+                changed_event = {**event, 'title': 'Changed after database restart'}
+                assert request('/events', changed_event)[0] == 409
                 passed('recovery accepts identical replay with one row and rejects changed content')
                 info_event = json.loads((MODULE / 'contract/examples/grupo_4_scanner_info.json').read_text())
                 info_event['event_id'] = PROJECT + '-scanner-info'
@@ -309,9 +366,40 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                 assert sql("SELECT severity FROM events WHERE event_id='" + info_event['event_id'] + "'") == 'info'
                 assert request('/events', info_event)[0] == 200
                 assert sql("SELECT count(*) FROM events WHERE event_id='" + info_event['event_id'] + "'") == '1'
-                passed('packaged application stores scanner info and acknowledges an identical replay')
+                assert sql("SELECT count(*) FROM alerts WHERE event_id='" + info_event['event_id'] + "'") == '0'
+                passed('packaged application stores and replays scanner info without generating an alert')
+                # HU23: restarting the SIEM keeps the alert and its alert_id (SOAR registers only new ones).
+                stop_app(app)
+                app = start_app(app_log)
+                assert request(alert_path) == (200, alert)
+                listed = [item for item in request('/alerts')[1]['alerts'] if item['event_id'] == event['event_id']]
+                assert listed == [alert], listed
+                passed('alert keeps its alert_id and content after restarting the SIEM')
 
-                smoke = subprocess.run(['python3', str(MODULE / 'scripts/smoke-test.py'), base_url],
+                replay_status, receipt = request('/events', event)
+                assert replay_status == 200 and receipt['event_id'] == event['event_id'], (replay_status, receipt)
+                assert sql("SELECT count(*) FROM events WHERE source='honeypot' AND event_id='" + event['event_id'] + "'") == '1'
+                assert sql("SELECT count(*) FROM alerts WHERE source='honeypot' AND event_id='" + event['event_id'] + "'") == '1'
+                assert request(alert_path) == (200, alert)
+                passed('post-restart replay preserves one event and the original alert')
+
+                # This constraint affects only a fixed fixture in the isolated test database.
+                rollback_event = {**event, 'event_id': 'sem148-rollback-fixture'}
+                sql("ALTER TABLE alerts ADD CONSTRAINT sem148_reject_fixture CHECK (event_id <> 'sem148-rollback-fixture')")
+                try:
+                    assert request('/events', rollback_event) == (500, {
+                        'error': {'code': 'INTERNAL_ERROR', 'message': 'An unexpected error occurred'}
+                    })
+                    assert sql("SELECT count(*) FROM events WHERE source='honeypot' AND event_id='sem148-rollback-fixture'") == '0'
+                    assert sql("SELECT count(*) FROM alerts WHERE source='honeypot' AND event_id='sem148-rollback-fixture'") == '0'
+                finally:
+                    sql("ALTER TABLE alerts DROP CONSTRAINT sem148_reject_fixture")
+                assert request('/events', rollback_event)[0] == 200
+                assert sql("SELECT count(*) FROM events WHERE source='honeypot' AND event_id='sem148-rollback-fixture'") == '1'
+                assert sql("SELECT count(*) FROM alerts WHERE source='honeypot' AND event_id='sem148-rollback-fixture'") == '1'
+                passed('failed alert insert returns HTTP 500 and rolls back the event; replay succeeds after recovery')
+
+                smoke = subprocess.run([sys.executable, str(MODULE / 'scripts/smoke-test.py'), base_url],
                                        env=dict(ENV, SIEM_TOKEN=identity_token,
                                                 SIEM_TOKEN_IDS=tokens['ids'], SIEM_TOKEN_HONEYPOT=tokens['honeypot'],
                                                 SIEM_TOKEN_SCANNER=tokens['scanner'], SIEM_TOKEN_PENTESTING=tokens['pentesting']),
@@ -340,12 +428,7 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
             finally:
                 identity.shutdown()
                 identity.server_close()
-                app.terminate()
-                try:
-                    app.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    app.kill()
-                    app.wait(timeout=5)
+                stop_app(app)
 
     finally:
         compose('down', '-v', '--remove-orphans')

@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class AlertDetailHttpTests {
     @Autowired Environment environment;
     @Autowired ObjectMapper mapper;
-    @Autowired AlertRepository alertRepository;
+    @Autowired InMemoryAlertRepository alertRepository;
 
     HttpResponse<String> get(String path) throws Exception {
         var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" +

@@ -13,7 +13,7 @@ La referencia de persistencia es `cb27971d6ce59919f43bc3a824739de348ee1a16`. El 
 | Origen del Escáner | `scanner` | Se conserva |
 | Severidades de eventos | `low`, `medium`, `high`, `critical` | `info`, `low`, `medium`, `high`, `critical` |
 | Persistencia | PostgreSQL, perfil `persistence` | Se reutiliza sin transformar el evento |
-| Alertas | Consultas del almacén en memoria | Un evento informativo queda solo en el histórico |
+| Alertas | Consultas del almacén de alertas en PostgreSQL | Un evento informativo queda solo en el histórico |
 
 **El soporte de `info` está implementado en esta rama.** La validación Java, el esquema JSON y OpenAPI admiten las cinco severidades. La base de datos debe utilizar los scripts actualizados o tener aplicada la migración `003-allow-info-severity.sql`. Una petición válida con `severity: "info"` devuelve 200 después de confirmar almacenamiento o un reenvío idéntico.
 

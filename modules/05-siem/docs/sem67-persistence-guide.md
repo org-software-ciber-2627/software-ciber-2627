@@ -6,7 +6,7 @@ Esta guía configura PostgreSQL y arranca la API con almacenamiento. Para ejecut
 
 | Modo | Uso | Resultado de un evento válido |
 | --- | --- | --- |
-| Java sin perfil `persistence` | Health y listado inicial vacío sin PostgreSQL | 503, no confirma almacenamiento |
+| Java sin perfil `persistence` | Solo health; los listados de eventos y alertas responden 503 | 503, no confirma almacenamiento |
 | Compose actual del servicio `siem` | Arranque del contenedor sin integración PostgreSQL configurada | 503 |
 | Java con perfil `persistence` y PostgreSQL disponible | Ingesta y almacenamiento reales | 200 tras guardar o reconocer un reenvío idéntico |
 | Ejecutor SEM-66 | Verificar la implementación con base desechable | Comprueba guardado, errores, reenvíos y recreación del contenedor |
@@ -54,9 +54,10 @@ Resultado esperado: contenedor healthy y tabla `events` con clave `(source, even
 docker compose --env-file /dev/null -f modules/05-siem/compose.storage.yml exec -T siem-db psql -X -U siem -d siem_bd -v ON_ERROR_STOP=1 < modules/05-siem/db/init/002-add-original-timestamp.sql
 docker compose --env-file /dev/null -f modules/05-siem/compose.storage.yml exec -T siem-db psql -X -U siem -d siem_bd -v ON_ERROR_STOP=1 < modules/05-siem/db/init/003-allow-info-severity.sql
 docker compose --env-file /dev/null -f modules/05-siem/compose.storage.yml exec -T siem-db psql -X -U siem -d siem_bd -v ON_ERROR_STOP=1 < modules/05-siem/db/init/004-allow-pentesting-source.sql
+docker compose --env-file /dev/null -f modules/05-siem/compose.storage.yml exec -T siem-db psql -X -U siem -d siem_bd -v ON_ERROR_STOP=1 < modules/05-siem/db/init/005-create-alerts.sql
 ```
 
-Con un volumen nuevo, los cuatro scripts se aplican automáticamente. La migración 003 sustituye de forma transaccional la restricción de severidad para incluir `info`, conserva las filas existentes y puede reaplicarse. Requiere bloquear la tabla; usa un límite de cinco segundos para adquirir el bloqueo y falla sin dejar el cambio a medias si no puede obtenerlo. Aplícala con la aplicación detenida en una ventana de mantenimiento. Volver al catálogo anterior exige resolver explícitamente los eventos `info` ya almacenados; no se borran ni transforman automáticamente. La 004 sustituye en una transacción la restricción `events_source_check` para aceptar `pentesting`; también es repetible. El puerto PostgreSQL se publica en `127.0.0.1:5433`; si se usa otro puerto, mantén el mismo `SIEM_DB_PORT` para Compose y Java.
+Con un volumen nuevo, los cinco scripts se aplican automáticamente. La migración 003 sustituye de forma transaccional la restricción de severidad para incluir `info`, conserva las filas existentes y puede reaplicarse. Requiere bloquear la tabla; usa un límite de cinco segundos para adquirir el bloqueo y falla sin dejar el cambio a medias si no puede obtenerlo. Aplícala con la aplicación detenida en una ventana de mantenimiento. Volver al catálogo anterior exige resolver explícitamente los eventos `info` ya almacenados; no se borran ni transforman automáticamente. La 004 sustituye en una transacción la restricción `events_source_check` para aceptar `pentesting`; también es repetible. La 005 crea la tabla `alerts` (SEM-147) en una transacción, sin modificar `events`; es repetible y, como las anteriores, se aplica con la aplicación detenida. Con el perfil `persistence`, el SIEM no arranca si falta la tabla `alerts` y su log indica que hay que aplicar la 005. El puerto PostgreSQL se publica en `127.0.0.1:5433`; si se usa otro puerto, mantén el mismo `SIEM_DB_PORT` para Compose y Java.
 
 Si el volumen ya contiene la base antigua `siem`, cambiar `SIEM_DB_NAME` no la renombra. Detén primero la aplicación, crea una copia de seguridad fuera del repositorio y confirma que `siem_bd` no existe y que `siem` no tiene sesiones activas. Después, desde la raíz del repositorio:
 
@@ -117,9 +118,10 @@ Los ocho campos del contrato son `event_id`, `timestamp`, `source`, `event_type`
 | Misma clave con otro contenido | 409 `EVENT_ID_CONFLICT`, original intacto |
 | Evento inválido | 400, sin nueva fila |
 | Tipo de contenido no admitido | 415 |
-| Sin almacenamiento configurado o caída durante ingesta | 503 `STORAGE_UNAVAILABLE` |
+| Sin almacenamiento configurado o caída durante ingesta | 503 `STORAGE_UNAVAILABLE`; evento y alerta se revierten juntos |
+| Error de esquema o integridad del almacén (por ejemplo, un `alert_id` ya usado por otro evento) | 500 `INTERNAL_ERROR`; evento y alerta se revierten juntos |
 
-Con persistencia activa se rechazan con 400 los textos con caracteres nulos o Unicode incompleto, también dentro de `details`, y las fechas o números fuera del rango de almacenamiento. Se conserva el error genérico: no se devuelven SQL ni datos de conexión. Los fallos reales de PostgreSQL continúan produciendo 503. El Unicode válido, incluidos caracteres suplementarios, se guarda y reenvía sin sustituciones.
+Con persistencia activa se rechazan con 400 los textos con caracteres nulos o Unicode incompleto, también dentro de `details`, y las fechas o números fuera del rango de almacenamiento. Se conserva el error genérico: no se devuelven SQL ni datos de conexión. Los fallos de disponibilidad de PostgreSQL (conexión, timeout, bloqueo o transacción que no puede empezar) producen 503: el productor puede reenviar el mismo evento más tarde sin duplicarlo. Los errores de esquema o integridad producen 500: reintentar no los resuelve y hay que revisar la base de datos o la aplicación. En ese caso el log registra `Event storage error` con el tipo de error, sin el contenido del evento. El Unicode válido, incluidos caracteres suplementarios, se guarda y reenvía sin sustituciones.
 
 Si PostgreSQL no está disponible al arrancar con `persistence`, la creación del pool puede impedir el arranque; no debe confundirse con un servidor arrancado que responde 503. El [comportamiento de ingesta](../contract/sem65-ingestion-proposal.md) describe 409 y 503; el [OpenAPI vigente](../contract/openapi.json) refleja estas respuestas y el histórico de HU10.
 
@@ -143,10 +145,13 @@ Esto conserva el volumen nombrado del mismo proyecto. No uses `down -v` ni borre
 | Error de autenticación PostgreSQL | Contraseña del volumen existente, sin imprimirla en logs |
 | Falta `original_timestamp` | Aplica la migración 002 al volumen existente |
 | Un evento `pentesting` falla con `events_source_check` | Aplica la migración 004 al volumen existente |
+| El SIEM no arranca: `Table 'alerts' is missing` | Aplica la migración 005 al volumen existente |
+| 503 en `GET /alerts` con Java sin perfil | Esperado: sin persistencia no hay almacén de alertas |
+| 500 `INTERNAL_ERROR` en `POST /events` | Buscar `Event storage error` en el log del SIEM; suele indicar una migración sin aplicar o un esquema distinto. No reintentar en bucle |
 | Puerto ocupado | Otro proceso o contenedor en 8005/5433; no detener procesos ajenos automáticamente |
 | 409 al repetir un ejemplo | El contenido guardado para esa clave difiere; no borrar datos para forzar 200 |
 | Pruebas PostgreSQL omitidas | Usar el ejecutor SEM-66 o una base exclusiva de pruebas configurada |
 
-La ingesta aún no autentica productores. El arranque de esta guía se limita a loopback; la exposición compartida necesita acordar controles de acceso. Las alertas generadas viven en memoria. El histórico de PostgreSQL se conserva al reiniciar el SIEM.
+La ingesta aún no autentica productores. El arranque de esta guía se limita a loopback; la exposición compartida necesita acordar controles de acceso. Las alertas generadas se guardan en PostgreSQL junto a su evento y, como el histórico, se conservan al reiniciar el SIEM con el mismo `alert_id`.
 
 Para comprobar manualmente el guardado completo y la conservación, sigue [la verificación de persistencia](sem67-acceptance-check.md).

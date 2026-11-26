@@ -72,6 +72,8 @@ public class ApiErrorHandler {
         return error(415, "UNSUPPORTED_MEDIA_TYPE", "Content-Type must be application/json");
     }
 
+    // Not thrown since SEM-147 (no alert cap, SEM-146 D7). Kept with the published 507 until
+    // SOAR and Dashboard ratify the contract change.
     @ExceptionHandler(AlertStorageFullException.class)
     public ResponseEntity<Map<String, Object>> storageFull(AlertStorageFullException exception) {
         return error(507, "STORAGE_FULL", "Alert storage has reached its capacity");

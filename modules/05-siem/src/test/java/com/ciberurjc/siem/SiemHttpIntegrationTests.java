@@ -28,7 +28,7 @@ class SiemHttpIntegrationTests {
     @Autowired
     ObjectMapper mapper;
     @Autowired
-    AlertRepository alertRepository;
+    InMemoryAlertRepository alertRepository;
     final HttpClient client = TestIdentity.authenticatedClient();
     String baseUrl;
 

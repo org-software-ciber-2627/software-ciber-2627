@@ -16,12 +16,12 @@ import static org.mockito.Mockito.*;
 class AlertQueryServiceTest {
     @Test
     void returnsEmptyWhenStorageIsEmpty() {
-        assertTrue(new AlertQueryService(new AlertRepository()).findAll().isEmpty());
+        assertTrue(new AlertQueryService(new InMemoryAlertRepository()).findAll().isEmpty());
     }
 
     @Test
     void returnsAllGeneratedFieldsIncludingNullAddresses() {
-        var repository = new AlertRepository();
+        var repository = new InMemoryAlertRepository();
         var event = new Event("query-honeypot", "2026-11-03T12:00:00Z", "honeypot",
             "fuerza_bruta", "high", "SSH attempts", "Repeated SSH attempts",
             Map.of("source_ip", "192.0.2.10", "service", "ssh"));
@@ -39,7 +39,7 @@ class AlertQueryServiceTest {
 
     @Test
     void readsCurrentStorageWithoutTruncationOrOrderAssumptions() {
-        var repository = new AlertRepository();
+        var repository = new InMemoryAlertRepository();
         var query = new AlertQueryService(repository);
         assertTrue(query.findAll().isEmpty());
         var converter = new AlertConverter();

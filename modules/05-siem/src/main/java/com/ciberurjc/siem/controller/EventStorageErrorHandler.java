@@ -1,6 +1,7 @@
 package com.ciberurjc.siem.controller;
 
 import com.ciberurjc.siem.services.EventIdConflictException;
+import com.ciberurjc.siem.services.EventStorageFailureException;
 import com.ciberurjc.siem.services.EventStorageUnavailableException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -20,5 +21,11 @@ public class EventStorageErrorHandler {
     public ResponseEntity<Map<String, Object>> unavailable(EventStorageUnavailableException exception) {
         return ResponseEntity.status(503).body(Map.of("error", Map.of(
             "code", "STORAGE_UNAVAILABLE", "message", exception.getMessage())));
+    }
+
+    @ExceptionHandler(EventStorageFailureException.class)
+    public ResponseEntity<Map<String, Object>> failure(EventStorageFailureException exception) {
+        return ResponseEntity.status(500).body(Map.of("error", Map.of(
+            "code", "INTERNAL_ERROR", "message", "An unexpected error occurred")));
     }
 }
