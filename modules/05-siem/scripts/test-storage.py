@@ -291,8 +291,8 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                 assert request('/events', event)[0] == 200
                 assert sql("SELECT count(*) FROM events WHERE event_id='" + event['event_id'] + "'") == '1'
                 assert sql("SELECT count(*) FROM alerts WHERE event_id='" + event['event_id'] + "'") == '1'
-                event['title'] = 'Changed after database restart'
-                assert request('/events', event)[0] == 409
+                changed_event = {**event, 'title': 'Changed after database restart'}
+                assert request('/events', changed_event)[0] == 409
                 passed('recovery accepts identical replay with one row and rejects changed content')
                 info_event = json.loads((MODULE / 'contract/examples/grupo_4_scanner_info.json').read_text())
                 info_event['event_id'] = PROJECT + '-scanner-info'
@@ -302,7 +302,8 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                 assert sql("SELECT severity FROM events WHERE event_id='" + info_event['event_id'] + "'") == 'info'
                 assert request('/events', info_event)[0] == 200
                 assert sql("SELECT count(*) FROM events WHERE event_id='" + info_event['event_id'] + "'") == '1'
-                passed('packaged application stores scanner info and acknowledges an identical replay')
+                assert sql("SELECT count(*) FROM alerts WHERE event_id='" + info_event['event_id'] + "'") == '0'
+                passed('packaged application stores and replays scanner info without generating an alert')
                 # HU23: restarting the SIEM keeps the alert and its alert_id (SOAR registers only new ones).
                 stop_app(app)
                 app = start_app(app_log)
@@ -310,6 +311,29 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                 listed = [item for item in request('/alerts')[1]['alerts'] if item['event_id'] == event['event_id']]
                 assert listed == [alert], listed
                 passed('alert keeps its alert_id and content after restarting the SIEM')
+
+                replay_status, receipt = request('/events', event)
+                assert replay_status == 200 and receipt['event_id'] == event['event_id'], (replay_status, receipt)
+                assert sql("SELECT count(*) FROM events WHERE source='honeypot' AND event_id='" + event['event_id'] + "'") == '1'
+                assert sql("SELECT count(*) FROM alerts WHERE source='honeypot' AND event_id='" + event['event_id'] + "'") == '1'
+                assert request(alert_path) == (200, alert)
+                passed('post-restart replay preserves one event and the original alert')
+
+                # This constraint affects only a fixed fixture in the isolated test database.
+                rollback_event = {**event, 'event_id': 'sem148-rollback-fixture'}
+                sql("ALTER TABLE alerts ADD CONSTRAINT sem148_reject_fixture CHECK (event_id <> 'sem148-rollback-fixture')")
+                try:
+                    assert request('/events', rollback_event) == (500, {
+                        'error': {'code': 'INTERNAL_ERROR', 'message': 'An unexpected error occurred'}
+                    })
+                    assert sql("SELECT count(*) FROM events WHERE source='honeypot' AND event_id='sem148-rollback-fixture'") == '0'
+                    assert sql("SELECT count(*) FROM alerts WHERE source='honeypot' AND event_id='sem148-rollback-fixture'") == '0'
+                finally:
+                    sql("ALTER TABLE alerts DROP CONSTRAINT sem148_reject_fixture")
+                assert request('/events', rollback_event)[0] == 200
+                assert sql("SELECT count(*) FROM events WHERE source='honeypot' AND event_id='sem148-rollback-fixture'") == '1'
+                assert sql("SELECT count(*) FROM alerts WHERE source='honeypot' AND event_id='sem148-rollback-fixture'") == '1'
+                passed('failed alert insert returns HTTP 500 and rolls back the event; replay succeeds after recovery')
 
                 smoke = subprocess.run([sys.executable, str(MODULE / 'scripts/smoke-test.py'), base_url],
                                        capture_output=True, text=True, timeout=30)
