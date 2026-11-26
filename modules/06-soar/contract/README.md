@@ -314,10 +314,15 @@ Cambia el estado del incidente según HU6 (ver `status.md`). Cuerpo:
 {"status":"closed","justification":"Revisado por el analista","resolution_reason":"IP bloqueada","changed_by":"analista.fer"}
 ```
 
-- `changed_by` (HU7) es obligatorio al cerrar y opcional en el resto de cambios; máximo 100 caracteres.
+- Con un token válido, `changed_by` sale del `username` del token y es opcional en el cuerpo. Sin
+  autenticación (`AUTH_URL` no configurada), el cuerpo debe incluirlo al cerrar y es opcional en
+  el resto de cambios. Máximo 100 caracteres.
 - `200` con el incidente actualizado y `changed_by`. Al cerrar, `resolved_at` se rellena.
-- `400` `{"error":"..."}` si el cuerpo no es válido, falta `changed_by` al cerrar o HU6 rechaza el cambio.
+- `400` `{"error":"..."}` si el cuerpo no es válido o HU6 rechaza el cambio. Sin autenticación,
+  también si `changed_by` del cuerpo no es texto o falta al cerrar. Si el `changed_by` efectivo
+  (del token o del cuerpo) supera 100 caracteres, también se devuelve `400`.
 - `404` `{"error":"incident_not_found"}` si el incidente no existe.
+- `401`, `403` o `503` por errores de autenticación; ver [Autenticación (HU20)](README.md#autenticación-hu20).
 
 ## `POST /poll`
 

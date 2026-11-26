@@ -68,7 +68,8 @@ Con un token válido, `changed_by` en el cuerpo es opcional:
 - `400` `{"error": "..."}`, sin cambiar el estado, si:
   - el cuerpo no es JSON o falta `status`;
   - sin autenticación, `changed_by` no es texto: `changed_by debe ser texto`;
-  - sin autenticación, `changed_by` tiene más de 100 caracteres: `changed_by no puede superar 100 caracteres`;
+  - el `changed_by` efectivo (username del token o valor del cuerpo sin autenticación) tiene más de 100 caracteres:
+    `changed_by no puede superar 100 caracteres`;
   - sin autenticación, se cierra sin `changed_by`: `changed_by es obligatorio para cerrar un incidente`;
   - HU6 rechaza el cambio (transición no permitida, justificación vacía, cierre sin `resolution_reason`
     o incidente ya cerrado).
