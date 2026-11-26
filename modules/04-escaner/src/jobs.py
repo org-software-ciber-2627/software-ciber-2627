@@ -48,7 +48,7 @@ def _login_url():
 
 
 def get_token(force=False):
-    global _TOKEN, _TOKEN_OBTAINED_AT
+    global _TOKEN, _TOKEN_OBTAINED_AT, _RATE_LIMITED_UNTIL
     with _TOKEN_LOCK:
         now = time.monotonic()
         if now < _RATE_LIMITED_UNTIL:
