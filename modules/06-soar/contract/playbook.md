@@ -65,8 +65,10 @@ de HU13. No se bloquea la IP en ningún sistema real. `target` es la IP.
 | Lista negra no configurada en el `PlaybookService` | `skipped` | `Lista negra no configurada` |
 | La lista negra lanza un error | `failed` | `No se pudo bloquear la IP: <error>`; `notify` se ejecuta igualmente |
 
-`already_blocked` es `success` porque la IP ya está contenida. La lista negra se conecta al flujo de
-sondeo en HU19.3; hasta entonces el pipeline no la configura y `block_ip` queda en `skipped`.
+`already_blocked` es `success` porque la IP ya está contenida. Desde HU19.3 el pipeline del SOAR
+configura la lista negra sobre la tabla `ip_blacklist` del mismo SQLite (`DATABASE_PATH`), y las redes
+excluidas salen de `BLACKLIST_EXCLUDED_NETWORKS`. `Lista negra no configurada` solo aparece si se crea
+un `PlaybookService` sin lista negra, como en algunos tests.
 
 ## Acción `notify`
 
@@ -103,4 +105,11 @@ Cuerpo enviado (**provisional, pendiente de confirmar con el grupo 7**):
 - Si alguna acción tiene éxito, el incidente pasa de `open` a `in_progress` (HU6) con la justificación
   `Respuesta automática ejecutada: <acciones>` (solo las que tienen éxito, por ejemplo `block_ip, notify`).
   Si todas fallan o se omiten, sigue en `open`.
+- Contención automática (HU19.3): si además `block_ip` tiene éxito, el incidente pasa de `in_progress`
+  a `contained` con la justificación `IP <ip> bloqueada en la lista negra` (IP nueva) o
+  `IP <ip> ya estaba en la lista negra` (la había bloqueado otro incidente). Si `block_ip` se omite o
+  falla, el incidente se queda en `in_progress` (o en `open` si ninguna acción tuvo éxito).
+- Los dos cambios automáticos se registran con `changed_by = "soar-automation"`.
+- En la demo (sin `GROUP7_NOTIFY_URL`), un incidente de fuerza bruta con una IP bloqueable termina en
+  `contained`, con `block_ip = success` y `notify = skipped`.
 - Si el incidente ya tiene respuestas registradas, el playbook no se vuelve a ejecutar.

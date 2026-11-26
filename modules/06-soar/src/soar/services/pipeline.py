@@ -9,10 +9,12 @@ from soar.models.incident_status import IncidentStatus
 from soar.models.playbook import BRUTE_FORCE_PLAYBOOK, BruteForcePlaybookInput
 from soar.models.status_change import StatusChange
 from soar.normalization.parser import parse_and_normalize_alert
+from soar.repositories.blacklist_repository import SqliteBlacklistRepository
 from soar.repositories.incident_repository import SqliteIncidentRepository
 from soar.repositories.response_repository import SqliteResponseRepository
 from soar.repositories.status_history_repository import SqliteStatusHistoryRepository
 from soar.services.automation_detector import evaluate_automation
+from soar.services.blacklist_service import BlacklistService
 from soar.services.playbook_service import PlaybookService
 from soar.services.priority_service import prioritize
 from soar.services.response_mapper import responses_from_playbook_output
@@ -49,7 +51,12 @@ class SoarPipeline:
         self._incidents = SqliteIncidentRepository(database_path)
         self._responses = ResponseService(SqliteResponseRepository(database_path))
         self._status = StatusService(SqliteStatusHistoryRepository(database_path), clock)
-        self._playbooks = playbook_service or PlaybookService()
+        # HU19.3: block_ip usa la lista negra simulada en la tabla ip_blacklist del mismo SQLite.
+        # Las redes excluidas salen de BLACKLIST_EXCLUDED_NETWORKS (ver BlacklistService)
+        self._blacklist = SqliteBlacklistRepository(database_path)
+        self._playbooks = playbook_service or PlaybookService(
+            blacklist_service=BlacklistService(self._blacklist)
+        )
 
     def process_alert(self, alert: dict[str, Any]) -> dict[str, Any]:
         """
@@ -83,6 +90,16 @@ class SoarPipeline:
                     changed_by=AUTOMATION_ACTOR,
                 )
                 self._incidents.save(incident)
+            # HU19.3: contención automática; con la IP en la lista negra el incidente queda contenido
+            block_ip = next((r for r in responses if r.action == "block_ip" and r.status == "success"), None)
+            if block_ip is not None:
+                incident = self._status.change_status(
+                    incident,
+                    IncidentStatus.CONTAINED,
+                    self._containment_justification(incident, block_ip),
+                    changed_by=AUTOMATION_ACTOR,
+                )
+                self._incidents.save(incident)
 
         logger.info(
             "Alerta procesada: incidente %s, prioridad %s, automatizable %s (%s), respuestas %s, estado %s",
@@ -94,6 +111,16 @@ class SoarPipeline:
             incident.status,
         )
         return {"result": "created", "automated": automated}
+
+    def _containment_justification(self, incident: Incident, block_ip: ExecutedResponse) -> str:
+        """
+        Motivo del paso a contained: la IP es nueva en la lista negra o ya la había bloqueado otro incidente.
+        """
+        entry = self._blacklist.get_by_ip(str(block_ip.details.get("target", incident.source_ip)))
+        ip = entry.ip if entry is not None else incident.source_ip
+        if entry is not None and entry.incident_id != incident.incident_id:
+            return f"IP {ip} ya estaba en la lista negra"
+        return f"IP {ip} bloqueada en la lista negra"
 
     def _run_playbook(self, incident: Incident, playbook: Optional[str], reason: str) -> list[ExecutedResponse]:
         if playbook != BRUTE_FORCE_PLAYBOOK:

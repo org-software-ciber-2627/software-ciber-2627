@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 import tempfile
 import threading
 import unittest
@@ -11,7 +12,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 import app
+from soar.repositories.blacklist_repository import SqliteBlacklistRepository
 from soar.repositories.incident_repository import SqliteIncidentRepository
+from soar.services.blacklist_service import BlacklistService
 from soar.services.playbook_service import PlaybookService
 
 
@@ -452,6 +455,206 @@ class TestHttpApi(PipelineTestCase):
             status, body = self.request("GET", "/incidents")
 
         self.assertEqual((status, body), (500, {"error": "internal_error"}))
+
+
+# HU19.3: IP de documentación (TEST-NET-3), "externa" para el SOAR
+EXTERNAL_IP = "203.0.113.7"
+
+
+def brute_force_alert(alert_id, source_ip=EXTERNAL_IP):
+    alert = json.loads(json.dumps(BRUTE_FORCE_ALERT))
+    alert["alert_id"] = alert_id
+    alert["source_ip"] = source_ip
+    alert["details"]["source_ip"] = source_ip
+    return alert
+
+
+class BlacklistPipelineTestCase(PipelineTestCase):
+    """
+    Pipeline con la lista negra real (SQLite) y sin red: notify usa FakeHttpPost.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        environment = patch.dict(os.environ, {"BLACKLIST_EXCLUDED_NETWORKS": ""})
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def build_pipeline(self, notify_url="http://dashboard/notifications"):
+        blacklist = BlacklistService(SqliteBlacklistRepository(self.database_path))
+        playbooks = PlaybookService(notify_url=notify_url, http_post=self.http_post, blacklist_service=blacklist)
+        return app.SoarPipeline(
+            self.database_path, register_alert=app.save_alert, alert_key=app.alert_key, playbook_service=playbooks
+        )
+
+    def blacklist_rows(self):
+        connection = sqlite3.connect(self.database_path)
+        try:
+            return connection.execute("SELECT ip, incident_id FROM ip_blacklist ORDER BY rowid").fetchall()
+        finally:
+            connection.close()
+
+    def history_of(self, pipeline, incident_id):
+        return [
+            (change.from_status.value, change.to_status.value, change.justification, change.changed_by)
+            for change in pipeline.get_history(incident_id)
+        ]
+
+
+class TestPipelineBlockIp(BlacklistPipelineTestCase):
+    def test_brute_force_alert_blocks_the_ip_and_contains_the_incident(self):
+        pipeline = self.build_pipeline()
+
+        outcome = pipeline.process_alert(brute_force_alert("SIEM-BF-1"))
+
+        self.assertEqual(outcome, {"result": "created", "automated": True})
+        incident = self.find_incident("SIEM-BF-1")
+        incident_id = incident["incident_id"]
+        self.assertEqual(incident["status"], "contained")
+        self.assertEqual(self.blacklist_rows(), [(EXTERNAL_IP, incident_id)])
+        self.assertEqual(
+            [(r.action, r.status) for r in pipeline.list_responses(incident_id)],
+            [("block_ip", "success"), ("notify", "success")],
+        )
+        self.assertEqual(self.history_of(pipeline, incident_id), [
+            ("open", "in_progress", "Respuesta automática ejecutada: block_ip, notify", "soar-automation"),
+            ("in_progress", "contained", f"IP {EXTERNAL_IP} bloqueada en la lista negra", "soar-automation"),
+        ])
+
+    def test_second_alert_with_the_same_ip_is_already_blocked_without_duplicates(self):
+        pipeline = self.build_pipeline()
+        pipeline.process_alert(brute_force_alert("SIEM-BF-1"))
+        first_id = self.find_incident("SIEM-BF-1")["incident_id"]
+
+        pipeline.process_alert(brute_force_alert("SIEM-BF-2"))
+
+        second = self.find_incident("SIEM-BF-2")
+        block_ip = pipeline.list_responses(second["incident_id"])[0]
+        self.assertEqual((block_ip.action, block_ip.status), ("block_ip", "success"))
+        self.assertIn("ya estaba bloqueada", block_ip.message)
+        self.assertEqual(self.blacklist_rows(), [(EXTERNAL_IP, first_id)])
+        self.assertEqual(second["status"], "contained")
+        self.assertEqual(
+            self.history_of(pipeline, second["incident_id"])[-1],
+            ("in_progress", "contained", f"IP {EXTERNAL_IP} ya estaba en la lista negra", "soar-automation"),
+        )
+
+    def test_repeated_alert_does_not_rerun_the_playbook(self):
+        self.build_pipeline().process_alert(brute_force_alert("SIEM-BF-1"))
+
+        outcome = self.build_pipeline().process_alert(brute_force_alert("SIEM-BF-1"))
+
+        self.assertEqual(outcome, {"result": "ignored", "automated": False})
+        self.assertEqual(len(self.find_incident("SIEM-BF-1")["responses"]), 2)
+        self.assertEqual(len(self.http_post.calls), 1)
+        self.assertEqual(len(self.blacklist_rows()), 1)
+
+    def test_loopback_ip_is_skipped_and_not_blacklisted(self):
+        pipeline = self.build_pipeline()
+
+        pipeline.process_alert(brute_force_alert("SIEM-BF-LOCAL", source_ip="127.0.0.1"))
+
+        incident = self.find_incident("SIEM-BF-LOCAL")
+        block_ip = pipeline.list_responses(incident["incident_id"])[0]
+        self.assertEqual((block_ip.action, block_ip.status), ("block_ip", "skipped"))
+        self.assertEqual(self.blacklist_rows(), [])
+        # notify ha tenido éxito: el incidente se investiga, pero no está contenido
+        self.assertEqual(incident["status"], "in_progress")
+
+    def test_alert_that_is_not_brute_force_does_not_touch_the_blacklist(self):
+        self.build_pipeline().process_alert(PORT_SCAN_ALERT)
+
+        self.assertEqual(self.find_incident("SIEM-ALERT-EJEMPLO-001")["status"], "open")
+        self.assertEqual(self.blacklist_rows(), [])
+
+    def test_blacklist_persists_in_a_new_pipeline_over_the_same_file(self):
+        self.build_pipeline().process_alert(brute_force_alert("SIEM-BF-1"))
+        incident_id = self.find_incident("SIEM-BF-1")["incident_id"]
+
+        entry = SqliteBlacklistRepository(self.database_path).get_by_ip(EXTERNAL_IP)
+        self.assertEqual(entry.incident_id, incident_id)
+        # Un pipeline nuevo sobre el mismo fichero ve la IP ya bloqueada
+        pipeline = self.build_pipeline()
+        pipeline.process_alert(brute_force_alert("SIEM-BF-2"))
+        block_ip = pipeline.list_responses(self.find_incident("SIEM-BF-2")["incident_id"])[0]
+        self.assertIn("ya estaba bloqueada", block_ip.message)
+
+    def test_default_pipeline_uses_the_sqlite_blacklist(self):
+        # Sin playbook_service: el pipeline crea el suyo con la lista negra en SQLite (notify sin URL, sin red)
+        with patch.dict(os.environ, {"GROUP7_NOTIFY_URL": ""}):
+            pipeline = app.SoarPipeline(self.database_path, register_alert=app.save_alert, alert_key=app.alert_key)
+
+        pipeline.process_alert(brute_force_alert("SIEM-BF-1"))
+
+        self.assertEqual(self.blacklist_rows(), [(EXTERNAL_IP, self.find_incident("SIEM-BF-1")["incident_id"])])
+
+
+class TestDemoConditions(BlacklistPipelineTestCase):
+    """
+    Condiciones de la demo del 30/11: app.build_pipeline() real, sin GROUP7_NOTIFY_URL.
+    Solo DATABASE_PATH apunta a un fichero temporal.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        environment = patch.dict(os.environ, {"GROUP7_NOTIFY_URL": ""})
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def test_brute_force_alert_ends_contained_with_block_ip_success_and_notify_skipped(self):
+        with patch.object(app, "fetch_alerts", return_value=[brute_force_alert("SIEM-DEMO-1")]):
+            result = app.poll_siem()
+
+        self.assertEqual(result, {"received": 1, "created": 1, "ignored": 0, "rejected": 0, "automated": 1})
+        incident = self.find_incident("SIEM-DEMO-1")
+        self.assertEqual(incident["status"], "contained")
+        self.assertEqual(
+            [(r["action"], r["status"]) for r in incident["responses"]], [("block_ip", "success"), ("notify", "skipped")]
+        )
+        self.assertEqual(incident["applied_playbook"], "brute_force")
+        self.assertEqual(self.blacklist_rows(), [(EXTERNAL_IP, incident["incident_id"])])
+        self.assertEqual(self.http_post.calls, [])
+        self.assertEqual(
+            [(c.to_status.value, c.changed_by) for c in app.build_pipeline().get_history(incident["incident_id"])],
+            [("in_progress", "soar-automation"), ("contained", "soar-automation")],
+        )
+
+
+class TestCloseContainedIncidentHttp(BlacklistPipelineTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.build_pipeline().process_alert(brute_force_alert("SIEM-BF-1"))
+        self.incident_id = self.find_incident("SIEM-BF-1")["incident_id"]
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), app.SoarHandler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    request = TestHttpApi.request
+
+    def test_analyst_closes_a_contained_incident_and_resolved_at_is_set(self):
+        self.assertEqual(self.find_incident("SIEM-BF-1")["status"], "contained")
+
+        status, body = self.request(
+            "POST", f"/incidents/{self.incident_id}/status",
+            {"status": "closed", "justification": "IP contenida y revisada",
+             "resolution_reason": "IP en la lista negra", "changed_by": "analista.fer"},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["status"], "closed")
+        self.assertEqual(body["changed_by"], "analista.fer")
+        view = self.find_incident("SIEM-BF-1")
+        self.assertEqual(view["resolved_at"], body["resolved_at"])
+        resolved_at = parse_utc(view["resolved_at"])
+        self.assertGreaterEqual(resolved_at, parse_utc(view["created_at"]))  # base del MTTR de HU16
+        _, history = self.request("GET", f"/incidents/{self.incident_id}/history")
+        self.assertEqual(
+            [(c["from_status"], c["to_status"], c["changed_by"]) for c in history],
+            [("open", "in_progress", "soar-automation"), ("in_progress", "contained", "soar-automation"),
+             ("contained", "closed", "analista.fer")],
+        )
+        self.assertEqual(parse_utc(history[-1]["changed_at"]), resolved_at)
 
 
 if __name__ == "__main__":

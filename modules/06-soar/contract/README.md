@@ -46,9 +46,11 @@ que admiten `null` a `null` y `responses` como `[]`.
 - `applied_playbook` **no** indica si la respuesta tuvo éxito: el resultado de cada acción está en
   `responses[].status`, y el motivo en `responses[].message` (éxito) o `responses[].error` (fallo u omisión).
 
-### Ejemplo: incidente automatizado (`notify` en `skipped`)
+### Ejemplo: incidente automatizado y contenido (`block_ip` en `success`, `notify` en `skipped`)
 
-Respuesta real con `GROUP7_NOTIFY_URL` sin configurar. Como ninguna acción tuvo éxito, el incidente sigue en `open`.
+Respuesta con `GROUP7_NOTIFY_URL` sin configurar, como en la demo. `block_ip` mete la IP en la lista
+negra simulada (HU19), así que el incidente pasa a `in_progress` y después a `contained`
+(ver `playbook.md` y `status.md`). Si ninguna acción tuviera éxito, seguiría en `open`.
 
 ```json
 {
@@ -80,7 +82,7 @@ Respuesta real con `GROUP7_NOTIFY_URL` sin configurar. Como ninguna acción tuvo
   "severity": "medium",
   "priority": "medium",
   "source_ip": "192.168.1.50",
-  "status": "open",
+  "status": "contained",
   "created_at": "2026-11-04T19:44:51.322604+00:00",
   "resolved_at": null,
   "applied_playbook": "brute_force",
@@ -90,6 +92,23 @@ Respuesta real con `GROUP7_NOTIFY_URL` sin configurar. Como ninguna acción tuvo
     "reason": "Incidente compatible con automatizacion"
   },
   "responses": [
+    {
+      "response_id": "RES-1B07E4",
+      "incident_id": "INC-F98CDC",
+      "playbook": "brute_force",
+      "action": "block_ip",
+      "status": "success",
+      "triggered_by": "automatic",
+      "executed_at": "2026-11-04T19:44:51.330219Z",
+      "finished_at": null,
+      "message": "IP 192.168.1.50 bloqueada",
+      "error": null,
+      "details": {
+        "target": "192.168.1.50",
+        "execution_id": "4f31ca91-ab2b-416f-b420-1711ad4b6a11",
+        "playbook_status": "PARTIAL"
+      }
+    },
     {
       "response_id": "RES-20A761",
       "incident_id": "INC-F98CDC",
@@ -104,7 +123,7 @@ Respuesta real con `GROUP7_NOTIFY_URL` sin configurar. Como ninguna acción tuvo
       "details": {
         "target": "group7",
         "execution_id": "4f31ca91-ab2b-416f-b420-1711ad4b6a11",
-        "playbook_status": "FAILED"
+        "playbook_status": "PARTIAL"
       }
     }
   ]

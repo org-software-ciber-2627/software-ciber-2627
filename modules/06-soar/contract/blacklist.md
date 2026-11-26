@@ -4,6 +4,10 @@ La acción `block_ip` del playbook de fuerza bruta (HU19.2) mete la IP atacante 
 simulada** dentro del SOAR. No se bloquea la IP en ningún sistema real: el bloqueo real en Identidad
 queda en el backlog futuro (acordado con el grupo 1 el 24/11).
 
+Desde HU19.3 la lista negra está **conectada al flujo de sondeo** (`POST /poll` y el sondeo periódico):
+cada alerta de fuerza bruta nueva ejecuta `block_ip` sobre su `source_ip`, y si la IP queda en la lista
+el incidente pasa a `contained` (ver `status.md`). Los efectos en el flujo están en `playbook.md`.
+
 ## Modelo `BlacklistEntry`
 
 | Campo | Tipo | Significado |
