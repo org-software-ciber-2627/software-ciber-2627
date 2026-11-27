@@ -1,30 +1,32 @@
 export function filtrarAlertas(alertas, filtros) {
     const { severidad, origen, desde, hasta } = filtros;
 
-    const fechaDesde = desde 
-        ? new Date (`${desde}T00:00:00`) : null;
+    const inicioDesde = desde
+        ? Date.parse(`${desde}T00:00:00.000Z`)
+        : null;
 
-    const fechaHasta = hasta 
-        ? new Date(`${hasta}T23:59:59.999`) : null;
+    const finHastaExclusivo = hasta
+        ? Date.parse(`${hasta}T00:00:00.000Z`) + 86_400_000
+        : null;
 
     return alertas.filter(alerta => {
-        const coincideSeveridad = 
+        const coincideSeveridad =
             !severidad || alerta.severity === severidad;
 
-        const coincideOrigen = 
+        const coincideOrigen =
             !origen || alerta.source === origen;
 
-        const fechaAlerta = new Date(alerta.timestamp);
+        const fechaAlerta = Date.parse(alerta.timestamp);
 
-        const coincideDesde = 
-            !fechaDesde || fechaAlerta >= fechaDesde;
+        const coincideDesde =
+            inicioDesde === null || fechaAlerta >= inicioDesde;
 
-        const coincideHasta =   
-            !fechaHasta || fechaAlerta <= fechaHasta;
+        const coincideHasta =
+            finHastaExclusivo === null || fechaAlerta < finHastaExclusivo;
 
-        return coincideSeveridad && 
-            coincideOrigen && 
-            coincideDesde && 
+        return coincideSeveridad &&
+            coincideOrigen &&
+            coincideDesde &&
             coincideHasta;
     });
 }
