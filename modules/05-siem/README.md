@@ -1,4 +1,4 @@
-# SIEM · Sprint 2
+# SIEM
 
 Servidor Java 21 y Spring Boot 4.1.1 para recibir eventos, persistirlos en PostgreSQL, consultar su histórico paginado y consultar alertas generadas.
 
@@ -33,25 +33,26 @@ El SIEM es *fail-closed*: si no puede confirmar la identidad, no concede acceso,
 | `IDENTITY_CONNECT_TIMEOUT_MS` | Tiempo máximo de conexión con G1. Por defecto `1000` |
 | `IDENTITY_TIMEOUT_MS` | Tiempo máximo de respuesta de G1. Por defecto `2000` |
 
-Para los ejemplos con `curl`, obtén un token y guárdalo en una variable de la sesión (nunca en el repositorio):
+Para los ejemplos con `curl`, usa `POST /auth/login` de Identidad con dos cuentas. La publicación de ejemplo requiere `svc-honeypot` y las consultas requieren un usuario `analista`. Guarda ambos tokens en la sesión local.
 
 ```zsh
-export SIEM_TOKEN='<token devuelto por POST http://localhost:8001/auth/login>'
+export SIEM_PRODUCER_TOKEN='PRODUCER_TOKEN'
+export SIEM_READER_TOKEN='READER_TOKEN'
 ```
 
-## Arranque sin persistencia
+## Arranque en el Compose común
 
-Este modo comprueba el servidor y el listado inicialmente vacío. No activa el perfil `persistence`; por eso un evento válido responde 503.
+El Compose común incluye PostgreSQL y activa el perfil `persistence` del SIEM. Configura `SIEM_DB_PASSWORD` para ambos servicios y las variables de Identidad que necesita el entorno. En la candidata con autenticación, `IDENTITY_URL` apunta al servicio `identidad`.
 
 Desde la raíz del repositorio:
 
 ```zsh
-docker compose up --build -d siem
-docker compose ps siem
+docker compose up --build -d --wait identidad siem-db siem
+docker compose ps identidad siem-db siem
 curl -f http://localhost:8005/health
 ```
 
-Acceso local: `http://localhost:8005`. La red Docker compartida usa `http://siem:80`.
+Acceso local con el puerto publicado por defecto: `http://localhost:8005`. Los servicios de Compose usan `http://siem:80`. La comprobación de `/health` acredita que el SIEM responde. Para validar almacenamiento y autenticación, sigue el [procedimiento de ingesta y consulta de SEM-131](docs/sem131-compose-verification.md).
 
 ## API
 
@@ -63,7 +64,7 @@ Acceso local: `http://localhost:8005`. La red Docker compartida usa `http://siem
 | `GET /alerts` | 200 con `{"alerts":[]}` si está vacío, 503/500 ante fallo de consulta |
 | `GET /alerts/{id}` | 200 con una alerta o 404 si no existe, 503/500 ante fallo de consulta |
 
-Además, todas las rutas salvo `GET /health` pueden responder 401 `UNAUTHENTICATED` y 503 `IDENTITY_UNAVAILABLE` (ver [Autenticación](#autenticación-con-identidad-sem-133)). Desde SEM-142, una petición autenticada sin permiso recibe 403 `FORBIDDEN`, y un productor que publica un `source` que no es el suyo, 403 `SOURCE_MISMATCH` (matriz en [roles-permissions.md](contract/roles-permissions.md)).
+Además, todas las rutas salvo `GET /health` pueden responder 401 `UNAUTHENTICATED` y 503 `IDENTITY_UNAVAILABLE` (ver [Autenticación](#autenticación-con-identidad-sem-133)). Desde SEM-142, una petición autenticada sin permiso recibe `403 FORBIDDEN`. Si un productor publica un `source` que no le corresponde, recibe `403 SOURCE_MISMATCH` con `Cache-Control: no-store` y el evento se descarta. Consulta la [matriz de permisos de SEM-141](https://github.com/org-software-ciber-2627/software-ciber-2627/blob/1b1bbfe0ef1cafb51c0f8aec5ebc1da2d330e6d5/modules/05-siem/contract/roles-permissions.md).
 
 
 El [OpenAPI vigente de esta rama](contract/openapi.json) documenta ingesta persistente, histórico y alertas reales. La semántica detallada de ingesta está en [SEM-65](contract/sem65-ingestion-proposal.md) y la consulta en [history-events.md](contract/history-events.md).
@@ -71,10 +72,10 @@ El [OpenAPI vigente de esta rama](contract/openapi.json) documenta ingesta persi
 Los datos que PostgreSQL no puede representar, como caracteres nulos, Unicode incompleto o valores fuera de su rango admitido, se rechazan con 400 sin insertar. Los fallos del almacenamiento responden con un error genérico y 503.
 
 ```zsh
-curl -i -H "Authorization: Bearer $SIEM_TOKEN" -H 'Content-Type: application/json' --data-binary @modules/05-siem/contract/examples/grupo_3_honeypot.json http://localhost:8005/events
-curl -i -H "Authorization: Bearer $SIEM_TOKEN" 'http://localhost:8005/events?limit=2&offset=0'
-curl -i -H "Authorization: Bearer $SIEM_TOKEN" http://localhost:8005/alerts
-curl -i -H "Authorization: Bearer $SIEM_TOKEN" http://localhost:8005/alerts/ALERT_ID
+curl -i -H "Authorization: Bearer $SIEM_PRODUCER_TOKEN" -H 'Content-Type: application/json' --data-binary @modules/05-siem/contract/examples/grupo_3_honeypot.json http://localhost:8005/events
+curl -i -H "Authorization: Bearer $SIEM_READER_TOKEN" 'http://localhost:8005/events?limit=2&offset=0'
+curl -i -H "Authorization: Bearer $SIEM_READER_TOKEN" http://localhost:8005/alerts
+curl -i -H "Authorization: Bearer $SIEM_READER_TOKEN" http://localhost:8005/alerts/ALERT_ID
 ```
 
 ## Navegación del histórico
@@ -88,7 +89,7 @@ curl -i -H "Authorization: Bearer $SIEM_TOKEN" http://localhost:8005/alerts/ALER
 Por ejemplo, si la respuesta contiene `next: "/events?limit=2&offset=2"`, la siguiente petición es:
 
 ```zsh
-curl -i -H "Authorization: Bearer $SIEM_TOKEN" 'http://localhost:8005/events?limit=2&offset=2'
+curl -i -H "Authorization: Bearer $SIEM_READER_TOKEN" 'http://localhost:8005/events?limit=2&offset=2'
 ```
 
 Los parámetros vacíos, duplicados, desconocidos o inválidos producen 400. No se envían secretos en la URL; el token va en la cabecera `Authorization`. OFFSET no conserva una instantánea: inserciones concurrentes pueden causar repeticiones u omisiones y los desplazamientos grandes pueden ser costosos. El timeout JDBC de lectura es de cinco segundos; no es una garantía del tiempo total de respuesta.
@@ -102,7 +103,7 @@ docker compose --env-file /dev/null -f modules/05-siem/compose.storage.yml up -d
 docker compose --env-file /dev/null -f modules/05-siem/compose.storage.yml ps siem-db
 ```
 
-La base de datos es `siem_bd` y el usuario es `siem`. PostgreSQL se publica solo en `127.0.0.1:5433`; `SIEM_DB_PORT` permite cambiar el puerto local. Este Compose proporciona la base de datos para el SIEM local. El Compose común arranca el servicio sin el perfil Java de persistencia.
+La base de datos es `siem_bd` y el usuario es `siem`. PostgreSQL se publica solo en `127.0.0.1:5433`; `SIEM_DB_PORT` permite cambiar el puerto local. Este Compose proporciona solo PostgreSQL para el SIEM local. El Compose común configura también el servicio `siem` con el perfil `persistence`.
 
 El esquema crea `events` desde `db/init/001-create-events.sql`. Su clave primaria es `(source, event_id)`, `occurred_at` conserva el instante UTC y `details` se almacena como JSONB. El segundo script añade `original_timestamp` para conservar el texto completo del timestamp recibido. El tercero permite la severidad `info` sin alterar los eventos existentes. El cuarto sustituye la restricción de `source` para aceptar también `pentesting` (G8). Los scripts de inicialización se aplican automáticamente solo a un volumen vacío; en una base ya inicializada hay que aplicar las migraciones que falten (002 para el timestamp, 003 para `info` y 004 para `pentesting`).
 
