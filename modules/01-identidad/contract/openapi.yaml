@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Identidad y secretos
-  version: 1.5.0
+  version: 1.4.0
   description: |
     API de autenticación, gestión de usuarios, acceso a secretos y registro de auditoría interno.
 
@@ -24,8 +24,6 @@ info:
     **Secretos.** `GET /secrets/{clave}` solo está permitido al rol `servicio` y cada cuenta solo
     puede leer los secretos de su módulo. Todo secreto tiene un módulo dueño; un secreto sin dueño no lo
     lee ninguna cuenta (`403`).
-    `PUT /secrets/{clave}` sólo está permitido al rol `admin`, sustituye el valor de un secreto existente, sin leerlo ni cambiar su dueño. 
-    Puede rotar secretos de cualquier módulo.
 
     | Secreto | Variable de entorno | Cuenta dueña |
     |---|---|---|
@@ -36,8 +34,6 @@ info:
     `login_failed`, `invalid_user`, `limit_exceeded`) y los accesos a secretos (`secret_read`,
     `secret_denied`) y los envía al IDS (`POST /logs` del módulo 2). No hay endpoint público para
     consultarlos. El registro nunca contiene contraseñas, tokens ni valores de secretos.
-    `secret_rotated` se registra cuando el secreto se ha rotado correctamente.
-    `secret_rotation_denied` se registra si el token es válido, pero el rol no es `admin` o si no se encontró un secreto para la clave proporcionada.
 
     **Envío de logs al IDS.** Los eventos se envían en lotes de hasta 200 a la URL configurada en la variable
     de entorno `IDS_URL` (por defecto `http://ids/logs`). El payload tiene la forma:
@@ -60,7 +56,7 @@ info:
     - `login_failed`   → `Failed password for <user> from <ip> port <port> ssh2`
     - `invalid_user`   → `Failed password for invalid user <user> from <ip> port <port> ssh2`
     - `limit_exceeded` → `authentication attempts exceeded from <ip> port <port>`
-    - `secret_read` / `secret_denied` / `secret_rotated` / `secret_rotation_denied` → mensaje genérico con campos `event`, `result`, `user`, `from`, `clave`
+    - `secret_read` / `secret_denied` → mensaje genérico con campos `event`, `result`, `user`, `from`, `clave`
 
     **Cierre de sesión (novedad 1.2.0).** `POST /auth/logout` invalida el token actual. Desde
     ese momento, ese token se trata como inválido: `GET /auth/validate` y `GET /secrets/{clave}`
@@ -90,7 +86,7 @@ info:
     |---|---|---|
     | `JWT_SECRET_KEY` | Sí (para auth y secrets) | Clave de firma del JWT |
     | `AES_KEY` | Sí (para /secrets) | Clave AES-256, base64 de 32 bytes aleatorios |
-    | `DATABASE_URL` | No | URI de base de datos; por defecto `sqlite:///identidad.db` |
+    | `DATABASE_URL` | No | URI de base de datos; por defecto `sqlite:///identidad.db`. En el compose, `sqlite:////data/identidad.db` sobre el volumen `identidad-data` |
     | `TRUSTED_PROXY_HOPS` | No | Nº de proxies de confianza delante (0 = ninguno) |
     | `JWT_EXPIRES_SECONDS` | No | Caducidad del JWT en segundos; por defecto 1800 |
     | `IDS_URL` | No | URL del endpoint de logs del IDS; por defecto `http://ids/logs` |
@@ -115,10 +111,6 @@ info:
     en `/auth/validate`).
 
     **Historial.**
-    1.5.0: Se añade `PUT /secrets/{clave}` para rotar secretos (solo rol `admin`)
-           Sustituye el valor de un secreto existente; no crea secretos, no cambia el dueño y nunca devuelve el valor
-           Nuevos eventos de auditoría: `secret_rotated` `200` y `secret_rotation_denied` `403` y `404`
-           El parámetro `clave` pasa a compartirse entre `GET` y `PUT`
     1.4.0: Se establece una cuenta de servicio por módulo
            Pedir un secreto de otro módulo devuelve un error `403` y se registra el evento `secret_denied`
            Nuevo secreto `siem_db_password` (dueño `svc-siem`); usuarios `svc-*` reservados en el registro
@@ -316,17 +308,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
   /secrets/{clave}:
-    parameters:
-        - name: clave
-          in: path
-          required: true
-          description: >
-            Clave del secreto. Solo se admiten caracteres alfanuméricos,
-            guion, punto y guion bajo (`[A-Za-z0-9_.-]`), con una longitud de 1 a 100 caracteres.
-          schema:
-            type: string
-            pattern: '^[A-Za-z0-9_.\-]{1,100}$'
-          example: api_key
     get:
       summary: Obtener secreto
       description: >
@@ -340,6 +321,17 @@ paths:
       operationId: getSecret
       security:
         - BearerAuth: []
+      parameters:
+        - name: clave
+          in: path
+          required: true
+          description: >
+            Clave del secreto que se desea obtener. Solo se admiten caracteres alfanuméricos,
+            guion, punto y guion bajo (`[A-Za-z0-9_.-]`), con una longitud de 1 a 100 caracteres.
+          schema:
+            type: string
+            pattern: '^[A-Za-z0-9_.\-]{1,100}$'
+          example: api_key
       responses:
         '200':
           description: Secreto obtenido correctamente
@@ -385,65 +377,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-    put:
-      summary: Rotar secreto
-      description: >
-          Sustituye el secreto antiguo por el valor nuevo enviado en el cuerpo, asociado a la clave proporcionada. Requiere un token JWT válido
-          y que el usuario esté autenticado con el rol `admin`. El acceso denegado por rol insuficiente (`403`) queda registrado como `secret_rotation_denied`. 
-          Los rechazos por token inválido o ausente (`401`) no se auditan, ya que en ese caso no es posible identificar al solicitante de forma fiable. Si se 
-          realiza una petición para rotar, pero no hay ningún secreto asociado a la clave solicitada, se registra el evento `secret_rotation_denied` y devuelve error (`404`). 
-          Si la rotación tiene éxito, devuelve (`200`) y se registra el evento `secret_rotated`.
-          No crea secretos ni cambia el dueño, y nunca devuelve el valor.
-          `admin` puede rotar cualquier secreto, sea cual sea su dueño.
-      operationId: rotateSecret
-      security:
-          - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RotateSecretRequest'
-      responses:
-        '200':
-          description: Secreto rotado correctamente, se registra como `secret_rotated`.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RotateSecretResponse'
-        '400':
-          description: Clave no válida (no cumple el patrón `[A-Za-z0-9_.-]{1,100}`) o falta `valor`, viene vacío o el cuerpo no es JSON.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          description: Token inválido, expirado, revocado o ausente. No se registra en auditoría.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '403':
-          description: Token válido, pero el rol no es `admin`. Se registra como `secret_rotation_denied`.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '404':
-          description: >
-              No se encontró un secreto para la clave proporcionada.
-              Se registra como `secret_rotation_denied`.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '500':
-          description: Error no esperado
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-    
 components:
   securitySchemes:
     BearerAuth:
@@ -628,27 +561,3 @@ components:
           type: string
           description: Mensaje de error
           example: Usuario o contraseña incorrectos
-    RotateSecretRequest:
-      type: object
-      required:
-        - valor
-      properties:
-        valor:
-          type: string
-          minLength: 1
-          description: Valor nuevo del secreto (se guarda cifrado)
-          example: '<valor-nuevo>'
-    RotateSecretResponse:
-      type: object
-      required:
-        - clave
-        - message
-      properties:
-        clave:
-          type: string
-          description: Clave del secreto rotado
-          example: api_key
-        message:
-          type: string
-          description: Confirmación de la rotación
-          example: Secreto rotado
