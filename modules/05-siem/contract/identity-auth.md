@@ -16,7 +16,7 @@ El SIEM actúa como **consumidor** de G1. La fuente de verdad del proveedor es e
 | Formato de eventos y alertas | Esquema común | **Sin cambios** |
 | Contenedor de errores | `{"error": {"code", "message"}}` | Se conserva |
 
-**Estado: ratificado con G1 el 20/11/2026 (propuesta A).** G1 tiene la v1.4.0 en la rama `equipo-01-AAA-113-cuentas-svc` (25/11), pendiente de integrar en `main`. La autenticación está implementada en el SIEM desde SEM-133 (contrato `0.4.0`); su activación en el Compose común se coordina con G1 y G7.
+**Estado: ratificado con G1 el 20/11/2026 (propuesta A).** G1 integró la v1.4.0 en `main` el 26/11 (PR #110, merge `67371c4`). La autenticación está implementada en el SIEM desde SEM-133 (contrato `0.4.0`); su activación en el Compose común se coordina con G1 y G7.
 
 ## Operaciones protegidas
 
@@ -191,7 +191,7 @@ Exigir autenticación es un **cambio incompatible** del contrato del SIEM: los p
 | Equipos afectados | G1 (proveedor), G2, G3, G4 y G8 (productores), G6 y G7 (consumidores) |
 | Fecha efectiva | Ratificado con G1 el **20/11**. Candidata del **27/11**: hito de entrega, no implica la activación en el Compose común. Activación en el Compose común: **pendiente**, fecha a concretar con G1 y G7. Objetivo: probar login y listado de alertas el **29–30/11**. Prueba de carga con G1 el **30/11** |
 | Requisitos de activación | Identidad `1.4.0` con la cuenta `svc-soar`; `SERVICE_PASSWORD_SOAR` en Identidad; la misma credencial como `SOAR_SERVICE_PASSWORD` en el contenedor SOAR; `AUTH_URL` o `IDENTITY_URL` apuntando a G1 |
-| Dependencias (estado a 26/11) | G1 `1.4.0` (cuentas `svc-*`, secreto `siem_db_password` y lista de claves permitidas) en la rama `equipo-01-AAA-113-cuentas-svc` (`7b256f9`, 25/11), **sin integrar en `main`** (sigue en `1.3.1`). Credenciales de servicio: pendientes de confirmar con G1 (consultado el 26/11). G7: variables nuevas del compose, coordinadas por G1, pendientes |
+| Dependencias (estado a 27/11) | G1 `1.4.0` (cuentas `svc-*`, secreto `siem_db_password` y lista de claves permitidas) **integrada en `main`** el 26/11 (PR #110, merge `67371c4`). Credenciales de servicio: pendientes de confirmar con G1 (consultado el 26/11). G7: variables nuevas del compose, coordinadas por G1, pendientes |
 
 El [OpenAPI](openapi.json) incluye desde SEM-133 el esquema `bearerAuth` y las respuestas 401 `UNAUTHENTICATED` y 503 `IDENTITY_UNAVAILABLE`. El formato de eventos y alertas no cambia.
 
@@ -233,4 +233,4 @@ G1 ratificó la propuesta A por escrito el 20/11/2026 (captura adjunta en SEM-13
 | Prueba conjunta del escenario real, antes de decidir caché | G1 y G5 | 30/11 |
 | Rotación de credenciales tras la demo | G1 | Tras la Sprint Review |
 
-*Pendiente:* referencia del commit de G1 con la versión 1.4.0 efectiva, que G1 pasará cuando esté en `main`.
+Versión 1.4.0 de G1 efectiva en `main`: merge `67371c4` de la PR #110 (26/11/2026).
