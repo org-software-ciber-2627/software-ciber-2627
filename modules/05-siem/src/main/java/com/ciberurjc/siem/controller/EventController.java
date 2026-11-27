@@ -6,6 +6,7 @@ import com.ciberurjc.siem.security.AuthenticatedIdentity;
 import com.ciberurjc.siem.services.EventService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.util.Map;
@@ -28,9 +29,11 @@ public class EventController {
         Object attribute = request.getAttribute(AuthenticatedIdentity.REQUEST_ATTRIBUTE);
         AuthenticatedIdentity identity = attribute instanceof AuthenticatedIdentity id ? id : null;
         if (!accessPolicy.canPublish(identity, event.source())) {
-            return ResponseEntity.status(403).body(Map.of("error", Map.of(
-                    "code", "SOURCE_MISMATCH",
-                    "message", "The event source does not match the authenticated account")));
+            return ResponseEntity.status(403)
+                    .cacheControl(CacheControl.noStore())
+                    .body(Map.of("error", Map.of(
+                            "code", "SOURCE_MISMATCH",
+                            "message", "The event source does not match the authenticated account")));
         }
 
         eventService.processIncomingEvent(event);
