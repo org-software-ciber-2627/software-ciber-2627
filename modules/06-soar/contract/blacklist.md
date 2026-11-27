@@ -54,21 +54,42 @@ Las IPs privadas (`192.168.x.x`, `10.x.x.x`, `172.16.0.0/12`) **sí** se pueden 
 alertas de la demo llegan con IPs así. Si una subred privada no debe bloquearse, se añade a
 `BLACKLIST_EXCLUDED_NETWORKS`.
 
-## `GET /blacklist` (BORRADOR)
+## `GET /blacklist`
 
-> **Borrador.** El endpoint se implementa en HU19.4 y el formato se congela el **26/11**. Hasta
-> entonces puede cambiar.
+Formato congelado el 26/11; implementado en HU19.4 el 27/11.
 
 Devuelve `200` con la lista de IPs bloqueadas, de la más antigua a la más reciente (por `added_at`),
-o `[]` si la lista está vacía.
+o `[]` si la lista está vacía. Cada elemento tiene exactamente estos cuatro campos:
+
+| Campo | Tipo | Significado |
+|---|---|---|
+| `ip` | string | IP bloqueada, normalizada |
+| `incident_id` | string | Incidente que la bloqueó por primera vez |
+| `added_at` | string ISO 8601 en UTC, terminado en `Z` | Fecha y hora del bloqueo |
+| `reason` | string | Motivo del bloqueo (el `reason` de la decisión de HU13) |
 
 ```json
 [
   {
     "ip": "192.168.1.50",
-    "incident_id": "INC-F98CDC",
-    "added_at": "2026-11-24T10:00:00.123456Z",
-    "reason": "Fuerza bruta SSH detectada por el honeypot"
+    "incident_id": "INC-4F9A2C",
+    "added_at": "2026-11-26T10:00:00.010000Z",
+    "reason": "Incidente compatible con automatizacion"
   }
 ]
 ```
+
+Es `api-examples/blacklist.json`, generado con la API real (ver `api-examples/README.md`).
+
+### Códigos de respuesta
+
+| Código | Cuándo |
+|---|---|
+| `200` | Lista de IPs bloqueadas (o `[]`) |
+| `401` `{"error": "unauthorized"}` | Falta el token o Identidad dice que no es válido |
+| `403` `{"error": "forbidden"}` | El rol del token no puede leer la lista negra |
+| `503` `{"error": "identity_unavailable"}` | Identidad no responde o da error |
+| `500` `{"error": "internal_error"}` | Error no previsto (se registra con traceback) |
+
+`401`, `403` y `503` siguen la sección [Autenticación (HU20)](README.md#autenticación-hu20) de
+`contract/README.md`, que fija también los roles permitidos.

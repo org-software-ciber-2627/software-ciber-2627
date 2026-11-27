@@ -17,8 +17,10 @@ from urllib.parse import urlparse
 
 
 from soar.models.identity import AuthenticatedUser
+from soar.repositories.blacklist_repository import SqliteBlacklistRepository
 from soar.repositories.incident_repository import SqliteIncidentRepository
 from soar.services.auth_client import AuthClientError, IdentityAuthClient
+from soar.services.blacklist_service import BlacklistService
 from soar.services.metrics_service import MetricsService
 from soar.services.pipeline import IncidentNotFoundError, SoarPipeline
 from soar.services.status_service import (
@@ -109,6 +111,12 @@ def build_pipeline() -> SoarPipeline:
 def get_metrics() -> dict[str, Any]:
     repository = SqliteIncidentRepository(DATABASE_PATH)
     return MetricsService(repository).calculate_metrics().model_dump(mode="json")
+
+
+def get_blacklist() -> list[dict[str, Any]]:
+    """HU19.4: IPs de la lista negra simulada, de la más antigua a la más reciente."""
+    service = BlacklistService(SqliteBlacklistRepository(DATABASE_PATH))
+    return [entry.model_dump(mode="json") for entry in service.list_blacklist()]
 
 
 # Campos añadidos en el Sprint 2; las filas anteriores sin Incident normalizado los devuelven vacíos
@@ -334,6 +342,8 @@ class SoarHandler(BaseHTTPRequestHandler):
             self.send_json(200, list_incidents())
         elif path == "/metrics":
             self.send_json(200, get_metrics())
+        elif path == "/blacklist":
+            self.send_json(200, get_blacklist())
         elif responses_match:
             try:
                 responses = build_pipeline().list_responses(responses_match.group(1))

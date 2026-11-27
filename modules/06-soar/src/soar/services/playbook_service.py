@@ -137,7 +137,7 @@ class PlaybookService:
                 details="GROUP7_NOTIFY_URL no está configurada",
             )
 
-        # Cuerpo provisional, pendiente de confirmar con el grupo 7
+        # Fuera de este sprint: el grupo 7 no tiene receptor; sin GROUP7_NOTIFY_URL la acción queda en skipped
         payload = {
             "incident_id": playbook_input.incident_id,
             "event_type": playbook_input.event_type,

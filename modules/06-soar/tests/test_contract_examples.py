@@ -4,6 +4,7 @@ Ejemplos de contract/api-examples/ para el grupo 7, generados con la API real de
 - Sin variables de entorno: comprueba que cada ejemplo tiene exactamente las mismas claves,
   también las anidadas, que lo que devuelve hoy la API.
 - Con SOAR_WRITE_EXAMPLES=1: vuelve a generar los ficheros (python -m pytest tests/test_contract_examples.py).
+  Se regeneran todos a la vez para que sus fechas sean coherentes entre sí.
 
 Escenario: alerta de fuerza bruta del honeypot con una IP bloqueable y sin GROUP7_NOTIFY_URL,
 como en la demo. El incidente termina en contained.
@@ -35,7 +36,7 @@ ALERT_TIMESTAMP = "2026-11-26T09:59:58Z"
 EXAMPLE_INCIDENT_ID = "INC-4F9A2C"
 EXAMPLE_RESPONSE_IDS = ["RES-1B07E4", "RES-20A761"]
 EXAMPLE_EXECUTION_ID = "4f31ca91-ab2b-416f-b420-1711ad4b6a11"
-DATE_KEYS = {"first_seen", "created_at", "resolved_at", "executed_at", "finished_at", "changed_at"}
+DATE_KEYS = {"first_seen", "created_at", "resolved_at", "executed_at", "finished_at", "changed_at", "added_at"}
 
 
 def brute_force_alert() -> dict:
@@ -51,7 +52,7 @@ def get_json(base_url: str, path: str):
 
 
 def generate_api_responses(tmp_path: Path) -> dict[str, object]:
-    """Ejecuta el flujo real (POST /poll interno) y devuelve las tres respuestas de la API."""
+    """Ejecuta el flujo real (POST /poll interno) y devuelve las respuestas de la API."""
     environment = {"GROUP7_NOTIFY_URL": "", "BLACKLIST_EXCLUDED_NETWORKS": ""}
     with patch.dict(os.environ, environment), patch.object(app, "DATABASE_PATH", str(tmp_path / "soar.db")):
         with patch.object(app, "fetch_alerts", return_value=[brute_force_alert()]):
@@ -64,10 +65,16 @@ def generate_api_responses(tmp_path: Path) -> dict[str, object]:
             incident_id = incidents[0]["incident_id"]
             history = get_json(base_url, f"/incidents/{incident_id}/history")
             responses = get_json(base_url, f"/incidents/{incident_id}/responses")
+            blacklist = get_json(base_url, "/blacklist")
         finally:
             server.shutdown()
             server.server_close()
-    return {"incidents.json": incidents, "history.json": history, "responses.json": responses}
+    return {
+        "incidents.json": incidents,
+        "history.json": history,
+        "responses.json": responses,
+        "blacklist.json": blacklist,
+    }
 
 
 def parse_date(value: str) -> datetime:
@@ -144,8 +151,12 @@ def test_examples_show_the_contained_demo_incident() -> None:
     incidents = json.loads((EXAMPLES_DIR / "incidents.json").read_text(encoding="utf-8"))
     history = json.loads((EXAMPLES_DIR / "history.json").read_text(encoding="utf-8"))
     responses = json.loads((EXAMPLES_DIR / "responses.json").read_text(encoding="utf-8"))
+    blacklist = json.loads((EXAMPLES_DIR / "blacklist.json").read_text(encoding="utf-8"))
 
     incident = incidents[0]
+    # HU19.4: la IP del incidente está en la lista negra, bloqueada durante el playbook
+    assert [(e["ip"], e["incident_id"]) for e in blacklist] == [(incident["source_ip"], incident["incident_id"])]
+    assert responses[0]["executed_at"] <= blacklist[0]["added_at"] <= history[0]["changed_at"]
     assert incident["status"] == "contained"
     assert incident["alert"]["details"]["credential"] == "***"
     assert incident["alert"]["details"]["username"] == "***"

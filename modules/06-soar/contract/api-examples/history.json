@@ -11,7 +11,7 @@
     "from_status": "in_progress",
     "to_status": "contained",
     "justification": "IP 192.168.1.50 bloqueada en la lista negra",
-    "changed_at": "2026-11-26T10:00:00.024000Z",
+    "changed_at": "2026-11-26T10:00:00.025000Z",
     "resolution_reason": null,
     "changed_by": "soar-automation"
   }

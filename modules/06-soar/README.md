@@ -10,6 +10,8 @@ la misma alerta y ejecuta la respuesta automática de los incidentes de fuerza b
 - `GET /incidents` — incidentes con prioridad, estado, decisión de automatización y respuestas.
 - `GET /incidents/{incident_id}/responses` — respuestas ejecutadas de un incidente (HU15).
 - `GET /incidents/{incident_id}/history` — historial de cambios de estado, con quién los hizo (HU7).
+- `GET /metrics` — MTTD, MTTR y número de incidentes totales y cerrados (HU16 y HU18).
+- `GET /blacklist` — IPs de la lista negra simulada (HU19).
 - `POST /incidents/{incident_id}/status` — cambio de estado con justificación (HU6).
 - `POST /poll` — consulta `GET /alerts` del SIEM y procesa las alertas nuevas.
 
@@ -28,8 +30,11 @@ El detalle de cada endpoint está en `contract/README.md`.
 2. Idempotencia con la tabla `incidents`. Si ya existe, se cuenta como `ignored`.
 3. Se guarda el `Incident` normalizado y se calcula su prioridad (HU5).
 4. Se decide si es automatizable (HU13).
-5. Si lo es y no tiene respuestas previas, se ejecuta el playbook (HU14), se registra cada
+5. Si lo es y no tiene respuestas previas, se ejecuta el playbook (HU14): primero `block_ip`, que
+   mete la IP de origen en la lista negra simulada (HU19), y después `notify`. Se registra cada
    respuesta (HU15) y, si alguna acción tiene éxito, el incidente pasa a `in_progress` (HU6).
+6. Si `block_ip` tiene éxito, el incidente pasa además a `contained` (HU19). Los dos cambios
+   automáticos se registran con `changed_by = "soar-automation"`.
 
 ## Persistencia e idempotencia
 
@@ -41,6 +46,7 @@ El servicio usa SQLite en `DATABASE_PATH` (por defecto `/data/soar.db`), con est
 | `soar_incidents` | `Incident` normalizado |
 | `status_history` | Cambios de estado (HU6) |
 | `executed_responses` | Respuestas ejecutadas (HU15) |
+| `ip_blacklist` | Lista negra simulada de IPs, con la IP como clave única (HU19) |
 
 Cada alerta se identifica por `alert_id`/`id`; si no existe, se calcula SHA-256 sobre
 `IP_origen`, `tipo_evento` y `timestamp`. La columna `alert_key` tiene una
@@ -55,9 +61,10 @@ peticiones concurrentes.
 | `DATABASE_PATH` | `/data/soar.db` | Fichero SQLite |
 | `POLL_INTERVAL_SECONDS` (o `SOAR_POLLING_INTERVAL`) | `0` | Segundos entre sondeos; con `0` solo se sondea con `POST /poll` |
 | `GROUP7_NOTIFY_URL` | vacía | URL del grupo 7 para `notify`; vacía, la acción queda `skipped` |
-| `AUTH_URL` (o `IDENTITY_URL`) | vacía | URL base del Módulo 1 (Identidad). Vacía, no se envía token al SIEM |
+| `AUTH_URL` (o `IDENTITY_URL`) | vacía | URL base del Módulo 1 (Identidad). Activa a la vez el token hacia el SIEM (HU21) y la autenticación de nuestros endpoints con `GET /auth/validate` (HU20). Vacía, no se envía token al SIEM y los endpoints quedan abiertos (con un `WARNING`) |
 | `SOAR_SERVICE_USER` | `svc-soar` | Cuenta de servicio con la que el SOAR hace login |
 | `SOAR_SERVICE_PASSWORD` | vacía | Contraseña de esa cuenta. Vacía, no se envía token al SIEM. Nunca en el repositorio |
+| `BLACKLIST_EXCLUDED_NETWORKS` | vacía | Redes que nunca se meten en la lista negra, separadas por comas (p. ej. la subred del docker-compose). Loopback y `0.0.0.0` se excluyen siempre |
 | `SOAR_AUTH_RETRY_SECONDS` | `300` | Segundos sin reintentar el login tras un `401` o `429` de Identidad, para no bloquear la cuenta |
 | `LOG_LEVEL` | `INFO` | Nivel de log |
 

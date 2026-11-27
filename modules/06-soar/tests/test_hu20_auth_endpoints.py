@@ -186,8 +186,8 @@ def _protected_endpoints(incident_id: str) -> list[tuple[str, str, dict[str, Any
         ("GET", f"/incidents/{incident_id}/responses", None),
         ("GET", f"/incidents/{incident_id}/history", None),
         ("GET", "/metrics", None),
+        ("GET", "/blacklist", None),
     ]
-    # TODO: add GET /blacklist when HU19.4 exposes it in app.py.
     posts = [
         (
             "POST",

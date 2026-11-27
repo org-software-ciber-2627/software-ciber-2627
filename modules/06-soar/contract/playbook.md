@@ -80,7 +80,8 @@ Envía el incidente al grupo 7 (dashboard) con `POST` JSON a la URL de `GROUP7_N
 | Respuesta 2xx/3xx | `success` |
 | Respuesta >= 400, error de red o timeout | `failed`, con el error en `details` |
 
-Cuerpo enviado (**provisional, pendiente de confirmar con el grupo 7**):
+Cuerpo enviado (**fuera de este sprint: el grupo 7 no tiene receptor; sin `GROUP7_NOTIFY_URL` la acción
+queda en `skipped`**):
 
 ```json
 {

@@ -23,7 +23,7 @@ válido, o `401` si no lo es.
 | `GET /incidents/{id}/responses` | `analista`, `admin`, `servicio` |
 | `GET /incidents/{id}/history` | `analista`, `admin`, `servicio` |
 | `GET /metrics` | `analista`, `admin`, `servicio` |
-| `GET /blacklist` (disponible con HU19.4) | `analista`, `admin`, `servicio` |
+| `GET /blacklist` | `analista`, `admin`, `servicio` |
 | `POST /incidents/{id}/status` | `analista`, `admin` |
 | `POST /poll` | `analista`, `admin` |
 | `GET /health` | Público (lo usan el healthcheck de `docker-compose` y el CI) |
@@ -299,7 +299,7 @@ Ejemplo de un incidente de fuerza bruta contenido automáticamente (es `api-exam
     "from_status": "in_progress",
     "to_status": "contained",
     "justification": "IP 192.168.1.50 bloqueada en la lista negra",
-    "changed_at": "2026-11-26T10:00:00.024000Z",
+    "changed_at": "2026-11-26T10:00:00.025000Z",
     "resolution_reason": null,
     "changed_by": "soar-automation"
   }

@@ -9,3 +9,4 @@ No se usa contract/examples/ porque el CI (job event-schema) valida ahí solo ej
 - `incidents.json`: respuesta de `GET /incidents` (con `credential` y `username` enmascarados como `***`).
 - `history.json`: respuesta de `GET /incidents/{incident_id}/history` de ese incidente.
 - `responses.json`: respuesta de `GET /incidents/{incident_id}/responses` de ese incidente.
+- `blacklist.json`: respuesta de `GET /blacklist`, con la IP que bloqueó ese incidente.
