@@ -4,7 +4,9 @@ services:
   identidad:
     build: ./modules/01-identidad
     ports:
-      - "8001:80"
+      # Solo en localhost: con TRUSTED_PROXY_HOPS=1 Identidad fía X-Forwarded-For, que solo
+      # es de fiar si el login entra por el nginx del Dashboard. El puerto interno sigue siendo 80.
+      - "127.0.0.1:8001:80"
     networks:
       - ciberurjc
     environment:
@@ -12,9 +14,18 @@ services:
       AES_KEY: ${AES_KEY:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       SERVICE_PASSWORD: ${SERVICE_PASSWORD:-}
+      SERVICE_PASSWORD_IDS: ${SERVICE_PASSWORD_IDS:-}
+      SERVICE_PASSWORD_HONEYPOT: ${SERVICE_PASSWORD_HONEYPOT:-}
+      SERVICE_PASSWORD_ESCANER: ${SERVICE_PASSWORD_ESCANER:-}
+      SERVICE_PASSWORD_PENTESTING: ${SERVICE_PASSWORD_PENTESTING:-}
+      SERVICE_PASSWORD_SOAR: ${SERVICE_PASSWORD_SOAR:-}
+      SERVICE_PASSWORD_SIEM: ${SERVICE_PASSWORD_SIEM:-}
       SECRET_DB_PASSWORD: ${SECRET_DB_PASSWORD:-}
       SECRET_API_KEY: ${SECRET_API_KEY:-}
       SECRET_JWT_SECRET: ${SECRET_JWT_SECRET:-}
+      SECRET_SIEM_DB_PASSWORD: ${SECRET_SIEM_DB_PASSWORD:-}
+      JWT_EXPIRES_SECONDS: ${JWT_EXPIRES_SECONDS:-1800}
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
       IDS_URL: "http://ids/logs"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
@@ -118,8 +129,13 @@ services:
       SPRING_PROFILES_ACTIVE: persistence
       SIEM_DB_URL: jdbc:postgresql://siem-db:5432/${SIEM_DB_NAME:-siem_bd}
       SIEM_DB_PASSWORD: ${SIEM_DB_PASSWORD:?Define SIEM_DB_PASSWORD en .env (ver .env.example)}
+      IDENTITY_URL: ${IDENTIDAD_URL:-http://identidad:80}
+      SIEM_AUTH_USER: ${SIEM_AUTH_USER:-svc-siem}
+      SIEM_AUTH_PASSWORD: ${SERVICE_PASSWORD_SIEM:-}
     depends_on:
       siem-db:
+        condition: service_healthy
+      identidad:
         condition: service_healthy
     networks:
       - ciberurjc
