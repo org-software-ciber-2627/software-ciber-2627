@@ -22,6 +22,7 @@ Resumen para los demás módulos: [`shared/auth-contract.md`](../../../shared/au
 | `POST /auth/logout` | Usuarios | Revoca el token actual |
 | `GET /auth/validate` | Los otros 7 módulos | Valida un token y devuelve usuario y rol |
 | `GET /secrets/{clave}` | La cuenta de servicio dueña del secreto | Devuelve un secreto descifrado (`403` si es de otro módulo) |
+| `PUT /secrets/{clave}` | La cuenta `admin` | Rota el valor de un secreto existente; nunca lo devuelve (`403` si no es admin, `404` si no existe) |
 
 ## Cómo verlo, comprobarlo y probarlo
 
@@ -78,7 +79,7 @@ Mensajes de cada evento (el puerto solo aparece si está disponible):
 | login_failed | `Failed password for <user> from <ip> port <puerto> ssh2` |
 | invalid_user | `Failed password for invalid user <user> from <ip> port <puerto> ssh2` |
 | limit_exceeded | `authentication attempts exceeded from <ip> port <puerto>` |
-| secret_read, secret_denied | `event=<tipo> result=<ok o fail> user=<user> from=<ip> clave=<clave>` |
+| secret_read, secret_denied, secret_rotated, secret_rotation_denied | `event=<tipo> result=<ok o fail> user=<user> from=<ip> clave=<clave>` |
 
 Los campos que vienen de fuera (usuario, clave) se codifican en porcentaje si llevan espacios,
 `=` o caracteres de control, para que nadie pueda inyectar campos ni líneas. Nunca se envían
@@ -103,7 +104,7 @@ hay que corregir el payload para que la cola avance.
 3. Esperar su confirmación antes de fusionar si el cambio rompe compatibilidad.
 
 ## Historial
-
+- **1.5.0**: se añade `PUT /secrets/{clave}` para rotar secretos (solo `admin`, de cualquier módulo). Sustituye el valor de un secreto existente; no crea secretos, no cambia el dueño y nunca devuelve el valor. Nuevos eventos de auditoría: `secret_rotated` (`200`) y `secret_rotation_denied` (`403` y `404`). Cambio compatible.
 - **1.4.0**: una cuenta de rol `servicio` por módulo (`svc-ids`, `svc-honeypot`, `svc-escaner`, `svc-pentesting`, `svc-soar`, `svc-siem`), creada desde su variable `SERVICE_PASSWORD_<MÓDULO>`; esos nombres están reservados en el registro (`409`). Todo secreto tiene una cuenta dueña: pedir el de otro módulo devuelve `403` y se registra `secret_denied`. Nuevo secreto `siem_db_password` (dueño `svc-siem`). La cuenta compartida `servicio` pasa a ser transitoria. **Cambio no compatible** para quien lea un secreto que no es suyo.
 - **1.3.2**: aclaraciones sin cambios de comportamiento (`404` de `/secrets` registra `secret_denied`, caducidad configurable, 5.º fallo ya da `429`, lotes de 200, `IDS_REINTENTOS`).
 - **1.3.1**: se documentan CORS, variables de entorno, envío al IDS y auditoría de `/secrets`.
