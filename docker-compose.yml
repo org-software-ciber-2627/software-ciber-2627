@@ -188,6 +188,7 @@ services:
       - "8008:80"
     networks:
       - ciberurjc
+      - honeypot-publica
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
       interval: 10s
