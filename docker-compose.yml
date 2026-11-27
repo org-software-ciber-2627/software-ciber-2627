@@ -127,8 +127,13 @@ services:
       SPRING_PROFILES_ACTIVE: persistence
       SIEM_DB_URL: jdbc:postgresql://siem-db:5432/${SIEM_DB_NAME:-siem_bd}
       SIEM_DB_PASSWORD: ${SIEM_DB_PASSWORD:?Define SIEM_DB_PASSWORD en .env (ver .env.example)}
+      IDENTITY_URL: ${IDENTIDAD_URL:-http://identidad:80}
+      SIEM_AUTH_USER: ${SIEM_AUTH_USER:-svc-siem}
+      SIEM_AUTH_PASSWORD: ${SERVICE_PASSWORD_SIEM:-}
     depends_on:
       siem-db:
+        condition: service_healthy
+      identidad:
         condition: service_healthy
     networks:
       - ciberurjc
