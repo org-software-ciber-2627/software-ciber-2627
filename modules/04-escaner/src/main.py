@@ -3,10 +3,15 @@ from runner import get_profiles
 from jobs import create_job, get_job, public, JOBS
 from reports import reports_bp
 import os
+import logging
 
 app = Flask(__name__)
 app.register_blueprint(reports_bp)
 
+logging.basicConfig( # configuración para mostrar los mensajes de error si algo no va bien con el SIEM en jobs.py
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 
 @app.route("/health", methods=["GET"])
 def health():

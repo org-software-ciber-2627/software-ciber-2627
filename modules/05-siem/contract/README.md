@@ -1,6 +1,6 @@
 # Contrato SIEM · Sprint 2
 
-Especificación de la rama actual: ingesta persistente de HU8, histórico de HU10 y alertas reales. [openapi.json](openapi.json) es el contrato de referencia; [history-events.md](history-events.md) detalla navegación, errores y límites del histórico. No implementa autenticación ni autorización. La integración del Escáner se detalla en [scanner-events.md](scanner-events.md).
+Especificación de la rama actual: ingesta persistente de HU8, histórico de HU10 y alertas reales. [openapi.json](openapi.json) es el contrato de referencia; [history-events.md](history-events.md) detalla navegación, errores y límites del histórico. No implementa autenticación ni autorización. La integración del Escáner se detalla en [scanner-events.md](scanner-events.md). La autenticación con Identidad (G1) se detalla en [identity-auth.md](identity-auth.md), ratificado con G1 el 20/11/2026.
 
 ## Interfaz
 

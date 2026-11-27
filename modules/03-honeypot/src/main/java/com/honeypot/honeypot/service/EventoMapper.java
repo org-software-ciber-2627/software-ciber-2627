@@ -30,8 +30,6 @@ public class EventoMapper {
             ClasificadorAtaquesService.CREDENCIALES_POR_DEFECTO, SEVERIDAD_HIGH,
             ClasificadorAtaquesService.FUERZA_BRUTA, SEVERIDAD_MEDIUM,
             ClasificadorAtaquesService.ESCANEO, SEVERIDAD_LOW,
-            // PROVISIONAL: pendiente de acordar con el grupo 5 (HP-102);
-            // contract/examples/intento_login.json usa "medium".
             ClasificadorAtaquesService.INTENTO_LOGIN, SEVERIDAD_LOW
     );
 
@@ -125,8 +123,8 @@ public class EventoMapper {
                 attempt.getId() == null ? "HP-0" : "HP-" + attempt.getId(),
                 timestamp,
                 SOURCE,
-                "escaneo",
-                "low",
+                ClasificadorAtaquesService.ESCANEO,
+                severidadDe(ClasificadorAtaquesService.ESCANEO),
                 "Escaneo de puertos detectado en servicios señuelo",
                 "La IP " + ip + " ha conectado con varios puertos asociados a servicios señuelo en menos de "
                         + ventanaMinutos + " minutos.",

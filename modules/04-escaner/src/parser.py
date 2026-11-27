@@ -34,6 +34,15 @@ def severity_from_cvss(cvss):
         return "medium"
     return "low"
 
+def clean_evidence(text, max_len=300):
+    if not text:
+        return None
+    compact = " ".join(str(text).split())
+    if not compact:
+        return None
+    if len(compact) <= max_len:
+        return compact
+    return compact[: max_len - 3].rstrip() + "..."
 
 def make_event(
     event_type,
@@ -46,12 +55,12 @@ def make_event(
     protocol=None,
     service=None,
     script_id=None,
-    evidence=None,
     cve=None,
     cvss=None,
-    # El contrato del SIEM no admite "info"; los eventos informativos
+    evidence=None,
+    # El contrato del SIEM ya admite "info"; los eventos informativos
     # usan su nivel permitido más bajo y el Dashboard los filtra del informe.
-    severity="low"
+    severity="info"
 ):
     return {
         "event_id": str(uuid.uuid4()),
@@ -61,7 +70,7 @@ def make_event(
         "severity": severity,
         "title": title,
         "description": description,
-        "details": {
+        "details": { #hay que incluir evidence (evidencia textual o null si no aplica)
             "target": {
                 "ip": ip,
                 "port": port,
@@ -87,6 +96,65 @@ def is_vulnerable(output):
     return bool(re.search(r"\bVULNERABLE\b", output, flags=re.IGNORECASE) or CVE_RE.search(output))
 
 
+CVE_LINE_SCORE_RE = re.compile(
+    r"\b(CVE-\d{4}-\d{4,7})\b[ \t]+(\d{1,2}\.\d)\b",
+    re.IGNORECASE
+)
+
+
+def _to_score(value):
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return None
+    return score if 0 <= score <= 10 else None
+
+
+def _cvss_by_cve(script):
+    """Devuelve {CVE: cvss}, leyendo primero las tablas del XML."""
+    scores = {}
+
+    def add(cve, score):
+        if score is None:
+            return
+        cve = cve.upper()
+        scores[cve] = max(score, scores.get(cve, 0.0))
+
+    # 1) XML estructurado
+    for table in script.iter("table"):
+        elems = {
+            e.get("key"): (e.text or "").strip()
+            for e in table.findall("elem")
+            if e.get("key")
+        }
+
+        # vulners: <elem key="id">CVE-...</elem> + <elem key="cvss">7.5</elem>
+        if CVE_RE.fullmatch(elems.get("id", "")):
+            add(elems["id"], _to_score(elems.get("cvss")))
+            continue
+
+        # smb-vuln-*, http-vuln-*: tabla "scores" dentro de cada vulnerabilidad
+        table_scores = [
+            _to_score(e.text)
+            for e in table.findall("table[@key='scores']/elem")
+        ]
+        best = max((s for s in table_scores if s is not None), default=None)
+        if best is not None:
+            ids = [e.text or "" for e in table.findall("table[@key='ids']/elem")]
+            ids.append(table.get("key") or "")
+            for text in ids:
+                for cve in CVE_RE.findall(text):
+                    add(cve, best)
+
+    # 2) Respaldo: texto "CVE-XXXX-YYYY   7.5   url"
+    output = script.get("output") or ""
+    for cve, s in CVE_LINE_SCORE_RE.findall(output):
+        if cve.upper() not in scores:
+            add(cve, _to_score(s))
+
+    return scores
+
+
 def _parse_script(script, ip, scan_id, profile, port=None, protocol=None, service=None):
     """Convierte un resultado NSE positivo en eventos del contrato común."""
     script_id = script.get("id") or "script-desconocido"
@@ -95,16 +163,24 @@ def _parse_script(script, ip, scan_id, profile, port=None, protocol=None, servic
         return []
 
     cves = list(dict.fromkeys(cve.upper() for cve in CVE_RE.findall(output)))
-    scores = [float(score) for score in CVSS_RE.findall(output) if 0 <= float(score) <= 10.0]
+    scores = _cvss_by_cve(script)
+
+    # Respaldo: "CVSS: 9.8" cuando hay un único CVE sin score
+    if len(cves) == 1 and cves[0] not in scores:
+        m = CVSS_RE.search(output)
+        if m and _to_score(m.group(1)) is not None:
+            scores[cves[0]] = _to_score(m.group(1))
+
     events = []
-    for index, cve in enumerate(cves):
-        cvss = scores[index] if index < len(scores) else None
+    for cve in cves:
+        cvss = scores.get(cve)
         events.append(make_event(
             event_type="cve_detected",
             title=f"CVE detectado: {cve}",
             description=f"El script {script_id} ha identificado una referencia a {cve}.",
             ip=ip, port=port, protocol=protocol, service=service,
-            script_id=script_id, evidence=output, cve=cve, cvss=cvss,
+            script_id=script_id, cve=cve, cvss=cvss,
+            evidence=clean_evidence(output),
             scan_id=scan_id, profile=profile,
             severity=severity_from_cvss(cvss),
         ))
@@ -115,11 +191,11 @@ def _parse_script(script, ip, scan_id, profile, port=None, protocol=None, servic
             title=f"Posible vulnerabilidad: {script_id}",
             description=f"El script {script_id} ha señalado un posible problema de seguridad.",
             ip=ip, port=port, protocol=protocol, service=service,
-            script_id=script_id, evidence=output, scan_id=scan_id,
+            script_id=script_id, scan_id=scan_id,
+            evidence=clean_evidence(output),
             profile=profile, severity="medium",
         ))
     return events
-
 
 def parse_xml(xml_text, scan_id, profile="vuln"):
     events = []

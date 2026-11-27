@@ -13,10 +13,10 @@ export function getAlerts() {
 }
 
 export async function getAlertById(id) {
-    const token = sessionStorage.getItem("token") || "token-de-prueba";
+    const token = sessionStorage.getItem("token");
 
     const r = await fetch(`${SIEM_URL}/${encodeURIComponent(id)}`, {
-        headers: { "Authorization": "Bearer " + token }
+        headers: token ? { "Authorization": "Bearer " + token } : {}
     });
 
     if (r.status === 401) {

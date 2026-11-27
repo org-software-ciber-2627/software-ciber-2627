@@ -3,10 +3,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Lock
 from werkzeug.exceptions import RequestEntityTooLarge
+from util.admin_api import admin_bp
 from util.config_loader import config
 import json
 
 app = Flask("health-check")
+app.register_blueprint(admin_bp)
 
 @app.route("/health")
 def health():
@@ -41,7 +43,33 @@ def write_log_file(records):
 
     with RECEIVED_LOG_FILE.open("w", encoding="utf-8") as file:
         for record in records.values():
-            file.write(record["raw_line"] + "\n")
+            if not record.get("processed", False):
+                file.write(record["raw_line"] + "\n")
+
+
+def append_pending_logs(entries):
+    RECEIVED_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    with RECEIVED_LOG_FILE.open("a", encoding="utf-8") as file:
+        for entry in entries:
+            file.write(entry["raw_line"] + "\n")
+
+
+def mark_records_processed(raw_lines, failed=False):
+    with file_lock:
+        records = load_records()
+        remaining_lines = list(raw_lines)
+
+        for record in records.values():
+            if record.get("processed", False) or record["raw_line"] not in remaining_lines:
+                continue
+
+            remaining_lines.remove(record["raw_line"])
+            record["processed"] = True
+            if failed:
+                record["processing_failed"] = True
+
+        save_records(records)
 
 
 def cleanup_old_logs():
@@ -114,6 +142,7 @@ def receive_logs():
 
     accepted = 0
     duplicates = 0
+    new_entries = []
 
     with file_lock:
         cutoff = datetime.now(timezone.utc) - timedelta(days=7)
@@ -135,13 +164,15 @@ def receive_logs():
             records[log_id] = {
                 "source": source,
                 "raw_line": entry["raw_line"],
-                "received_at": datetime.now(timezone.utc).isoformat()
+                "received_at": datetime.now(timezone.utc).isoformat(),
+                "processed": False,
             }
 
             accepted += 1
+            new_entries.append(entry)
 
         save_records(records)
-        write_log_file(records)
+        append_pending_logs(new_entries)
 
     return jsonify({
         "status": "accepted",

@@ -24,15 +24,19 @@ def nmap_xml(script_xml="", hostscript_xml=""):
 
 class TestParser(unittest.TestCase):
     def test_normaliza_puerto_servicio_y_cve(self):
+        output_text = "VULNERABLE: CVE-2024-12345 CVSS:3.1:9.8"
         xml = nmap_xml(
-            '<script id="vuln-demo" output="VULNERABLE: CVE-2024-12345 CVSS:3.1:9.8" />'
+            f'<script id="vuln-demo" output="{output_text}" />'
         )
         events = parse_xml(xml, "scan-1", "vuln")
         by_type = {event["event_type"]: event for event in events}
 
         self.assertEqual(set(by_type), {"port_open", "service_detected", "cve_detected"})
-        self.assertEqual(by_type["port_open"]["severity"], "low")
-        self.assertEqual(by_type["service_detected"]["severity"], "low")
+        self.assertEqual(by_type["port_open"]["severity"], "info")
+        self.assertEqual(by_type["service_detected"]["severity"], "info")
+        self.assertIsNone(by_type["port_open"]["details"]["evidence"])
+        self.assertIsNone(by_type["service_detected"]["details"]["evidence"])
+
         finding = by_type["cve_detected"]
         self.assertEqual(finding["severity"], "critical")
         self.assertEqual(finding["source"], "scanner")
@@ -42,7 +46,21 @@ class TestParser(unittest.TestCase):
         self.assertEqual(finding["details"]["target"], {
             "ip": "192.0.2.10", "port": 443, "protocol": "tcp", "service": "https",
         })
+        self.assertIsNotNone(finding["details"]["evidence"])
+        self.assertLessEqual(len(finding["details"]["evidence"]), 300)
         self.assertTrue(finding["timestamp"].endswith("Z"))
+
+    def test_evidencia_larga_se_recorta_sin_exceder_limite(self):
+        long_output = "VULNERABLE: " + ("A" * 500)
+        xml = nmap_xml(f'<script id="vuln-long" output="{long_output}" />')
+        events = parse_xml(xml, "scan-long", "vuln")
+        findings = [e for e in events if e["event_type"] == "vulnerability_detected"]
+
+        self.assertEqual(len(findings), 1)
+        evidence = findings[0]["details"]["evidence"]
+        self.assertIsNotNone(evidence)
+        self.assertLessEqual(len(evidence), 300)
+        self.assertTrue(evidence.endswith("..."))
 
     def test_not_vulnerable_no_crea_falso_positivo_por_cve_en_evidencia(self):
         xml = nmap_xml(
@@ -62,6 +80,7 @@ class TestParser(unittest.TestCase):
         self.assertIsNone(findings[0]["details"]["target"]["port"])
         self.assertEqual(findings[0]["details"]["script_id"], "host-vuln")
         self.assertEqual(findings[0]["severity"], "medium")
+        self.assertIsNotNone(findings[0]["details"]["evidence"])
 
     def test_errores_y_salidas_vacias_se_ignoran(self):
         xml = nmap_xml(

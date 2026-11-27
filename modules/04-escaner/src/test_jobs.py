@@ -1,10 +1,11 @@
 import os
 import subprocess
 import tempfile
+import requests
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from jobs import JOBS, _run_job_worker, public
+from jobs import JOBS, _run_job_worker, public, publish_events_to_siem
 from main import app
 
 
@@ -109,7 +110,7 @@ class TestScannerFlow(unittest.TestCase):
         self.assertEqual(finding["source"], "scanner")
         self.assertEqual(finding["details"]["profile"], "vuln")
         self.assertEqual(finding["details"]["scan_id"], "scan-ok")
-        publish.assert_called_once_with(job["events"])
+        publish.assert_called_once_with(job["events"], scan_id="scan-ok")
         self.assertFalse(os.path.exists(path))
 
     def test_timeout_termina_proceso_y_marca_fallo(self):
@@ -129,6 +130,213 @@ class TestScannerFlow(unittest.TestCase):
         self.assertEqual(process.returncode, -9)
         self.assertFalse(os.path.exists(path))
 
+class TestSiemDelivery(unittest.TestCase):
+    def test_acepta_acuse_correcto(self):
+        event = {
+            "event_id": "evt-001",
+            "source": "scanner",
+        }
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "status": "success",
+            "event_id": "evt-001",
+        }
+
+        with patch("jobs.requests.post", return_value=response) as post:
+            result = publish_events_to_siem([event])
+
+        post.assert_called_once()
+        self.assertEqual(result, {
+            "status": "delivered",
+            "total": 1,
+            "delivered": 1,
+            "failed": 0,
+            "errors": [],
+        })
+
+    def test_registra_error_http_del_siem(self):
+        event = {
+            "event_id": "evt-002",
+            "source": "scanner",
+        }
+        response = Mock(status_code=400)
+    
+        with patch("jobs.requests.post", return_value=response):
+            result = publish_events_to_siem([event])
+    
+        self.assertEqual(result, {
+            "status": "failed",
+            "total": 1,
+            "delivered": 0,
+            "failed": 1,
+            "errors": [{
+                "event_id": "evt-002",
+                "code": "http_error",
+                "status_code": 400,
+            }],
+        })
+
+    def test_registra_ack_no_json(self):
+        event = {
+            "event_id": "evt-003",
+            "source": "scanner",
+        }
+        response = Mock(status_code=200)
+        response.json.side_effect = ValueError("respuesta no válida")
+
+        with patch("jobs.requests.post", return_value=response):
+            result = publish_events_to_siem([event])
+
+        self.assertEqual(result, {
+            "status": "failed",
+            "total": 1,
+            "delivered": 0,
+            "failed": 1,
+            "errors": [{
+                "event_id": "evt-003",
+                "code": "invalid_json_ack",
+            }],
+        })
+
+    def test_registra_status_incorrecto_del_siem(self):
+        event = {
+            "event_id": "evt-004",
+            "source": "scanner",
+        }
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "status": "error",
+            "event_id": "evt-004",
+        }
+
+        with patch("jobs.requests.post", return_value=response):
+            result = publish_events_to_siem([event])
+
+        self.assertEqual(result, {
+            "status": "failed",
+            "total": 1,
+            "delivered": 0,
+            "failed": 1,
+            "errors": [{
+                "event_id": "evt-004",
+                "code": "invalid_ack_status",
+            }],
+        })
+
+    def test_registra_event_id_distinto(self):
+        event = {
+            "event_id": "evt-005",
+            "source": "scanner",
+        }
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "status": "success",
+            "event_id": "evt-otro",
+        }
+
+        with patch("jobs.requests.post", return_value=response):
+            result = publish_events_to_siem([event])
+
+        self.assertEqual(result, {
+            "status": "failed",
+            "total": 1,
+            "delivered": 0,
+            "failed": 1,
+            "errors": [{
+                "event_id": "evt-005",
+                "code": "event_id_mismatch",
+            }],
+        })
+
+    def test_registra_timeout_de_conexion(self):
+        event = {
+            "event_id": "evt-006",
+            "source": "scanner",
+        }
+
+        with patch(
+            "jobs.requests.post",
+            side_effect=requests.exceptions.Timeout,
+        ):
+            result = publish_events_to_siem([event])
+
+        self.assertEqual(result, {
+            "status": "failed",
+            "total": 1,
+            "delivered": 0,
+            "failed": 1,
+            "errors": [{
+                "event_id": "evt-006",
+                "code": "connection_error",
+                "error_type": "Timeout",
+            }],
+        })
+
+    def test_registra_entrega_parcial(self):
+        events = [
+            {"event_id": "evt-007", "source": "scanner"},
+            {"event_id": "evt-008", "source": "scanner"},
+        ]
+
+        ok_response = Mock(status_code=200)
+        ok_response.json.return_value = {
+            "status": "success",
+            "event_id": "evt-007",
+        }
+        error_response = Mock(status_code=400)
+
+        with patch(
+            "jobs.requests.post",
+            side_effect=[ok_response, error_response],
+        ):
+            result = publish_events_to_siem(events)
+
+        self.assertEqual(result, {
+            "status": "partial",
+            "total": 2,
+            "delivered": 1,
+            "failed": 1,
+            "errors": [{
+                "event_id": "evt-008",
+                "code": "http_error",
+                "status_code": 400,
+            }],
+        })
+
+    def test_registra_ack_que_no_es_objeto(self):
+        event = {
+            "event_id": "evt-009",
+            "source": "scanner",
+        }
+        response = Mock(status_code=200)
+        response.json.return_value = []
+
+        with patch("jobs.requests.post", return_value=response):
+            result = publish_events_to_siem([event])
+
+        self.assertEqual(result, {
+            "status": "failed",
+            "total": 1,
+            "delivered": 0,
+            "failed": 1,
+            "errors": [{
+                "event_id": "evt-009",
+                "code": "invalid_ack",
+            }],
+        })
+
+    def test_sin_eventos_no_contacta_al_siem(self):
+        with patch("jobs.requests.post") as post:
+            result = publish_events_to_siem([])
+
+        self.assertEqual(result, {
+            "status": "not_required",
+            "total": 0,
+            "delivered": 0,
+            "failed": 0,
+            "errors": [],
+        })
+        post.assert_not_called()
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1,6 +1,6 @@
 import pytest
 #clase para crear pruebas unitarias para la función parse_and_normalize_alert, de esta forma comprobamos que la normalización de alertas funciona correctamente y que se rechazan las alertas inválidas
-from normalization.parser import parse_and_normalize_alert
+from soar.normalization.parser import parse_and_normalize_alert
 
 def test_parse_valid_honeypot_alert():
     raw_data = {

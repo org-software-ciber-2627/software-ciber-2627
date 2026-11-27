@@ -107,7 +107,8 @@ public class FtpEventService {
                 ? tipoAtaque
                 : EVENT_TYPE_NORMAL;
 
-        String severity = passwordCommand ? "medium" : "low";
+        // La severidad sale de la tabla de EventoMapper según el event_type (HP-103)
+        String severity = EventoMapper.severidadDe(eventType);
 
         try {
             EventoContrato evento = eventoMapper.mapearAEvento(

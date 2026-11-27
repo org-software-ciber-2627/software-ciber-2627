@@ -17,6 +17,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Generate throwaway SIEM database password
+        run: |
+          password="$(openssl rand -hex 16)"
+          echo "::add-mask::${password}"
+          echo "SIEM_DB_PASSWORD=${password}" >> "$GITHUB_ENV"
+
       - name: Build images
         run: docker compose build
 
@@ -30,6 +36,15 @@ jobs:
             echo "Comprobando puerto $port..."
             curl -f "http://localhost:${port}/health"
           done
+
+      - name: Check SIEM stores events (PostgreSQL)
+        run: |
+          status="$(curl -s -o /dev/null -w '%{http_code}' \
+            -X POST "http://localhost:8005/events" \
+            -H 'Content-Type: application/json' \
+            --data @modules/05-siem/contract/examples/grupo_4_scanner_info.json)"
+          echo "POST /events -> ${status}"
+          test "${status}" = "200"
 
       - name: Stop services
         if: always()

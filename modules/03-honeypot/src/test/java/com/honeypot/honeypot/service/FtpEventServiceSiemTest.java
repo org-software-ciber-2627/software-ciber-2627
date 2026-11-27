@@ -48,4 +48,31 @@ class FtpEventServiceSiemTest {
                 .contains("\"event_type\":\"credenciales_por_defecto\"")
                 .contains("\"username\":\"admin\"");
     }
+
+    // HP-103: la severidad sale de EventoMapper.severidadDe según el event_type
+    @Test
+    void elPassConCredencialPorDefectoLlegaAlSiemConSeveridadHigh() {
+        when(clasificador.clasificar(eq("203.0.113.9"), any(), eq("admin"), eq("admin")))
+                .thenReturn(ClasificadorAtaquesService.CREDENCIALES_POR_DEFECTO);
+
+        ftpEventService.registrarComando("203.0.113.9", "PASS", "admin", "admin");
+
+        assertThat(jsonEnviado()).contains("\"severity\":\"high\"");
+    }
+
+    @Test
+    void elPassSinClasificarLlegaAlSiemComoIntentoLoginConSeveridadLow() {
+        // El clasificador (mock) devuelve null: el PASS no tiene etiqueta
+        ftpEventService.registrarComando("203.0.113.9", "PASS", "secreta", "admin");
+
+        assertThat(jsonEnviado())
+                .contains("\"event_type\":\"intento_login\"")
+                .contains("\"severity\":\"low\"");
+    }
+
+    private String jsonEnviado() {
+        ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
+        verify(siem, timeout(2000)).enviarEvento(json.capture(), any());
+        return json.getValue();
+    }
 }

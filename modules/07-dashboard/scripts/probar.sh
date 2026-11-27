@@ -94,7 +94,7 @@ step() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
 # Solo para lo que arrancó esta ejecución y solo si no se pidió -m; con -m avisa de cómo pararlo.
 parar_todo() {
   docker rm -f mock-soar mock-scanner >/dev/null 2>&1 || true
-  (cd "$RAIZ" && docker compose --env-file "$ENVF" -p "$PROJ" down >/dev/null 2>&1) || true
+  (cd "$RAIZ" && docker compose --env-file "$ENVF" -p "$PROJ" down -v >/dev/null 2>&1) || true
 }
 cleanup() {
   if [ "$ARRANCADO" = 1 ] && [ "$LIMPIAR" = 1 ]; then
@@ -136,7 +136,12 @@ codigo() { curl -s -o /dev/null -w '%{http_code}' "$1" 2>/dev/null; }
 
 # --- 2. Variables de entorno -----------------------------------------------------------
 # docker compose lee las URLs de los módulos de un fichero de variables. Partimos de .env.example.
-cp "$RAIZ/.env.example" "$ENVF"
+grep -v '^SIEM_DB_PASSWORD=' "$RAIZ/.env.example" > "$ENVF"
+# El compose exige SIEM_DB_PASSWORD (contraseña de PostgreSQL del SIEM). Se usa la de la terminal si
+# existe y, si no, una de usar y tirar que solo vive en esta copia temporal. Como "parar_todo" borra los
+# volúmenes de este proyecto, la base de datos no sobrevive con una contraseña que ya no se conoce.
+SIEM_DB_PASSWORD_PRUEBA="${SIEM_DB_PASSWORD:-$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
+printf 'SIEM_DB_PASSWORD=%s\n' "$SIEM_DB_PASSWORD_PRUEBA" >> "$ENVF"
 
 # --- Modo -p: parar lo que dejó -m y salir ---------------------------------------------------------
 if [ "$PARAR" = 1 ]; then

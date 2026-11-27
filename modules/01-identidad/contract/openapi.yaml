@@ -1,38 +1,129 @@
 openapi: 3.0.3
 info:
   title: Identidad y secretos
-  version: 1.3.0
+  version: 1.4.0
   description: |
     API de autenticación, gestión de usuarios, acceso a secretos y registro de auditoría interno.
 
     **Token.** `POST /auth/login` y `POST /auth/register` devuelven un JWT firmado con HS256
     (claims: `sub` = nombre de usuario, `role`, `user_id`, `iat`, `exp`). Caducidad: 30 minutos
-    (valor del Sprint 1; cualquier cambio se avisará por Pull Request y por Teams).
+    por defecto, configurable con `JWT_EXPIRES_SECONDS`. Cualquier cambio se avisará por Pull Request y por Teams.
 
     **Cómo validar desde otro módulo.** No decodifiquéis ni verifiquéis el token por vuestra
     cuenta: llamad a `GET /auth/validate` con la cabecera `Authorization: Bearer <token>`.
 
     **Roles.** `admin`, `analista` y `servicio`. Los usuarios registrados por `POST /auth/register`
-    nacen con rol `analista`; las cuentas `admin` y `servicio` se precargan en el Sprint 1.
+    nacen con rol `analista`. La cuenta `admin` se crea si existe la variable `ADMIN_PASSWORD`.
+    Cada módulo tiene su propia cuenta con rol `servicio`: `svc-ids`, `svc-honeypot`, `svc-escaner`,
+    `svc-pentesting`, `svc-soar` y `svc-siem`. Cada una se crea solo si existe su variable
+    `SERVICE_PASSWORD_<MÓDULO>` (ver tabla de variables). Esos nombres y sus emails
+    (`<cuenta>@ciberurjc.local`) están reservados: `POST /auth/register` responde `409` si se intentan usar.
+    La cuenta compartida `servicio` (`SERVICE_PASSWORD`) es **transitoria**: solo se mantiene mientras
+    el IDS y el CI del SIEM migran a su cuenta propia, y se retirará en una versión posterior.
 
-    **Secretos.** `GET /secrets/{clave}` solo está permitido al rol `servicio`.
+    **Secretos.** `GET /secrets/{clave}` solo está permitido al rol `servicio` y cada cuenta solo
+    puede leer los secretos de su módulo. Todo secreto tiene un módulo dueño; un secreto sin dueño no lo
+    lee ninguna cuenta (`403`).
+
+    | Secreto | Variable de entorno | Cuenta dueña |
+    |---|---|---|
+    | `siem_db_password` | `SECRET_SIEM_DB_PASSWORD` | `svc-siem` |
+    | `db_password`, `api_key`, `jwt_secret` (demostración) | `SECRET_DB_PASSWORD`, `SECRET_API_KEY`, `SECRET_JWT_SECRET` | `servicio` (transitoria) |
 
     **Auditoría.** El módulo registra internamente los intentos de login (`login_ok`,
     `login_failed`, `invalid_user`, `limit_exceeded`) y los accesos a secretos (`secret_read`,
     `secret_denied`) y los envía al IDS (`POST /logs` del módulo 2). No hay endpoint público para
     consultarlos. El registro nunca contiene contraseñas, tokens ni valores de secretos.
 
+    **Envío de logs al IDS.** Los eventos se envían en lotes de hasta 200 a la URL configurada en la variable
+    de entorno `IDS_URL` (por defecto `http://ids/logs`). El payload tiene la forma:
+
+    ```json
+    {
+      "source": "01-identidad",
+      "logs": [
+        { "id": "g1-log-<ms>-<id>", "raw_line": "<línea syslog estilo OpenSSH>" }
+      ]
+    }
+    ```
+
+    Solo se considera éxito una respuesta `202` del IDS. Ante cualquier otro código o error de
+    red, el módulo reintenta con backoff exponencial (30 s base, máximo 300 s). Los reintentos
+    se controlan con `IDS_RETRY_SECONDS` e `IDS_REINTENTOS` (ver variables de entorno).
+
+    **Formato de `raw_line`.** Sigue el estilo syslog de OpenSSH para activar las reglas del IDS:
+    - `login_ok`       → `Accepted password for <user> from <ip> port <port> ssh2`
+    - `login_failed`   → `Failed password for <user> from <ip> port <port> ssh2`
+    - `invalid_user`   → `Failed password for invalid user <user> from <ip> port <port> ssh2`
+    - `limit_exceeded` → `authentication attempts exceeded from <ip> port <port>`
+    - `secret_read` / `secret_denied` → mensaje genérico con campos `event`, `result`, `user`, `from`, `clave`
+
     **Cierre de sesión (novedad 1.2.0).** `POST /auth/logout` invalida el token actual. Desde
-    ese momento, ese token se trata como inválido: `GET /auth/validate`, y `GET /secrets/{clave}`
+    ese momento, ese token se trata como inválido: `GET /auth/validate` y `GET /secrets/{clave}`
     responden `401` con él. Los demás módulos no cambian nada: siguen validando
     solo con `GET /auth/validate`.
+
+    **Rate limiting en login.** El endpoint `POST /auth/login` bloquea una pareja usuario+IP
+    tras 5 intentos fallidos en una ventana deslizante de 15 minutos. Durante el bloqueo,
+    todas las peticiones devuelven `429` directamente sin registrar nuevos eventos; el evento
+    `limit_exceeded` se registra una única vez cuando la pareja alcanza el umbral. Si la ventana
+    deslizante descarta el fallo más antiguo y el contador cae por debajo del umbral, el siguiente
+    fallo que lo vuelva a alcanzar genera un nuevo `limit_exceeded`.
+
+    **Auditoría de acceso a secretos.** Los accesos denegados por rol insuficiente o porque el secreto pertenece
+    a otro módulo (`403`) quedan registrados como `secret_denied`; los rechazos por token inválido 
+    o ausente (`401`) no se auditan, ya que en ese caso no es posible identificar al solicitante de forma fiable.
+    Si se realiza una petición para obtener un secreto, pero no hay ninguno asociado a la clave solicitada, 
+    se registra el evento `secret_denied` y devuelve error (`404`).
+
+    **CORS.** Los endpoints `/auth/login`, `/auth/register`, `/auth/validate` y `/auth/logout`
+    aceptan peticiones cross-origin exclusivamente desde `http://localhost:8007` (dashboard).
+    El resto de endpoints no admite CORS.
+
+    **Variables de entorno.**
+
+    | Variable | Obligatoria | Descripción |
+    |---|---|---|
+    | `JWT_SECRET_KEY` | Sí (para auth y secrets) | Clave de firma del JWT |
+    | `AES_KEY` | Sí (para /secrets) | Clave AES-256, base64 de 32 bytes aleatorios |
+    | `DATABASE_URL` | No | URI de base de datos; por defecto `sqlite:///identidad.db` |
+    | `TRUSTED_PROXY_HOPS` | No | Nº de proxies de confianza delante (0 = ninguno) |
+    | `JWT_EXPIRES_SECONDS` | No | Caducidad del JWT en segundos; por defecto 1800 |
+    | `IDS_URL` | No | URL del endpoint de logs del IDS; por defecto `http://ids/logs` |
+    | `IDS_RETRY_SECONDS` | No | Espera base entre reintentos al IDS en segundos; por defecto 30 |
+    | `IDS_REINTENTOS` | No | `"1"` (por defecto) activa el hilo de reintentos; cualquier otro valor lo desactiva (los tests usan `"0"`) |
+    | `ADMIN_PASSWORD` | No | Si existe, crea la cuenta `admin` |
+    | `SERVICE_PASSWORD` | No | **Transitoria.** Si existe, crea la cuenta compartida `servicio`; se retirará cuando IDS y SIEM usen su cuenta propia |
+    | `SERVICE_PASSWORD_IDS` | No | Si existe, crea la cuenta `svc-ids` (rol `servicio`) |
+    | `SERVICE_PASSWORD_HONEYPOT` | No | Si existe, crea la cuenta `svc-honeypot` (rol `servicio`) |
+    | `SERVICE_PASSWORD_ESCANER` | No | Si existe, crea la cuenta `svc-escaner` (rol `servicio`) |
+    | `SERVICE_PASSWORD_PENTESTING` | No | Si existe, crea la cuenta `svc-pentesting` (rol `servicio`) |
+    | `SERVICE_PASSWORD_SOAR` | No | Si existe, crea la cuenta `svc-soar` (rol `servicio`) |
+    | `SERVICE_PASSWORD_SIEM` | No | Si existe, crea la cuenta `svc-siem` (rol `servicio`) |
+    | `SECRET_SIEM_DB_PASSWORD` | No | Si existe, se guarda cifrado como secreto `siem_db_password` (dueño `svc-siem`) |
+    | `SECRET_DB_PASSWORD` | No | Si existe, se guarda cifrado como secreto `db_password` (dueño `servicio`) |
+    | `SECRET_API_KEY` | No | Si existe, se guarda cifrado como secreto `api_key` (dueño `servicio`) |
+    | `SECRET_JWT_SECRET` | No | Si existe, se guarda cifrado como secreto `jwt_secret` (dueño `servicio`) |
 
     **Salud.** `GET /health` lo usan el CI y el docker-compose del monorepo.
 
     Resumen de formato de error: `{ "error": "<mensaje>" }` (y `{ "valid": false, "error": "<mensaje>" }`
     en `/auth/validate`).
 
-    **Historial.** 1.3.0: se retiran `GET /audit` (nunca llegó a implementarse) y `GET /logs` (existía en el código;
+    **Historial.**
+    1.4.0: Se establece una cuenta de servicio por módulo
+           Pedir un secreto de otro módulo devuelve un error `403` y se registra el evento `secret_denied`
+           Nuevo secreto `siem_db_password` (dueño `svc-siem`); usuarios `svc-*` reservados en el registro
+           `SERVICE_PASSWORD` y la cuenta `servicio` pasan a ser transitorias
+    1.3.2: se documenta que el `404` también registra el evento `secret_denied`
+           se documenta que la caducidad del JWT es configurable
+           se documentan lotes de hasta 200 logs
+           se documenta que el 5º intento fallido ya devuelve `429`
+           se documenta el valor de `IDS_REINTENTOS`
+    1.3.1: se documentan CORS, variables de entorno, formato del payload al IDS, formato de
+    `raw_line`, política de reintentos, semántica exacta de `limit_exceeded` y comportamiento
+    de auditoría en `401` vs `403` en `/secrets/{clave}`.
+    1.3.0: se retiran `GET /audit` (nunca llegó a implementarse) y `GET /logs` (existía en el código;
     no lo usa ningún módulo);
     se documentan el límite de intentos de login (`429`) y el evento `limit_exceeded`.
     1.2.0: se añade `POST /auth/logout` (cambio compatible, no modifica los endpoints existentes).
@@ -82,7 +173,10 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: El usuario o el email ya existen
+          description: >
+            El usuario o el email ya existen, o son de una cuenta reservada (`admin`, `servicio`,
+            `svc-ids`, `svc-honeypot`, `svc-escaner`, `svc-pentesting`, `svc-soar`, `svc-siem` o sus emails),
+            aunque esa cuenta aún no se haya creado.
           content:
             application/json:
               schema:
@@ -96,7 +190,15 @@ paths:
   /auth/login:
     post:
       summary: Login
-      description: Autentica a un usuario con nombre de usuario y contraseña y devuelve un JWT. Cada intento queda en el registro de auditoría.
+      description: >
+        Autentica a un usuario con nombre de usuario y contraseña y devuelve un JWT.
+        Cada intento queda en el registro de auditoría.
+
+        **Rate limiting.** Al 5º intento fallido (credenciales incorrectas o usuario
+        inexistente) desde la misma pareja usuario+IP en una ventana deslizante de 15 minutos,
+        el endpoint ya responde `429` en lugar de `401`, y sigue respondiendo `429` hasta que 
+        la ventana desplace el fallo más antiguo. Durante el bloqueo no se registran nuevos eventos de auditoría; 
+        el evento `limit_exceeded` se emite una sola vez al alcanzar el umbral (ver descripción del `429`).
       operationId: login
       security: []
       requestBody:
@@ -126,10 +228,13 @@ paths:
                 $ref: '#/components/schemas/Error'
         '429':
           description: >
-            Demasiados intentos de autenticación. El bloqueo se aplica
-            por combinación de usuario e IP. Retry-After indica los
-            segundos restantes. Se registra limit_exceeded una sola
-            vez al alcanzar el límite durante el episodio de bloqueo.
+            Demasiados intentos de autenticación. El bloqueo se aplica por combinación de
+            usuario e IP: 5 fallos en una ventana deslizante de 15 minutos. Durante el bloqueo
+            se devuelve `429` directamente sin registrar nuevos eventos de auditoría.
+            El evento `limit_exceeded` se registra una única vez cuando la pareja alcanza el
+            umbral; si la ventana deslizante hace que el contador caiga por debajo y vuelve a
+            alcanzarse, se emite un nuevo `limit_exceeded`. `Retry-After` indica los segundos
+            restantes hasta que el fallo más antiguo salga de la ventana.
           headers:
             Retry-After:
               description: Segundos restantes hasta que expire el bloqueo.
@@ -178,7 +283,8 @@ paths:
       description: >
         Invalida el token JWT con el que se hace la petición. No lleva cuerpo. Después, ese token
         deja de ser válido en todos los endpoints. Si el token ya era inválido, estaba caducado o
-        ya se había cerrado la sesión con él, responde 401.
+        ya se había cerrado la sesión con él, responde `401`. Llamar a este endpoint dos veces con
+        el mismo token devuelve `401` en la segunda llamada.
       operationId: logout
       security:
         - BearerAuth: []
@@ -206,8 +312,12 @@ paths:
       summary: Obtener secreto
       description: >
         Obtiene el secreto asociado a la clave proporcionada. Requiere un token JWT válido
-        y que el usuario esté autenticado con el rol servicio. El acceso (concedido o denegado)
-        queda en el registro de auditoría.
+        y que el usuario esté autenticado con el rol `servicio`. El acceso concedido queda
+        registrado como `secret_read`; el acceso denegado por rol insuficiente o porque el secreto pertenece
+        a otro módulo (`403`) queda registrado como `secret_denied`. Los rechazos por token inválido o ausente (`401`) no
+        se auditan, ya que en ese caso no es posible identificar al solicitante de forma fiable.
+        Si se realiza una petición para obtener un secreto, pero no hay ninguno asociado a la clave solicitada, 
+        se registra el evento `secret_denied` y devuelve error (`404`).
       operationId: getSecret
       security:
         - BearerAuth: []
@@ -215,16 +325,19 @@ paths:
         - name: clave
           in: path
           required: true
-          description: Clave del secreto que se desea obtener
+          description: >
+            Clave del secreto que se desea obtener. Solo se admiten caracteres alfanuméricos,
+            guion, punto y guion bajo (`[A-Za-z0-9_.-]`), con una longitud de 1 a 100 caracteres.
           schema:
             type: string
+            pattern: '^[A-Za-z0-9_.\-]{1,100}$'
           example: api_key
       responses:
         '200':
           description: Secreto obtenido correctamente
           headers:
             Cache-Control:
-              description: Siempre no-store; la respuesta no debe almacenarse en caché.
+              description: Siempre `no-store`; la respuesta no debe almacenarse en caché.
               schema:
                 type: string
                 example: no-store
@@ -233,25 +346,27 @@ paths:
               schema:
                 $ref: '#/components/schemas/SecretResponse'
         '400':
-          description: Clave no válida
+          description: Clave no válida (no cumple el patrón `[A-Za-z0-9_.-]{1,100}`)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
-          description: Token inválido, expirado, revocado o no autorizado
+          description: Token inválido, expirado, revocado o ausente. No se registra en auditoría.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '403':
-          description: Token válido, pero el rol no es servicio
+          description: Token válido, pero el rol no es `servicio` o el secreto pertenece a otro módulo. Se registra como `secret_denied`.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
-          description: No se encontró un secreto para la clave proporcionada
+          description: >
+            No se encontró un secreto para la clave proporcionada.
+            Se registra como `secret_denied`.
           content:
             application/json:
               schema:

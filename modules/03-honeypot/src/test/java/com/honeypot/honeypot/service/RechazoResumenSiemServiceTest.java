@@ -69,6 +69,19 @@ class RechazoResumenSiemServiceTest {
         }
     }
 
+    // HP-114: el resumen sale con el event_type y la severidad acordados con el grupo 5
+    @Test
+    void elResumenSaleConEventTypeYSeveridadAcordados() throws Exception {
+        when(repositorio.findByEnviadoFalseAndMinutoBefore(MINUTO_ACTUAL)).thenReturn(List.of(fila));
+        try (SiemFalso siem = new SiemFalso()) {
+            servicio(siem.url()).enviarResumenesAnterioresA(AHORA);
+
+            String json = siem.recibidos().get(0);
+            assertTrue(json.contains("\"event_type\":\"peticiones_rechazadas\""));
+            assertTrue(json.contains("\"severity\":\"info\""));
+        }
+    }
+
     // HP-104: solo pide los minutos anteriores al actual (el actual aún puede seguir sumando)
     @Test
     void noEnviaNadaSiNoHayMinutosCerradosPendientes() throws Exception {

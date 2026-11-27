@@ -104,9 +104,8 @@ public class HoneyPotController {
         CompletableFuture.runAsync(() -> {
             try {
                 // event_type: la etiqueta guardada o "intento_login" si no tiene (HP-77)
-                // Severidad "high" para credenciales por defecto, como en contract/examples
-                String severidad = ClasificadorAtaquesService.CREDENCIALES_POR_DEFECTO
-                        .equals(attempt.getTipoAtaque()) ? "high" : "medium";
+                // La severidad sale de la tabla de EventoMapper según el event_type (HP-103)
+                String severidad = EventoMapper.severidadDe(EventoMapper.tipoDeEvento(attempt));
                 EventoContrato evento = eventoMapper.mapearAEvento(attempt, severidad);
                 String json = jsonMapper.writeValueAsString(evento);
 

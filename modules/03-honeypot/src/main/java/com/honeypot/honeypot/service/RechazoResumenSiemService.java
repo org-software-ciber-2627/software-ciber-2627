@@ -25,7 +25,7 @@ public class RechazoResumenSiemService {
 
     // PROVISIONALES: cambiarlos cuando se acuerde el event_type y la severidad con el grupo 5
     static final String EVENT_TYPE = "peticiones_rechazadas";
-    static final String SEVERITY = "low";
+    static final String SEVERITY = "info";
 
     private final RechazoResumenRepository repositorio;
     private final SiemSenderService siemSenderService;
