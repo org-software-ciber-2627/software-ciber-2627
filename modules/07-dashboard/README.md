@@ -28,6 +28,7 @@ Sprint 1: página estática (nginx) que lista las alertas del SIEM ordenadas por
 | DASHG7-67 · Estados de error y de datos vacíos | Cada tabla muestra un aviso distinto si el servicio no responde, no hay datos, no hay permiso o la respuesta no tiene el formato esperado. | El aviso de datos no actualizados (DASHG7-36) queda para el Sprint 3. |
 | DASHG7-19 / DASHG7-47 · Login contra Identidad | `login.html` consulta a Identidad (`POST /auth/login`) a través del proxy `/api/identidad/` de nginx, que solo deja pasar login, validate y logout. El token JWT se guarda en `sessionStorage` y se valida con `GET /auth/validate` al abrir el Dashboard; sin sesión válida, o con Identidad caída, redirige al login. Gestiona el 429 con cuenta atrás. | Las cuentas las crea Identidad a partir de variables de entorno: sin ellas no hay usuario con el que entrar (ver «Para poder iniciar sesión en la prueba»). |
 | DASHG7-84 / DASHG7-85 / DASHG7-20 · Cierre de sesión y token caducado | «Cerrar Sesión» llama a `POST /auth/logout` de Identidad (espera como máximo 3 s) y borra el token del navegador, aunque Identidad no responda. Si el token caduca mientras se usa el Dashboard, la validación de cada refresco y un 401 del SIEM borran el token y devuelven al login. | Un fallo distinto de 401 (por ejemplo un 500 de Identidad) redirige al login pero no borra el token. |
+| DASHG7-32 · Actividad reciente del honeypot | Tabla «Actividad reciente del honeypot» con hora, IP de origen, servicio señuelo y tipo de intento de los 20 eventos más recientes con origen `honeypot`. Los pide al historial del SIEM (`GET /events?limit=500&offset=0`, por el proxy `/api/siem/` de nginx) y filtra por `source` en el navegador, porque el SIEM no filtra. Se refresca cada 30 s y usa los mismos avisos de error y de «sin datos» que el resto de tablas. | No muestra usuario, contraseña ni comando del atacante. Solo ve los honeypot que estén entre los últimos 500 eventos del SIEM. |
 
 Pendiente: hallazgos del escáner, proxy de nginx hacia el SOAR y aviso de datos no actualizados (DASHG7-36).
 
@@ -92,8 +93,9 @@ Las pruebas del front usan el ejecutor integrado de Node (`node --test`) y `jsdo
 | `tests/siem-alert.test.js` | Tabla de alertas sobre el `index.html` real: orden por severidad y fecha, escapado de HTML, estado de error, refresco cada 30 s. |
 | `tests/mock-siem.test.js` | El mock `mocks/siem-alerts.json` mantiene los campos y valores que el Dashboard necesita. |
 | `tests/sesion.test.js` | Sesión sobre `auth-client.js`: cierre de sesión (borra el token y llama a `POST /auth/logout` con `Bearer`, sin romperse si Identidad no responde), `validate`, `requireSession` (sesión válida, sin token, 401 que borra el token, 500 que lo conserva) y el botón «Cerrar Sesión». |
+| `tests/honeypot.test.js` | Actividad del honeypot (DASHG7-32): el cliente pide `GET /events` con el token, filtra por origen y ordena; la vista muestra hora, IP, servicio y tipo usando los ejemplos del contrato del honeypot (`modules/03-honeypot/contract/examples`), no enseña credenciales, escapa el HTML del atacante y cubre error, sin datos, 401, 403 y refresco. |
 
-En total son 37 pruebas.
+En total son 56 pruebas.
 
 Para ejecutarlas en local hace falta Node 20 o superior (no hace falta Docker):
 ```bash
