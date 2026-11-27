@@ -222,3 +222,48 @@ test("si falla el SIEM después de una consulta correcta conserva las alertas", 
   assert.equal(filasTabla(dom).length, 1);
   assert.equal(filasTabla(dom)[0].titulo, "Alerta conservada");
 });
+test("SIEM muestra el aviso de antigüedad después de 60 segundos y conserva las alertas", async () => {
+  const ahoraOriginal = Date.now;
+  let ahoraFalsa = 1800000000000;
+  let peticiones = 0;
+
+  Date.now = () => ahoraFalsa;
+
+  try {
+    const { dom, temporizadores } = montarPagina({
+      fetchImpl: async () => {
+        peticiones++;
+
+        if (peticiones === 1) {
+          return respuesta(200, {
+            alerts: [alerta({ title: "Alerta conservada" })],
+          });
+        }
+
+        return respuesta(500, {});
+      },
+    });
+
+    await cargarSiemAlert();
+
+    assert.equal(filasTabla(dom).length, 1);
+    assert.equal(visible(dom, "error"), false);
+
+    ahoraFalsa += 60001;
+    temporizadores[0].fn();
+
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setImmediate(r));
+    }
+
+    const aviso = dom.window.document.getElementById("error");
+
+    assert.equal(visible(dom, "error"), true);
+    assert.match(aviso.textContent, /^Sin datos desde \d{2}:\d{2}$/);
+    assert.equal(visible(dom, "tabla"), true);
+    assert.equal(filasTabla(dom).length, 1);
+    assert.equal(filasTabla(dom)[0].titulo, "Alerta conservada");
+  } finally {
+    Date.now = ahoraOriginal;
+  }
+});
