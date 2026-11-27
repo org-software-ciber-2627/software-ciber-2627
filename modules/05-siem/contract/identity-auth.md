@@ -16,7 +16,7 @@ El SIEM actúa como **consumidor** de G1. La fuente de verdad del proveedor es e
 | Formato de eventos y alertas | Esquema común | **Sin cambios** |
 | Contenedor de errores | `{"error": {"code", "message"}}` | Se conserva |
 
-**Estado: ratificado con G1 el 20/11/2026 (propuesta A).** G1 publica su contrato v1.4.0 en `main` el 25/11, con fecha efectiva 26/11. La autenticación no está implementada todavía en el SIEM; se implementa en SEM-133.
+**Estado: ratificado con G1 el 20/11/2026 (propuesta A).** G1 integró la v1.4.0 en `main` el 26/11 (PR #110, merge `67371c4`). La autenticación está implementada en el SIEM desde SEM-133 (contrato `0.4.0`); su activación en el Compose común se coordina con G1 y G7.
 
 ## Operaciones protegidas
 
@@ -25,8 +25,8 @@ El SIEM actúa como **consumidor** de G1. La fuente de verdad del proveedor es e
 | `GET /health` | **No** | CI, healthcheck del compose, vista de salud del Dashboard | No aplica |
 | `POST /events` | Sí | G2 IDS, G3 Honeypot, G4 Escáner, G8 Pentesting | `servicio` |
 | `GET /events` | Sí | G7 Dashboard (analista) | `analista`, `admin` |
-| `GET /alerts` | Sí | G6 SOAR (servicio), G7 Dashboard (analista) | `servicio`, `analista`, `admin` |
-| `GET /alerts/{id}` | Sí | G6 SOAR, G7 Dashboard | `servicio`, `analista`, `admin` |
+| `GET /alerts` | Sí | G6 SOAR consume `GET /alerts` con `svc-soar` (servicio); G7 Dashboard (analista) | `servicio`, `analista`, `admin` |
+| `GET /alerts/{id}` | Sí | G7 Dashboard (consumidor actual). G6 no lo consume, pero `svc-soar` conserva el permiso de lectura del detalle según la matriz de SEM-35 | `servicio`, `analista`, `admin` |
 
 En SEM-34 solo se comprueba la identidad; los roles se aplican en SEM-35. La matriz se incluye aquí para que G1 la revise junto al resto del contrato.
 
@@ -145,7 +145,7 @@ Para no recibir 401 por caducidad, el cliente puede renovar el login antes de lo
 | G3 Honeypot | Productor | `SiemSenderService` hace POST sin `Authorization` | Login, Bearer y tratamiento de 401/503 |
 | G4 Escáner | Productor | `jobs.py` hace POST sin `Authorization` | Login, Bearer y tratamiento de 401/503 |
 | G8 Pentesting | Productor (opcional) | Publicación al SIEM no conectada | Incluir login y Bearer si publica |
-| G6 SOAR | Consumidor | Lee un token fijo de `SIEM_TOKEN`, que caduca a los 30 min | Login con su cuenta de servicio; no tratar 401/503 como «no hay alertas» |
+| G6 SOAR | Consumidor | Inicia sesión con `svc-soar` en `POST /auth/login` de G1 y envía `Authorization: Bearer` en `GET /alerts` ([PR #120](https://github.com/org-software-ciber-2627/software-ciber-2627/pull/120)).<br>Si `GET /alerts` devuelve 401, renueva el token y reintenta la consulta una vez.<br>Si persiste el 401 o recibe 503, registra el fallo como error, no como lista vacía | Probar login y listado con Identidad `1.4.0` (29–30/11) |
 | G7 Dashboard | Consumidor | Envía el token del analista; nginx (`/api/siem/`) reenvía la petición al SIEM | Confirmar en la prueba real que llega `Authorization`; tratar el 503; quitar el valor por defecto `"token-de-prueba"` |
 
 ## Respuestas de G1 (20/11/2026)
@@ -189,10 +189,11 @@ Exigir autenticación es un **cambio incompatible** del contrato del SIEM: los p
 | Cambio | `POST /events`, `GET /events`, `GET /alerts` y `GET /alerts/{id}` exigen `Authorization: Bearer`; nuevos códigos 401 `UNAUTHENTICATED` y 503 `IDENTITY_UNAVAILABLE` |
 | Motivo | DoD de integración: «la autenticación se hace siempre a través del Módulo 1» (SEM-34 / HU18) |
 | Equipos afectados | G1 (proveedor), G2, G3, G4 y G8 (productores), G6 y G7 (consumidores) |
-| Fecha efectiva | Ratificado con G1 el **20/11**. G1 v1.4.0 en `main` el **25/11** (efectiva 26/11) y credenciales entregadas el 25/11. Autenticación activa en el compose antes del Integration Day. Recorrido autenticado y prueba de carga con G1 el **30/11** |
-| Dependencias | G1 v1.4.0: cuentas `svc-*`, secreto `siem_db_password` y lista de claves permitidas por cuenta (25/11). G7: variables nuevas del compose, coordinadas por G1 |
+| Fecha efectiva | Ratificado con G1 el **20/11**. Candidata del **27/11**: hito de entrega, no implica la activación en el Compose común. Activación en el Compose común: **pendiente**, fecha a concretar con G1 y G7. Objetivo: probar login y listado de alertas el **29–30/11**. Prueba de carga con G1 el **30/11** |
+| Requisitos de activación | Identidad `1.4.0` con la cuenta `svc-soar`; `SERVICE_PASSWORD_SOAR` en Identidad; la misma credencial como `SOAR_SERVICE_PASSWORD` en el contenedor SOAR; `AUTH_URL` o `IDENTITY_URL` apuntando a G1 |
+| Dependencias (estado a 27/11) | G1 `1.4.0` (cuentas `svc-*`, secreto `siem_db_password` y lista de claves permitidas) **integrada en `main`** el 26/11 (PR #110, merge `67371c4`). Credenciales de servicio: pendientes de confirmar con G1 (consultado el 26/11). G7: variables nuevas del compose, coordinadas por G1, pendientes |
 
-El [OpenAPI](openapi.json) (esquema `bearerAuth` y respuestas 401/503) se actualiza en SEM-133, junto con la implementación. Hasta entonces sigue describiendo la API sin autenticación. El formato de eventos y alertas no cambia.
+El [OpenAPI](openapi.json) incluye desde SEM-133 el esquema `bearerAuth` y las respuestas 401 `UNAUTHENTICATED` y 503 `IDENTITY_UNAVAILABLE`. El formato de eventos y alertas no cambia.
 
 ## Criterios verificables de integración
 
@@ -232,4 +233,4 @@ G1 ratificó la propuesta A por escrito el 20/11/2026 (captura adjunta en SEM-13
 | Prueba conjunta del escenario real, antes de decidir caché | G1 y G5 | 30/11 |
 | Rotación de credenciales tras la demo | G1 | Tras la Sprint Review |
 
-*Pendiente:* referencia del commit de G1 con la versión 1.4.0 efectiva, que G1 pasará cuando esté en `main`.
+Versión 1.4.0 de G1 efectiva en `main`: merge `67371c4` de la PR #110 (26/11/2026).

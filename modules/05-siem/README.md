@@ -14,6 +14,31 @@ La [especificación Escáner → SIEM](contract/scanner-events.md) define el for
 
 `GET /alerts` y `GET /alerts/{id}` consultan un mismo almacén de alertas en memoria. Los eventos `info` se almacenan sin generar alertas. Los demás eventos pasan por el conversor y P004 usa el [evaluador de intentos repetidos](docs/sem29-deteccion-intentos-fallidos.md). El almacén de alertas se vacía al reiniciar.
 
+## Autenticación con Identidad (SEM-133)
+
+Todas las rutas salvo `GET /health` exigen `Authorization: Bearer <token>`, con un token emitido por el Módulo 1 (`POST /auth/login`). El SIEM no decodifica el JWT: en cada petición llama a `GET {IDENTITY_URL}/auth/validate` con ese token, sin caché, de modo que un `POST /auth/logout` tiene efecto inmediato. La autenticación se comprueba antes de validar o almacenar nada. El acuerdo con G1 está en el [contrato de Identidad](contract/identity-auth.md).
+
+| Situación | Respuesta |
+| --- | --- |
+| Sin cabecera, sin formato `Bearer <token>` o con varias cabeceras `Authorization` | 401 `UNAUTHENTICATED` con `WWW-Authenticate: Bearer`, sin llamar a G1 |
+| G1 rechaza el token (inválido, expirado o revocado) | 401 `UNAUTHENTICATED` con `WWW-Authenticate: Bearer` |
+| G1 caído, lento (más de 2 s) o responde 5xx | 503 `IDENTITY_UNAVAILABLE` con `Retry-After: 30` |
+| G1 responde algo incompatible o `IDENTITY_URL` está vacía | 503 `IDENTITY_UNAVAILABLE` |
+
+El SIEM es *fail-closed*: si no puede confirmar la identidad, no concede acceso, y no existe ninguna opción para desactivar la autenticación. `GET /health` sigue respondiendo 200 aunque Identidad esté caída. Los logs anotan la operación, el usuario, el rol y el resultado, nunca el token.
+
+| Variable | Uso |
+| --- | --- |
+| `IDENTITY_URL` | URL base de Identidad: `http://identidad:80` en el Compose y `http://localhost:8001` en local. Vacía por defecto |
+| `IDENTITY_CONNECT_TIMEOUT_MS` | Tiempo máximo de conexión con G1. Por defecto `1000` |
+| `IDENTITY_TIMEOUT_MS` | Tiempo máximo de respuesta de G1. Por defecto `2000` |
+
+Para los ejemplos con `curl`, obtén un token y guárdalo en una variable de la sesión (nunca en el repositorio):
+
+```zsh
+export SIEM_TOKEN='<token devuelto por POST http://localhost:8001/auth/login>'
+```
+
 ## Arranque sin persistencia
 
 Este modo comprueba el servidor y el listado inicialmente vacío. No activa el perfil `persistence`; por eso un evento válido responde 503.
@@ -32,21 +57,23 @@ Acceso local: `http://localhost:8005`. La red Docker compartida usa `http://siem
 
 | Ruta | Resultado |
 | --- | --- |
-| `GET /health` | 200 con estado del servicio |
+| `GET /health` | 200 con estado del servicio. Público, sin token |
 | `POST /events` | 200 al guardar o reconocer un reenvío idéntico; 400 evento inválido; 409 conflicto de identificador; 413 cuerpo demasiado grande; 415 tipo de contenido no admitido; 503 PostgreSQL no disponible; 507 almacén de alertas lleno |
 | `GET /events?limit=100&offset=0` | 200 con histórico paginado; 400 consulta inválida; 503 almacenamiento no disponible/timeout; 500 error inesperado |
 | `GET /alerts` | 200 con `{"alerts":[]}` si está vacío, 503/500 ante fallo de consulta |
 | `GET /alerts/{id}` | 200 con una alerta o 404 si no existe, 503/500 ante fallo de consulta |
+
+Además, todas las rutas salvo `GET /health` pueden responder 401 `UNAUTHENTICATED` y 503 `IDENTITY_UNAVAILABLE` (ver [Autenticación](#autenticación-con-identidad-sem-133)).
 
 El [OpenAPI vigente de esta rama](contract/openapi.json) documenta ingesta persistente, histórico y alertas reales. La semántica detallada de ingesta está en [SEM-65](contract/sem65-ingestion-proposal.md) y la consulta en [history-events.md](contract/history-events.md).
 
 Los datos que PostgreSQL no puede representar, como caracteres nulos, Unicode incompleto o valores fuera de su rango admitido, se rechazan con 400 sin insertar. Los fallos del almacenamiento responden con un error genérico y 503.
 
 ```zsh
-curl -i -H 'Content-Type: application/json' --data-binary @modules/05-siem/contract/examples/grupo_3_honeypot.json http://localhost:8005/events
-curl -i 'http://localhost:8005/events?limit=2&offset=0'
-curl -i http://localhost:8005/alerts
-curl -i http://localhost:8005/alerts/ALERT_ID
+curl -i -H "Authorization: Bearer $SIEM_TOKEN" -H 'Content-Type: application/json' --data-binary @modules/05-siem/contract/examples/grupo_3_honeypot.json http://localhost:8005/events
+curl -i -H "Authorization: Bearer $SIEM_TOKEN" 'http://localhost:8005/events?limit=2&offset=0'
+curl -i -H "Authorization: Bearer $SIEM_TOKEN" http://localhost:8005/alerts
+curl -i -H "Authorization: Bearer $SIEM_TOKEN" http://localhost:8005/alerts/ALERT_ID
 ```
 
 ## Navegación del histórico
@@ -60,10 +87,10 @@ curl -i http://localhost:8005/alerts/ALERT_ID
 Por ejemplo, si la respuesta contiene `next: "/events?limit=2&offset=2"`, la siguiente petición es:
 
 ```zsh
-curl -i 'http://localhost:8005/events?limit=2&offset=2'
+curl -i -H "Authorization: Bearer $SIEM_TOKEN" 'http://localhost:8005/events?limit=2&offset=2'
 ```
 
-Los parámetros vacíos, duplicados, desconocidos o inválidos producen 400. No se envían secretos en la URL. La API no implementa IAM. OFFSET no conserva una instantánea: inserciones concurrentes pueden causar repeticiones u omisiones y los desplazamientos grandes pueden ser costosos. El timeout JDBC de lectura es de cinco segundos; no es una garantía del tiempo total de respuesta.
+Los parámetros vacíos, duplicados, desconocidos o inválidos producen 400. No se envían secretos en la URL; el token va en la cabecera `Authorization`. OFFSET no conserva una instantánea: inserciones concurrentes pueden causar repeticiones u omisiones y los desplazamientos grandes pueden ser costosos. El timeout JDBC de lectura es de cinco segundos; no es una garantía del tiempo total de respuesta.
 
 ## Base de datos
 
@@ -90,7 +117,7 @@ Desde `modules/05-siem`:
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=persistence -Dspring-boot.run.arguments=--server.address=127.0.0.1
 ```
 
-Variables: `SIEM_DB_PASSWORD` (obligatoria), `SIEM_DB_NAME` (por defecto `siem_bd`), `SIEM_DB_PORT` (por defecto `5433`) y `SIEM_DB_URL` (opcional). El comando de arranque limita la escucha a `127.0.0.1`, con puerto `SERVER_PORT` o `8005`.
+Variables: `SIEM_DB_PASSWORD` (obligatoria), `SIEM_DB_NAME` (por defecto `siem_bd`), `SIEM_DB_PORT` (por defecto `5433`) y `SIEM_DB_URL` (opcional). Para la autenticación, `IDENTITY_URL` (por ejemplo `http://localhost:8001`); sin ella, las operaciones protegidas responden 503. El comando de arranque limita la escucha a `127.0.0.1`, con puerto `SERVER_PORT` o `8005`.
 
 ## Comprobaciones
 

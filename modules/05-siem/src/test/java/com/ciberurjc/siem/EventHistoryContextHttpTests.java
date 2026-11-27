@@ -26,7 +26,7 @@ class EventHistoryContextHttpTests {
         repository.events = List.of(EventHistoryServiceTests.event("one"), EventHistoryServiceTests.event("two"));
         repository.failure = null;
         var origin = URI.create("http://127.0.0.1:" + environment.getProperty("local.server.port"));
-        var client = HttpClient.newHttpClient();
+        var client = TestIdentity.authenticatedClient();
         var first = client.send(HttpRequest.newBuilder(origin.resolve("/siem/events?limit=1")).GET().build(),
                 HttpResponse.BodyHandlers.ofString());
         assertEquals(200, first.statusCode());

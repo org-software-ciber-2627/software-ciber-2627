@@ -34,7 +34,7 @@ class EventHistoryHttpTests {
     @Autowired Environment environment;
     @Autowired ObjectMapper mapper;
     @Autowired EventHistoryServiceTests.FakeRepository repository;
-    final HttpClient client = HttpClient.newHttpClient();
+    final HttpClient client = TestIdentity.authenticatedClient();
 
     @BeforeEach
     void resetRepository() {

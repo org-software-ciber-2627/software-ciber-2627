@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Reproducible SEM-66 checks; never uses the developer database or .env."""
 import argparse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import xml.etree.ElementTree as ET
 import os
@@ -11,6 +12,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -171,14 +173,39 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
         app_env = ENV.copy()
         app_env['SPRING_PROFILES_ACTIVE'] = 'persistence'
         app_env['SERVER_PORT'] = str(http_port)
+
+        # SEM-133: stand-in for Identity (G1). Only GET /auth/validate with this random token is valid.
+        identity_token = secrets.token_urlsafe(32)
+
+        class IdentityStub(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == '/auth/validate' and self.headers.get('Authorization') == 'Bearer ' + identity_token:
+                    status, body = 200, {'valid': True, 'user_id': 1, 'username': 'svc-test', 'role': 'servicio'}
+                else:
+                    status, body = 401, {'valid': False, 'error': 'Token inválido'}
+                data = json.dumps(body).encode()
+                self.send_response(status)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *arguments):
+                pass
+
+        identity = ThreadingHTTPServer(('127.0.0.1', 0), IdentityStub)
+        threading.Thread(target=identity.serve_forever, daemon=True).start()
+        app_env['IDENTITY_URL'] = 'http://127.0.0.1:' + str(identity.server_address[1])
         base_url = 'http://127.0.0.1:' + str(http_port)
 
         history_responses = []
 
-        def request(path, event=None):
+        def request(path, event=None, authorization='Bearer ' + identity_token):
             data = json.dumps(event).encode() if event else None
-            req = Request(base_url + path, data=data,
-                          headers={'Content-Type': 'application/json'} if data else {})
+            headers = {'Content-Type': 'application/json'} if data else {}
+            if authorization:
+                headers['Authorization'] = authorization
+            req = Request(base_url + path, data=data, headers=headers)
             try:
                 with urlopen(req, timeout=10) as response:
                     result = response.status, json.load(response)
@@ -206,6 +233,15 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                         time.sleep(0.2)
                 else:
                     raise RuntimeError('Packaged application did not become available')
+                for authorization in (None, 'Bearer not-a-valid-token'):
+                    status, body = request('/alerts', authorization=authorization)
+                    assert status == 401 and body['error']['code'] == 'UNAUTHENTICATED', (status, body)
+                rejected = json.loads((MODULE / 'contract/examples/grupo_3_honeypot.json').read_text())
+                rejected['event_id'] = PROJECT + '-unauthenticated'
+                status, body = request('/events', rejected, authorization=None)
+                assert status == 401 and body['error']['code'] == 'UNAUTHENTICATED', (status, body)
+                assert sql("SELECT count(*) FROM events WHERE event_id='" + rejected['event_id'] + "'") == '0'
+                passed('packaged application validates tokens with Identity and stores nothing without one')
                 assert request('/events') == (200, {'events': [], 'next_offset': None, 'next': None})
                 assert request('/events?limit=0')[0] == 400
                 event = json.loads((MODULE / 'contract/examples/grupo_3_honeypot.json').read_text())
@@ -248,11 +284,20 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                 passed('packaged application stores scanner info and acknowledges an identical replay')
 
                 smoke = subprocess.run(['python3', str(MODULE / 'scripts/smoke-test.py'), base_url],
+                                       env=dict(ENV, SIEM_TOKEN=identity_token),
                                        capture_output=True, text=True, timeout=30)
                 (HERE / 'smoke-test.json').write_text(smoke.stdout)
                 assert smoke.returncode == 0, smoke.stderr
                 smoke_count = json.loads(smoke.stdout)['count']
                 passed('packaged application HTTP smoke checks: ' + str(smoke_count))
+                identity.shutdown()
+                identity.server_close()
+                status, body = request('/alerts')
+                assert status == 503 and body['error']['code'] == 'IDENTITY_UNAVAILABLE', (status, body)
+                assert request('/health')[0] == 200
+                passed('identity outage denies access with 503 while health stays available')
+                assert identity_token not in (HERE / 'application.log').read_text(), 'Token written to the application log'
+                passed('application log does not contain the bearer token')
                 if args.verify_contract:
                     observed = HERE / 'history-responses.json'
                     observed.write_text(json.dumps(history_responses))
@@ -262,6 +307,8 @@ with tempfile.TemporaryDirectory(prefix='grupo5-siem-') as directory:
                     assert verified.returncode == 0, verified.stderr
                     passed('OpenAPI validates packaged history success and error responses')
             finally:
+                identity.shutdown()
+                identity.server_close()
                 app.terminate()
                 try:
                     app.wait(timeout=10)

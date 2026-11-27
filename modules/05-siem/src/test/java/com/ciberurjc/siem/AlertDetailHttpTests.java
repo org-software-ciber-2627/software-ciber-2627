@@ -31,7 +31,7 @@ class AlertDetailHttpTests {
     HttpResponse<String> get(String path) throws Exception {
         var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" +
             environment.getProperty("local.server.port") + path)).GET().build();
-        return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+        return TestIdentity.authenticatedClient().send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     @Test
@@ -63,7 +63,7 @@ class AlertDetailHttpTests {
                 environment.getProperty("local.server.port") + "/events"))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(event)).build();
-        assertEquals(200, HttpClient.newHttpClient().send(post, HttpResponse.BodyHandlers.ofString()).statusCode());
+        assertEquals(200, TestIdentity.authenticatedClient().send(post, HttpResponse.BodyHandlers.ofString()).statusCode());
 
         var stored = alertRepository.findAll().stream()
             .filter(alert -> eventId.equals(alert.get("event_id"))).findFirst();

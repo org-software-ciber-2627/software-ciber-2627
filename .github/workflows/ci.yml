@@ -23,6 +23,16 @@ jobs:
           echo "::add-mask::${password}"
           echo "SIEM_DB_PASSWORD=${password}" >> "$GITHUB_ENV"
 
+      - name: Generate throwaway Identity keys
+        run: |
+          # SEM-133: el SIEM valida tokens con Identidad; sin estas claves G1 no emite ni valida tokens.
+          jwt_key="$(openssl rand -hex 32)"
+          service_password="$(openssl rand -hex 16)"
+          echo "::add-mask::${jwt_key}"
+          echo "::add-mask::${service_password}"
+          echo "JWT_SECRET_KEY=${jwt_key}" >> "$GITHUB_ENV"
+          echo "SERVICE_PASSWORD=${service_password}" >> "$GITHUB_ENV"
+
       - name: Build images
         run: docker compose build
 
@@ -39,11 +49,25 @@ jobs:
 
       - name: Check SIEM stores events (PostgreSQL)
         run: |
-          status="$(curl -s -o /dev/null -w '%{http_code}' \
+          token="$(curl -sf -X POST "http://localhost:8001/auth/login" \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"servicio\",\"password\":\"${SERVICE_PASSWORD}\"}" \
+            | python3 -c 'import json, sys; print(json.load(sys.stdin)["token"])')"
+          echo "::add-mask::${token}"
+
+          unauthenticated="$(curl -s -o /dev/null -w '%{http_code}' \
             -X POST "http://localhost:8005/events" \
             -H 'Content-Type: application/json' \
             --data @modules/05-siem/contract/examples/grupo_4_scanner_info.json)"
-          echo "POST /events -> ${status}"
+          echo "POST /events sin token -> ${unauthenticated}"
+          test "${unauthenticated}" = "401"
+
+          status="$(curl -s -o /dev/null -w '%{http_code}' \
+            -X POST "http://localhost:8005/events" \
+            -H "Authorization: Bearer ${token}" \
+            -H 'Content-Type: application/json' \
+            --data @modules/05-siem/contract/examples/grupo_4_scanner_info.json)"
+          echo "POST /events con token -> ${status}"
           test "${status}" = "200"
 
       - name: Stop services
