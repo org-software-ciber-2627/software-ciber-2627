@@ -152,6 +152,34 @@
     </div>
     <p>Última actualización: <strong><span id="hora-actualizacion">Cargando...</span></strong></p>
 
+    <section id="filtros-alertas" class="filtros-alertas">
+        <h3>Filtrar alertas</h3>
+
+        <label for="filtro-severidad">Severidad:</label>
+        <select id="filtro-severidad">
+            <option value="">Todas</option>
+            <option value="critical">Crítica</option>
+            <option value="high">Alta</option>
+            <option value="medium">Media</option>
+            <option value="low">Baja</option>
+        </select>
+
+        <label for="filtro-origen">Origen:</label>
+        <select id="filtro-origen">
+            <option value="">Todos</option>
+        </select>
+
+        <label for="filtro-desde">Desde:</label>
+        <input type="date" id="filtro-desde">
+
+        <label for="filtro-hasta">Hasta:</label>
+        <input type="date" id="filtro-hasta">
+
+        <button type="button" id="aplicar-filtros">Aplicar filtros</button>
+        <button type="button" id="limpiar-filtros">Limpiar filtros</button>
+    </section>
+
+
     <table id="tabla">
         <thead>
             <tr>
