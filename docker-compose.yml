@@ -4,7 +4,9 @@ services:
   identidad:
     build: ./modules/01-identidad
     ports:
-      - "8001:80"
+      # Solo en localhost: con TRUSTED_PROXY_HOPS=1 Identidad fía X-Forwarded-For, que solo
+      # es de fiar si el login entra por el nginx del Dashboard. El puerto interno sigue siendo 80.
+      - "127.0.0.1:8001:80"
     networks:
       - ciberurjc
     environment:
@@ -23,7 +25,7 @@ services:
       SECRET_JWT_SECRET: ${SECRET_JWT_SECRET:-}
       SECRET_SIEM_DB_PASSWORD: ${SECRET_SIEM_DB_PASSWORD:-}
       JWT_EXPIRES_SECONDS: ${JWT_EXPIRES_SECONDS:-1800}
-      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-0}
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
       IDS_URL: "http://ids/logs"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
