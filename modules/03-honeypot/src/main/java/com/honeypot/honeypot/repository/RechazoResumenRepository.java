@@ -11,4 +11,6 @@ public interface RechazoResumenRepository extends JpaRepository<RechazoResumen, 
     Optional<RechazoResumen> findByIpAndMinutoAndServicio(String ip, Instant minuto, String servicio);
 
     List<RechazoResumen> findByIpOrderByMinutoAsc(String ip);
+
+    List<RechazoResumen> findByEnviadoFalseAndMinutoBefore(Instant limite);
 }

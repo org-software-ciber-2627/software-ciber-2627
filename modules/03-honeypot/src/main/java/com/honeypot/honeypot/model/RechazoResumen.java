@@ -34,6 +34,9 @@ public class RechazoResumen {
 	@Column(nullable = false)
 	private int rechazos;
 
+	@Column(name = "enviado", nullable = false, columnDefinition = "boolean default false")
+	private boolean enviado = false;
+
 	public RechazoResumen() {
 	}
 
@@ -56,6 +59,14 @@ public class RechazoResumen {
 		return ip;
 	}
 
+	public boolean isEnviado(){
+		return enviado;
+	}
+
+	public void setEnviado(boolean enviado){
+		this.enviado = enviado;
+	}
+	
 	public Instant getMinuto() {
 		return minuto;
 	}

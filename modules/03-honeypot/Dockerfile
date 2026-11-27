@@ -1,5 +1,5 @@
 # Parte 1: Descarga de librerias y compilación de la web
-FROM maven:3.9-eclipse-temurin-25 AS build
+FROM maven:3.9-eclipse-temurin-21 AS build
 
 RUN groupadd --system http \
     && useradd --system --gid http --home-dir /home/http http \
@@ -17,7 +17,7 @@ USER http
 RUN mvn package -DskipTests
 
 # Parte 2: Ejecucion de la web
-FROM eclipse-temurin:25-jre
+FROM eclipse-temurin:21-jre
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends wget \
