@@ -267,3 +267,29 @@ test("SIEM muestra el aviso de antigüedad después de 60 segundos y conserva la
     Date.now = ahoraOriginal;
   }
 });
+
+test("limpiar filtros restaura todas las alertas y vacía los controles", async () => {
+  const { dom } = montarPagina({
+    fetchImpl: async () =>
+      respuesta(200, {
+        alerts: [
+          alerta({ alert_id: "1", title: "Crítica", severity: "critical", source: "ids" }),
+          alerta({ alert_id: "2", title: "Baja", severity: "low", source: "scanner" }),
+        ],
+      }),
+  });
+  await cargarSiemAlert();
+
+  const doc = dom.window.document;
+  doc.getElementById("filtro-severidad").value = "critical";
+  doc.getElementById("aplicar-filtros").click();
+  assert.deepEqual(filasTabla(dom).map(f => f.titulo), ["Crítica"]);
+
+  doc.getElementById("limpiar-filtros").click();
+
+  assert.deepEqual(filasTabla(dom).map(f => f.titulo), ["Crítica", "Baja"]);
+  assert.equal(doc.getElementById("filtro-severidad").value, "");
+  assert.equal(doc.getElementById("filtro-origen").value, "");
+  assert.equal(doc.getElementById("filtro-desde").value, "");
+  assert.equal(doc.getElementById("filtro-hasta").value, "");
+});

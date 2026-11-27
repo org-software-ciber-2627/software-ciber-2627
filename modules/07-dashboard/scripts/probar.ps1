@@ -91,6 +91,23 @@ function Step($m) { Write-Host ''; Write-Host "== $m" -ForegroundColor Cyan }
 function Get-Text($url) {
     try { return (Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 5).Content } catch { return '' }
 }
+# Get-ErrorBody URL -> cuerpo de la respuesta AUNQUE sea un error HTTP (404, 500...).
+# Get-Text devuelve '' en esos casos porque Invoke-WebRequest lanza una excepcion con cualquier
+# codigo de error; esta funcion lee el cuerpo desde la excepcion (PowerShell 5.1 y 7).
+function Get-ErrorBody($url) {
+    try {
+        return (Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 5).Content
+    } catch {
+        if ($_.ErrorDetails -and $_.ErrorDetails.Message) { return $_.ErrorDetails.Message }
+        if ($_.Exception.Response) {
+            try {
+                $sr = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+                return $sr.ReadToEnd()
+            } catch { return '' }
+        }
+        return ''
+    }
+}
 # Test-Url URL -> $true si la URL responde con exito (codigo 2xx).
 function Test-Url($url) {
     try { $null = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 3; return $true } catch { return $false }
@@ -205,7 +222,7 @@ try {
         $codigo = $LASTEXITCODE
         Pop-Location
         if ($codigo -ne 0) {
-            Write-Host 'docker compose fallo (puertos 8001-8007 ocupados?).'
+            Write-Host 'docker compose fallo (puertos 8001-8008 ocupados? Si tienes tu entorno levantado, ejecuta antes: docker compose down).'
             $script:Limpiar = $true   # aunque se pidiera -m, si el arranque falla no dejamos restos a medias
             exit 1
         }
@@ -276,6 +293,19 @@ try {
         Bad 'dashboard: el proxy deja pasar metodos distintos de GET (revisar limit_except en default.conf)'
     }
 
+    # Proxy hacia el Escaner real (nginx reenvia /api/escaner/ a escaner:80). Solo GET.
+    # El informe de un escaneo inexistente responde 404: se lee el cuerpo con Get-ErrorBody porque
+    # Get-Text devuelve cadena vacia ante cualquier codigo de error.
+    if ((Get-Text 'http://localhost:8007/ESCANER-client.js') -match '/api/escaner/scans') { Ok 'dashboard: el JS pide los escaneos al proxy /api/escaner/scans' } else { Bad 'dashboard: ESCANER-client.js no apunta a /api/escaner/scans' }
+    if ((Get-Code 'http://localhost:8007/api/escaner/scans') -eq 200) { Ok 'dashboard: el proxy llega a GET /scans del Escaner real' } else { Bad 'dashboard: /api/escaner/scans no responde 200 (502 = Escaner no alcanzable)' }
+    $urlNoExiste = 'http://localhost:8007/api/escaner/scans/no-existe/report'
+    if (((Get-Code $urlNoExiste) -eq 404) -and ((Get-ErrorBody $urlNoExiste) -match 'SCAN_NOT_FOUND')) {
+        Ok 'dashboard: el informe de un escaneo inexistente devuelve 404 con SCAN_NOT_FOUND'
+    } else {
+        Bad 'dashboard: el informe del Escaner no cumple el contrato (404 con SCAN_NOT_FOUND)'
+    }
+    if ((Get-Code 'http://localhost:8007/api/escaner/scans' 'Post') -eq 403) { Ok 'dashboard: el proxy del Escaner rechaza metodos distintos de GET (403)' } else { Bad 'dashboard: el proxy del Escaner deja pasar metodos distintos de GET' }
+
     # Higiene: el Dockerfile solo debe publicar el mock del SIEM, no el codigo de los mocks de Python.
     if ((Get-Code 'http://localhost:8007/mocks/mock_SOAR/app.py') -eq 404) {
         Ok 'dashboard: el codigo de los mocks de Python no se publica en la web'
@@ -291,6 +321,16 @@ try {
         if ((Get-Text 'http://localhost:5002/health') -match '"ok"') { Ok 'mock Escaner: /health responde' } else { Bad 'mock Escaner: /health' }
         $n = Count-Key 'http://localhost:5002/events' 'scan_id'
         if ($n -eq 2) { Ok 'mock Escaner: GET /events devuelve 2 escaneos' } else { Bad "mock Escaner: /events devuelve $n (esperaba 2)" }
+        $e = 'http://localhost:5002'
+        $idOk = '5b0f1c6e-7a3d-4e21-9c58-0d1f2a3b4c01'
+        $idCurso = '5b0f1c6e-7a3d-4e21-9c58-0d1f2a3b4c02'
+        if ((Get-Code "$e/scans") -eq 200) { Ok 'mock Escaner: GET /scans responde 200' } else { Bad 'mock Escaner: GET /scans' }
+        $n = Count-Key "$e/scans/$idOk/report" 'event_id'
+        if ($n -eq 3) { Ok 'mock Escaner: el informe del escaneo terminado trae 3 hallazgos' } else { Bad "mock Escaner: el informe trae $n hallazgos (esperaba 3)" }
+        if ((Get-Text "$e/scans/$idOk/report") -match '"source":\s*"scanner"') { Ok 'mock Escaner: los hallazgos usan source "scanner"' } else { Bad 'mock Escaner: source distinto de "scanner"' }
+        if ((Get-Code "$e/scans/$idCurso/report") -eq 202) { Ok 'mock Escaner: escaneo en curso devuelve 202' } else { Bad 'mock Escaner: el escaneo en curso no devuelve 202' }
+        if ((Get-Code "$e/scans/no-existe/report") -eq 404) { Ok 'mock Escaner: escaneo inexistente devuelve 404' } else { Bad 'mock Escaner: el inexistente no devuelve 404' }
+        if ((Get-Code "$e/scans/scan-fallo/report") -eq 500) { Ok 'mock Escaner: el fallo devuelve 500' } else { Bad 'mock Escaner: el fallo no devuelve 500' }
     } elseif ($SinMocks) {
         Write-Host '  (mocks de SOAR y Escaner: omitidos por -n)'
     } else {

@@ -152,6 +152,34 @@
     </div>
     <p>Última actualización: <strong><span id="hora-actualizacion">Cargando...</span></strong></p>
 
+    <section id="filtros-alertas" class="filtros-alertas">
+        <h3>Filtrar alertas</h3>
+
+        <label for="filtro-severidad">Severidad:</label>
+        <select id="filtro-severidad">
+            <option value="">Todas</option>
+            <option value="critical">Crítica</option>
+            <option value="high">Alta</option>
+            <option value="medium">Media</option>
+            <option value="low">Baja</option>
+        </select>
+
+        <label for="filtro-origen">Origen:</label>
+        <select id="filtro-origen">
+            <option value="">Todos</option>
+        </select>
+
+        <label for="filtro-desde">Desde:</label>
+        <input type="date" id="filtro-desde">
+
+        <label for="filtro-hasta">Hasta:</label>
+        <input type="date" id="filtro-hasta">
+
+        <button type="button" id="aplicar-filtros">Aplicar filtros</button>
+        <button type="button" id="limpiar-filtros">Limpiar filtros</button>
+    </section>
+
+
     <table id="tabla">
         <thead>
             <tr>
@@ -210,8 +238,6 @@
 
     <div id="error-soar" style="display:none;color:#b91c1c"></div>
 
-
-    <!-- Al final del body, junto al script del SIEM -->
     <script type="module" src="SOAR-alert.js"></script>
 
     <!-- SECCIÓN HONEYPOT (DASHG7-32): eventos con origen honeypot del historial del SIEM -->
@@ -234,6 +260,23 @@
     <script type="module" src="HONEYPOT-actividad.js"></script>
 
 
+        <!-- Hallazgos del escaner -->
+    <h2 style="margin-top: 40px;">Hallazgos del último escaneo</h2>
+    <p>Escaneo: <strong><span id="escaneo-id">-</span></strong></p>
+    <table>
+        <thead>
+            <tr>
+                <th>Objetivo</th>
+                <th>Puerto</th>
+                <th>Servicio</th>
+                <th>Vulnerabilidad</th>
+                <th>Severidad</th>
+            </tr>
+        </thead>
+        <tbody id="hallazgos-body"></tbody>
+    </table>
+    <div id="error-escaner" style="display:none;color:#b91c1c"></div>
+    <script type="module" src="ESCANER-alert.js"></script>
 </body>
 
 </html>
