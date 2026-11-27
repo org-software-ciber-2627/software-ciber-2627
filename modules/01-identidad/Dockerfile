@@ -10,6 +10,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ .
 
+# Directorio de la base de datos; en el compose se monta el volumen identidad-data aquí (AAA-106)
+RUN mkdir -p /data
+
 ENV FLASK_APP=app.py
 
 EXPOSE 80

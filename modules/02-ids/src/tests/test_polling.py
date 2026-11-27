@@ -12,6 +12,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 import main
 from util import health
+from util.siem_publisher import publish_and_queue, retry_pending
 
 
 class PollingTests(unittest.TestCase):
@@ -76,7 +77,9 @@ class PollingTests(unittest.TestCase):
 
             with patch.object(main, "file_lock", lock), patch.object(
                 main, "mark_records_processed"
-            ), patch.object(main, "_append_events"):
+            ), patch.object(main, "_append_events"), patch.object(
+                main, "retry_pending"
+            ):
                 self.assertTrue(main._process_log_batch(log_path, [rule], storage))
 
             self.assertEqual(lock.entered, 1)

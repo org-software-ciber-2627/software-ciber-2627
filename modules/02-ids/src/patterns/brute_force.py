@@ -1,4 +1,3 @@
-import ipaddress
 from datetime import datetime, timedelta
 
 from util.pattern_loader import pattern
@@ -17,9 +16,6 @@ class BruteForce(PatternBase):
         self.kwargs = kwargs
         # Opcional: nº de usuarios distintos a partir del cual es password spraying
         self.usernames = int(kwargs["usernames"]) if "usernames" in kwargs else None
-        self.whitelist_networks = [
-            ipaddress.ip_network(entry, strict=False) for entry in self.whitelist
-        ]
 
     def run(self, eventos):
         intentos_por_ip = {}
@@ -119,13 +115,6 @@ class BruteForce(PatternBase):
             else:
                 i += 1
         return rafagas
-
-    def _in_whitelist(self, ip):
-        try:
-            direccion = ipaddress.ip_address(ip)
-        except ValueError:
-            return False
-        return any(direccion in red for red in self.whitelist_networks)
 
     @staticmethod
     def _parse_time(timestamp):

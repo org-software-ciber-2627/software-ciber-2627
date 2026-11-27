@@ -12,10 +12,20 @@ services:
       AES_KEY: ${AES_KEY:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       SERVICE_PASSWORD: ${SERVICE_PASSWORD:-}
+      SERVICE_PASSWORD_IDS: ${SERVICE_PASSWORD_IDS:-}
+      SERVICE_PASSWORD_HONEYPOT: ${SERVICE_PASSWORD_HONEYPOT:-}
+      SERVICE_PASSWORD_ESCANER: ${SERVICE_PASSWORD_ESCANER:-}
+      SERVICE_PASSWORD_PENTESTING: ${SERVICE_PASSWORD_PENTESTING:-}
+      SERVICE_PASSWORD_SOAR: ${SERVICE_PASSWORD_SOAR:-}
+      SERVICE_PASSWORD_SIEM: ${SERVICE_PASSWORD_SIEM:-}
+      SECRET_SIEM_DB_PASSWORD: ${SECRET_SIEM_DB_PASSWORD:-}
       SECRET_DB_PASSWORD: ${SECRET_DB_PASSWORD:-}
       SECRET_API_KEY: ${SECRET_API_KEY:-}
       SECRET_JWT_SECRET: ${SECRET_JWT_SECRET:-}
       IDS_URL: "http://ids/logs"
+      DATABASE_URL: "sqlite:////data/identidad.db"
+    volumes:
+      - identidad-data:/data
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
       interval: 10s
@@ -27,6 +37,11 @@ services:
     build: ./modules/02-ids
     ports:
       - "8002:80"
+    environment:
+      SIEM_URL: "http://siem:80/events"
+      IDENTIDAD_URL: ${IDENTIDAD_URL:-http://identidad:80}
+      IDS_SERVICE_USERNAME: ${IDS_SERVICE_USERNAME:-svc-ids}
+      IDS_SERVICE_PASSWORD: ${SERVICE_PASSWORD_IDS:-}
     networks:
       - ciberurjc
     healthcheck:
@@ -137,7 +152,7 @@ services:
     environment:
       SIEM_URL: ${SIEM_URL:-http://siem:80}
       DATABASE_PATH: /data/soar.db
-      POLL_INTERVAL_SECONDS: ${SOAR_POLL_INTERVAL_SECONDS:-0}
+      POLL_INTERVAL_SECONDS: ${SOAR_POLL_INTERVAL_SECONDS:-30}
     volumes:
       - soar-data:/data
     depends_on:
@@ -186,6 +201,7 @@ services:
       - "8008:80"
     networks:
       - ciberurjc
+      - honeypot-publica
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
       interval: 10s
@@ -206,6 +222,7 @@ networks:
     internal: true
 
 volumes:
+  identidad-data:
   honeypot-data:
   soar-data:
   siem-postgres-data:

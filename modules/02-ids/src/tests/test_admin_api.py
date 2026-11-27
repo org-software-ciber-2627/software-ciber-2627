@@ -1,5 +1,6 @@
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -7,11 +8,23 @@ from unittest.mock import patch
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from util.health import app
+from util.rule_manager import RuleManager
 
 
 class AdminApiTests(unittest.TestCase):
     def setUp(self):
         self.client = app.test_client()
+        self.tmp_dir = tempfile.TemporaryDirectory()
+        self.rules_file = os.path.join(self.tmp_dir.name, "ids.rules")
+        self.rule_manager = RuleManager(rules_path=self.rules_file)
+        self.rule_manager.add_rule("P004", threshold=5, window=60, extra_args="usernames=3")
+        self.rule_manager.add_rule("P005", threshold=10, window=60)
+        self.rule_manager_patch = patch("util.admin_api.rule_manager", self.rule_manager)
+        self.rule_manager_patch.start()
+
+    def tearDown(self):
+        self.rule_manager_patch.stop()
+        self.tmp_dir.cleanup()
 
     def test_localhost_can_list_and_disable_rules_without_token(self):
         with patch.dict(os.environ, {}, clear=False):
@@ -61,6 +74,29 @@ class AdminApiTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 404)
+
+    def test_can_edit_existing_rule(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("IDS_ADMIN_TOKEN", None)
+            response = self.client.post(
+                "/admin/rules/P004/edit",
+                json={"rule_id": "P004", "threshold": 7, "window": 120, "extra_args": "usernames=4"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["rule"], "P004,7,120,usernames=4")
+
+    def test_edit_rule_requires_threshold_and_window(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("IDS_ADMIN_TOKEN", None)
+            response = self.client.post(
+                "/admin/rules/P004/edit",
+                json={"rule_id": "P004", "window": 120},
+            )
+
+        self.assertEqual(response.status_code, 400)
 
 
 if __name__ == "__main__":
