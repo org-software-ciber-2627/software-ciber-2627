@@ -1,6 +1,11 @@
 import { getSOARIncidents, getSOARMetrics } from './SOAR-client.js';
-import { pintar as mostrarEstado } from './api-estado.js';
+import { crearSeguimiento } from './api-estado.js';
 import { abrirDetalle } from './SIEM-alert.js';
+
+const seguimientoSOAR = crearSeguimiento();
+let ultimosIncidentes = [];
+let refrescoEnCurso = false;
+const TIEMPO_REFRESCO = 30000;
 
 function esc(t) {
     const d = document.createElement('div');
@@ -62,12 +67,60 @@ document.getElementById('soar-body')?.addEventListener('click', e => {
 });
 
 async function initSOAR() {
-    const resultado = await getSOARIncidents();
-    mostrarEstado(document.getElementById('error-soar'), resultado, pintarIncidentes);
+    if (refrescoEnCurso) return;
+    refrescoEnCurso = true;
 
-    const incidentes = resultado.estado === 'ok' ? resultado.datos : [];
-    const metricas = await getSOARMetrics(incidentes);
-    pintarMetricas(metricas);
+    try {
+        const resultado = await getSOARIncidents();
+        const aviso = document.getElementById('error-soar');
+        let incidentes;
+
+        if (resultado.estado === 'ok' || resultado.estado === 'vacio') {
+            seguimientoSOAR.registrarExito();
+            ultimosIncidentes = resultado.datos;
+            incidentes = ultimosIncidentes;
+
+            pintarIncidentes(incidentes);
+
+            aviso.textContent = resultado.mensaje;
+            aviso.className = resultado.estado === 'vacio'
+                ? 'aviso-vacio'
+                : '';
+            aviso.style.display = resultado.estado === 'vacio'
+                ? 'block'
+                : 'none';
+
+        } else if (
+            resultado.estado === 'error' &&
+            seguimientoSOAR.tieneDatos()
+        ) {
+            incidentes = ultimosIncidentes;
+
+            aviso.textContent =
+                seguimientoSOAR.obtenerAviso() || resultado.mensaje;
+
+            aviso.className = 'aviso-error';
+            aviso.style.display = 'block';
+
+        } else {
+            incidentes = [];
+            ultimosIncidentes = [];
+            pintarIncidentes([]);
+
+            aviso.textContent = resultado.mensaje;
+            aviso.className = 'aviso-error';
+            aviso.style.display = 'block';
+        }
+
+        const metricas = await getSOARMetrics(incidentes);
+        pintarMetricas(metricas);
+
+    } finally {
+        refrescoEnCurso = false;
+    }
 }
 
-document.addEventListener('DOMContentLoaded', initSOAR);
+document.addEventListener('DOMContentLoaded', () => {
+    initSOAR();
+    setInterval(initSOAR, TIEMPO_REFRESCO);
+});
