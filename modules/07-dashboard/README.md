@@ -34,6 +34,9 @@ Pendiente: hallazgos del escáner, proxy de nginx hacia el SOAR y aviso de datos
 ## Cómo probarlo
 ```bash
 cp .env.example .env
+```
+Antes de arrancar, abrid `.env` y rellenad al menos `SIEM_DB_PASSWORD` (la contraseña de la base de datos del SIEM). Va vacía en `.env.example` y el compose no arranca sin ella: con el valor vacío falla con `required variable SIEM_DB_PASSWORD is missing`. Elegid una contraseña propia, solo local; `.env` no se sube al repositorio. Si el volumen `siem-postgres-data` ya existe, cambiar la contraseña no la cambia en la base de datos: ejecutad `docker compose down -v` para empezar de cero. Para iniciar sesión también hacen falta `JWT_SECRET_KEY` y `ADMIN_PASSWORD` (ver «Para poder iniciar sesión en la prueba»).
+```bash
 docker compose up --build dashboard
 ```
 Abrid `http://localhost:8007`: si no existe una sesión válida, redirige a `login.html`. Iniciad sesión con una cuenta válida del servicio Identidad para acceder a las alertas. Comprobad también `curl -f http://localhost:8007/health`.
@@ -48,7 +51,7 @@ Para hacerlo todo de una vez (arranca, comprueba y limpia al terminar, sin tocar
 **Nota:** Las opciones de los scripts se escriben por separado (`-s -m`, no `-sm`). En PowerShell se utilizan igual.
 
 ### Para poder iniciar sesión en la prueba (demo)
-Los scripts parten de `.env.example`, cuyas claves van vacías. Con eso las comprobaciones automáticas pasan, pero Identidad no crea el usuario `admin` y el login real falla. Antes de lanzar el script, define en la misma terminal una clave JWT y una contraseña de administrador (valores de prueba, solo locales; no se suben al repositorio). Docker Compose da prioridad a las variables de la terminal sobre el fichero `.env`. La contraseña debe tener entre 8 y 128 caracteres.
+Los scripts parten de `.env.example`, cuyas claves van vacías, y definen por su cuenta una `SIEM_DB_PASSWORD` de usar y tirar (se borra con los volúmenes al parar). Con eso las comprobaciones automáticas pasan, pero Identidad no crea el usuario `admin` y el login real falla. Antes de lanzar el script, define en la misma terminal una clave JWT y una contraseña de administrador (valores de prueba, solo locales; no se suben al repositorio). Docker Compose da prioridad a las variables de la terminal sobre el fichero `.env`. La contraseña debe tener entre 8 y 128 caracteres.
 
 Windows (PowerShell):
 ```powershell
