@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""SEM-134: tokens validos, invalidos y expirados contra el G1 real del Compose."""
+"""SEM-134: tokens validos, invalidos y expirados contra el G1 real del Compose.
+
+Desde el contrato 0.5.0 (SEM-142) la cuenta compartida `servicio` ya no puede leer
+/alerts, asi que la prueba registra un analista de usar y tirar en Identidad.
+"""
 import base64
 import hashlib
 import hmac
 import json
 import os
+import secrets
 import subprocess
 import sys
 import time
@@ -40,9 +45,21 @@ def call(url, method="GET", token=None, body=None):
         return error.code, error.read()
 
 
-def login(password):
+def register_analyst():
+    """Crea un analista de prueba (rol `analista`) y devuelve (usuario, contrasena, id)."""
+    username = f"ci-analista-{secrets.token_hex(4)}"
+    password = secrets.token_urlsafe(24)
+    status, body = call(f"{IDENTITY}/auth/register", "POST",
+                        body={"username": username, "password": password,
+                              "email": f"{username}@ciberurjc.local"})
+    if status != 201:
+        sys.exit(f"Registro del analista de prueba fallido: HTTP {status}")
+    return username, password, json.loads(body)["user"]["id"]
+
+
+def login(username, password):
     status, body = call(f"{IDENTITY}/auth/login", "POST",
-                        body={"username": "servicio", "password": password})
+                        body={"username": username, "password": password})
     if status != 200:
         sys.exit(f"Login en Identidad fallido: HTTP {status}")
     return json.loads(body)["token"]
@@ -52,10 +69,10 @@ def b64(data):
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
-def sign(key, lifetime):
+def sign(key, lifetime, username, user_id):
     """JWT HS256 como los de G1; con lifetime negativo ya nace expirado."""
     now = int(time.time())
-    claims = {"sub": "servicio", "role": "servicio", "user_id": 0,
+    claims = {"sub": username, "role": "analista", "user_id": user_id,
               "iat": now - 3600, "nbf": now - 3600, "exp": now + lifetime,
               "jti": str(uuid.uuid4()), "type": "access", "fresh": False}
     head = b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
@@ -70,11 +87,11 @@ def tamper(token):
 
 
 def main():
-    password = required("SERVICE_PASSWORD")
     key = required("JWT_SECRET_KEY")
 
-    valid = login(password)
-    revoked = login(password)
+    username, password, user_id = register_analyst()
+    valid = login(username, password)
+    revoked = login(username, password)
     if call(f"{IDENTITY}/auth/logout", "POST", token=revoked)[0] != 200:
         sys.exit("No se pudo revocar el token de prueba")
 
@@ -83,9 +100,9 @@ def main():
         ("sin token", None, 401),
         ("cadena cualquiera", "no-es-un-jwt", 401),
         ("firma alterada", tamper(valid), 401),
-        ("firmado con otra clave", sign("otra-clave-que-no-es-la-de-identidad", 600), 401),
-        ("control: firmado en la prueba, vigente", sign(key, 600), 200),
-        ("expirado", sign(key, -600), 401),
+        ("firmado con otra clave", sign("otra-clave-que-no-es-la-de-identidad", 600, username, user_id), 401),
+        ("control: firmado en la prueba, vigente", sign(key, 600, username, user_id), 200),
+        ("expirado", sign(key, -600, username, user_id), 401),
         ("revocado con logout", revoked, 401),
     ]
 
