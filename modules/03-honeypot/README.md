@@ -32,6 +32,25 @@ Para levantar ambos servicios juntos desde la raíz del proyecto:
 ```bash
 docker compose up --build siem honeypot
 ```
+### Aislamiento detrás del proxy (HP-89)
+
+El honeypot no tiene salida a internet. Solo está en redes internas (`internal: true`):
+
+| Red | Para qué |
+| --- | --- |
+| `honeypot-entrada` | Recibe el tráfico del proxy (alias `honeypot-interno`) |
+| `honeypot-siem` | Envía los eventos al SIEM |
+| `honeypot-identidad` | Pide el token a Identidad |
+
+Desde fuera solo se llega a través de `honeypot-proxy` (nginx sin privilegios), que publica 8003, 2121 y 2222 en `127.0.0.1` igual que antes. En `honeypot-publica` el proxy tiene el alias `honeypot`, así que Pentesting sigue atacando al mismo nombre.
+
+Para no perder la IP del atacante:
+- *Web:* el proxy manda `X-Forwarded-For` con la IP de la conexión (sobrescribe la que traiga el atacante) y Spring la usa con `server.forward-headers-strategy=native`.
+- *SSH y FTP:* el proxy antepone la cabecera del protocolo PROXY (`proxy_protocol on`). El SSH la lee con `ProxyProtocolAcceptor` de `sshd-contrib`; el FTP la trata como primera línea de la conexión y no responde a ella. Solo vale como primera línea, así que un atacante no puede falsearla.
+- El contacto para detectar escaneos se apunta al recibir el primer mensaje o al cerrar la conexión, no al crearla, porque al crearla todavía se ve la IP del proxy.
+
+El proxy no tiene healthcheck para no generar contactos falsos en el detector de escaneos. El healthcheck del honeypot solo consulta `/health` desde dentro del contenedor.
+
 ## Perfil dev
 La página `/attempts` (ver y borrar intentos) solo existe arrancando con
 `./mvnw spring-boot:run -Dspring-boot.run.profiles=dev`.
@@ -117,3 +136,9 @@ En el Sprint 3 el grupo 8 hará pentesting contra el honeypot.
 | HP-90 | USER y PASS de la lista en la misma sesión se etiquetan `credenciales_por_defecto` | `FtpCredencialesPorDefectoIntegracionTest`: `userYPassDeLaListaSeEtiquetanComoCredencialesPorDefecto` y `unaParejaQueNoEstaEnLaListaNoSeEtiqueta`; `FtpEventServiceSiemTest`: llega al SIEM con esa etiqueta | Integración y unitaria | Sí | Hecho |
 | HP-90 | Si además es fuerza bruta, prevalece `fuerza_bruta` | `FtpCredencialesPorDefectoIntegracionTest`: `siAdemasEsFuerzaBrutaGanaFuerzaBruta` | Integración | Sí | Hecho |
 | HP-90 | Un PASS sin USER previo se registra sin la etiqueta de credenciales | `FtpCredencialesPorDefectoIntegracionTest`: `unPassSinUserPrevioNoSeEtiquetaComoCredencialPorDefecto`; `FtpPassConUsuarioTest`: `unPassSinUserPrevioLlegaSinUsuarioYResponde530` | Integración y unitaria | Sí | Hecho |
+| HP-89 | El honeypot no tiene salida a internet | `docker compose exec honeypot wget -qO- http://example.com` falla (no resuelve el nombre) | Manual | No | Hecho |
+| HP-89 | Sigue llegando al SIEM y a Identidad | `docker compose exec honeypot wget -qO- http://siem/health` y `http://identidad/health` responden | Manual | No | Hecho |
+| HP-89 | Los 3 servicios funcionan a través del proxy | Login en `http://127.0.0.1:8003/login`, `ssh -p 2222 prueba@127.0.0.1` y `curl.exe --user root:toor ftp://127.0.0.1:2121/` con `honeypot-proxy` levantado | Manual | No | Hecho |
+| HP-89 (HP-122) | Llega la IP real del atacante, no la del proxy | `IpRealWebTest`, `SshHoneypotServerProxyTest` y `FtpHoneypotProxyTest`; en Docker los logs muestran la puerta de enlace de `honeypot-publica` y no la IP del proxy | Integración y manual | Sí | Hecho |
+| HP-89 (HP-122) | Una cabecera PROXY que no es la primera línea no cambia la IP | `FtpHoneypotProxyTest`: `unaCabeceraProxyTardiaNoCambiaLaIp` | Unitaria | Sí | Hecho |
+| HP-89 (HP-123) | El honeypot aparece sano aunque tarde en arrancar | `docker compose up -d honeypot` y `docker compose ps`: `(healthy)` sin errores de dependencias | Manual | No | Hecho |

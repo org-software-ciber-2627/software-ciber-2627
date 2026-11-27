@@ -26,11 +26,14 @@ import com.honeypot.honeypot.service.FtpEventService;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 @Component
 public class FtpHoneypot {
@@ -40,6 +43,9 @@ public class FtpHoneypot {
     private static final Set<String> COMMANDS_ALLOWED_BEFORE_LOGIN =
             Set.of("USER", "PASS", "AUTH", "QUIT", "PROT", "PBSZ");
     static final String USUARIO_SESION = "honeypot.ftp.usuario";
+    static final String IP_REAL = "honeypot.ftp.ipReal";
+    private static final String CONEXION_REGISTRADA = "honeypot.ftp.conexionRegistrada";
+    private static final Pattern IPV4 = Pattern.compile("\\d{1,3}(\\.\\d{1,3}){3}");
 
     @Value("${honeypot.ftp.port:2121}")
     private int port;
@@ -97,23 +103,19 @@ public class FtpHoneypot {
     }
 
     private void registrarComando(
-            InetSocketAddress clientAddress,
+            String sourceIp,
             FtpRequest request,
             String command) {
-        registrarComando(clientAddress, request, command, null);
+        registrarComando(sourceIp, request, command, null);
     }
 
     private void registrarComando(
-            InetSocketAddress clientAddress,
+            String sourceIp,
             FtpRequest request,
             String command,
             String usuarioSesion) {
 
         try {
-            String sourceIp = clientAddress
-                    .getAddress()
-                    .getHostAddress();
-
             ftpEventService.registrarComando(
                     sourceIp,
                     command,
@@ -129,30 +131,78 @@ public class FtpHoneypot {
         }
     }
 
+    // Al crear la sesión aún no se sabe la IP real: la manda el proxy en la primera línea.
+    // Un escaneo no manda nada más, por eso también se mira al cerrar
+    private void registrarConexion(FtpSession session) {
+        if (session.getAttribute(CONEXION_REGISTRADA) != null) {
+            return;
+        }
+        session.setAttribute(CONEXION_REGISTRADA, Boolean.TRUE);
+        try {
+            ftpEventService.registrarConexion(ipCliente(session));
+        } catch (RuntimeException e) {
+            log.error("No se pudo registrar la conexion al servicio FTP", e);
+        }
+    }
+
+    // Cabecera del protocolo PROXY: "PROXY TCP4 <ip origen> <ip destino> <puerto> <puerto>"
+    static void guardarIpReal(FtpSession session, String argumento) {
+        if (argumento == null) {
+            return;
+        }
+        String[] partes = argumento.trim().split(" ");
+        if (partes.length < 2 || !partes[0].startsWith("TCP")) {
+            return;
+        }
+        String ip = partes[1];
+        if (!IPV4.matcher(ip).matches() && !ip.contains(":")) {
+            return;
+        }
+        try {
+            session.setAttribute(IP_REAL, InetAddress.getByName(ip).getHostAddress());
+        } catch (UnknownHostException e) {
+            log.warn("Cabecera PROXY con una IP no valida: {}", ip);
+        }
+    }
+
+    static String ipCliente(FtpSession session) {
+        Object ip = session.getAttribute(IP_REAL);
+        if (ip instanceof String) {
+            return (String) ip;
+        }
+        InetSocketAddress clientAddress = session.getClientAddress();
+        return clientAddress == null ? null : clientAddress.getAddress().getHostAddress();
+    }
+
     private final class PreAuthenticationFtpHandler
             extends DefaultFtpHandler {
 
         @Override
-        public void sessionCreated(FtpIoSession session) throws Exception {
-            InetSocketAddress clientAddress = session.getFtpletSession().getClientAddress();
-            try {
-                ftpEventService.registrarConexion(clientAddress.getAddress().getHostAddress());
-            } catch (RuntimeException e) {
-                log.error("No se pudo registrar la conexion al servicio FTP", e);
-            }
-            super.sessionCreated(session);
+        public void sessionClosed(FtpIoSession session) throws Exception {
+            registrarConexion(session.getFtpletSession());
+            super.sessionClosed(session);
         }
 
         @Override
         public void messageReceived(FtpIoSession session, FtpRequest request)
                 throws Exception {
 
+            FtpSession ftpSession = session.getFtpletSession();
             String command = request.getCommand().toUpperCase(Locale.ROOT);
+
+            // Solo vale como primera línea, que es la que manda el nginx
+            if ("PROXY".equals(command)
+                    && ftpSession.getAttribute(CONEXION_REGISTRADA) == null) {
+                guardarIpReal(ftpSession, request.getArgument());
+                registrarConexion(ftpSession);
+                return;
+            }
+            registrarConexion(ftpSession);
 
             if (!session.isLoggedIn()
                     && !COMMANDS_ALLOWED_BEFORE_LOGIN.contains(command)) {
                 registrarComando(
-                        session.getFtpletSession().getClientAddress(),
+                        ipCliente(ftpSession),
                         request,
                         command
                 );
@@ -188,7 +238,7 @@ public class FtpHoneypot {
                         : null;
 
                 registrarComando(
-                        session.getClientAddress(),
+                        ipCliente(session),
                         request,
                         command,
                         usuarioSesion

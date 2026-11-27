@@ -2,9 +2,11 @@ package com.honeypot.honeypot.ssh;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import org.apache.sshd.common.AttributeRepository;
 import org.apache.sshd.common.config.keys.KeyUtils;
 import org.apache.sshd.common.session.Session;
 import org.apache.sshd.common.session.SessionListener;
+import org.apache.sshd.contrib.server.session.proxyprotocol.ProxyProtocolAcceptor;
 import org.apache.sshd.core.CoreModuleProperties;
 import org.apache.sshd.server.SshServer;
 import org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider;
@@ -26,6 +28,8 @@ import java.util.List;
 public class SshHoneypotServer {
 
     private static final Logger log = LoggerFactory.getLogger(SshHoneypotServer.class);
+    private static final AttributeRepository.AttributeKey<Boolean> CONTACTO_REGISTRADO =
+            new AttributeRepository.AttributeKey<>();
 
     @Value("${honeypot.ssh.port:2222}")
     private int port;
@@ -54,14 +58,17 @@ public class SshHoneypotServer {
         sshd.setPort(port);
         sshd.setKeyPairProvider(new SimpleGeneratorHostKeyProvider(Paths.get(hostKeyPath)));
         CoreModuleProperties.SERVER_IDENTIFICATION.set(sshd, serverVersion);
+        sshd.setServerProxyAcceptor(new ProxyProtocolAcceptor());
+        // Al crear la sesión todavía hay la IP del proxy. Un escaneo no manda saludo, por eso también al cerrar
         sshd.addSessionListener(new SessionListener() {
             @Override
-            public void sessionCreated(Session session) {
-                if (session instanceof ServerSession serverSession
-                        && serverSession.getClientAddress() instanceof InetSocketAddress inet) {
-                    detectorEscaneoService.registrarContacto(
-                            inet.getAddress().getHostAddress(), "honeypot-ssh", Instant.now());
-                }
+            public void sessionPeerIdentificationReceived(Session session, String version, List<String> extraLines) {
+                registrarContacto(session);
+            }
+
+            @Override
+            public void sessionClosed(Session session) {
+                registrarContacto(session);
             }
         });
 
@@ -81,6 +88,18 @@ public class SshHoneypotServer {
 
         sshd.start();
         log.info("Honeypot SSH escuchando en el puerto {}", port);
+    }
+
+    private void registrarContacto(Session session) {
+        if (session.getAttribute(CONTACTO_REGISTRADO) != null) {
+            return;
+        }
+        session.setAttribute(CONTACTO_REGISTRADO, Boolean.TRUE);
+        if (session instanceof ServerSession serverSession
+                && serverSession.getClientAddress() instanceof InetSocketAddress inet) {
+            detectorEscaneoService.registrarContacto(
+                    inet.getAddress().getHostAddress(), "honeypot-ssh", Instant.now());
+        }
     }
 
     private SshAttemptData buildAttempt(ServerSession session, String username,

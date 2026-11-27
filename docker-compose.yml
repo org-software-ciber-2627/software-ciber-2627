@@ -7,6 +7,7 @@ services:
       - "8001:80"
     networks:
       - ciberurjc
+      - honeypot-identidad
     environment:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
       AES_KEY: ${AES_KEY:-}
@@ -50,10 +51,6 @@ services:
     cpus: "0.5"
     mem_limit: 512m
     mem_reservation: 256m
-    ports:
-      - "127.0.0.1:8003:80"
-      - "127.0.0.1:2121:2121"
-      - "127.0.0.1:2222:2222"
     environment:
       - HONEYPOT_SSH_HOSTKEY=/http/data/hostkey.ser
       - SIEM_URL=http://siem:80/events
@@ -62,16 +59,44 @@ services:
     volumes:
       - honeypot-data:/http/data
     networks:
-      - honeypot-publica
-      - honeypot-siem
-      - ciberurjc
+      honeypot-entrada:
+        aliases:
+          - honeypot-interno
+      honeypot-siem:
+      honeypot-identidad:
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
       interval: 10s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      # Con medio núcleo tarda más de un minuto en arrancar (HP-123)
+      start_period: 120s
 
+    restart: unless-stopped
+
+  # Único punto de entrada al honeypot (HP-89): el honeypot solo está en redes internas
+  honeypot-proxy:
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: "0.25"
+    mem_limit: 64m
+    ports:
+      - "127.0.0.1:8003:80"
+      - "127.0.0.1:2121:2121"
+      - "127.0.0.1:2222:2222"
+    volumes:
+      - ./modules/03-honeypot/proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      honeypot-publica:
+        aliases:
+          - honeypot
+      honeypot-entrada:
+    depends_on:
+      honeypot:
+        condition: service_healthy
     restart: unless-stopped
 
   escaner:
@@ -205,6 +230,12 @@ networks:
   honeypot-publica:
     driver: bridge
   honeypot-siem:
+    driver: bridge
+    internal: true
+  honeypot-entrada:
+    driver: bridge
+    internal: true
+  honeypot-identidad:
     driver: bridge
     internal: true
   siem-bd:
