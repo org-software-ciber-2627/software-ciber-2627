@@ -37,7 +37,7 @@ class ScannerEventHttpTests {
     @Autowired ObjectMapper mapper;
     @Autowired JdbcClient jdbc;
     @Autowired EventRepository repository;
-    final HttpClient client = HttpClient.newHttpClient();
+    final HttpClient client = TestIdentity.authenticatedClient();
     final String prefix = "sem95-" + UUID.randomUUID() + "-";
     String baseUrl;
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the running SIEM alert flow using only the Python standard library."""
 import json
+import os
 import sys
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -8,10 +9,15 @@ from urllib.error import HTTPError
 
 root = Path(__file__).resolve().parents[1]
 base = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8005").rstrip("/")
+# SEM-133: the SIEM requires a token validated by Identity (G1). Pass it in SIEM_TOKEN; never commit it.
+token = os.environ.get("SIEM_TOKEN", "")
 checks = []
 def request(path, body=None, content_type="application/json"):
     data = body.encode() if body is not None else None
-    req = Request(base + path, data=data, headers={"Content-Type": content_type} if data is not None else {})
+    headers = {"Content-Type": content_type} if data is not None else {}
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    req = Request(base + path, data=data, headers=headers)
     try:
         with urlopen(req, timeout=10) as response:
             return response.status, json.load(response)

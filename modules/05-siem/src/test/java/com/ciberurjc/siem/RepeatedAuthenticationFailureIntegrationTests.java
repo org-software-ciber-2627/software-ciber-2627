@@ -26,7 +26,7 @@ class RepeatedAuthenticationFailureIntegrationTests {
     @Autowired Environment environment;
     @Autowired ObjectMapper mapper;
     @Autowired RepeatedAuthenticationFailureEvaluator evaluator;
-    private final HttpClient client = HttpClient.newHttpClient();
+    private final HttpClient client = TestIdentity.authenticatedClient();
 
     @Test
     void recognizesP004ThroughHttpAndDoesNotDuplicateItsAlert() throws Exception {

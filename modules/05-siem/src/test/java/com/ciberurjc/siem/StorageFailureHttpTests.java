@@ -50,7 +50,7 @@ class StorageFailureHttpTests {
         var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" +
                 environment.getProperty("local.server.port") + "/events"))
             .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(input)).build();
-        var response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+        var response = TestIdentity.authenticatedClient().send(request, HttpResponse.BodyHandlers.ofString());
         assertEquals(503, response.statusCode());
         assertEquals(Map.of("error", Map.of("code", "STORAGE_UNAVAILABLE",
             "message", "Event storage is temporarily unavailable")), mapper.readValue(response.body(), Map.class));

@@ -16,7 +16,7 @@ El SIEM actúa como **consumidor** de G1. La fuente de verdad del proveedor es e
 | Formato de eventos y alertas | Esquema común | **Sin cambios** |
 | Contenedor de errores | `{"error": {"code", "message"}}` | Se conserva |
 
-**Estado: ratificado con G1 el 20/11/2026 (propuesta A).** G1 publica su contrato v1.4.0 en `main` el 25/11, con fecha efectiva 26/11. La autenticación no está implementada todavía en el SIEM; se implementa en SEM-133.
+**Estado: ratificado con G1 el 20/11/2026 (propuesta A).** G1 publica su contrato v1.4.0 en `main` el 25/11, con fecha efectiva 26/11. La autenticación está implementada en el SIEM desde SEM-133 (contrato `0.4.0`); su activación en el Compose común se coordina con G1 y G7.
 
 ## Operaciones protegidas
 
@@ -192,7 +192,7 @@ Exigir autenticación es un **cambio incompatible** del contrato del SIEM: los p
 | Fecha efectiva | Ratificado con G1 el **20/11**. G1 v1.4.0 en `main` el **25/11** (efectiva 26/11) y credenciales entregadas el 25/11. Autenticación activa en el compose antes del Integration Day. Recorrido autenticado y prueba de carga con G1 el **30/11** |
 | Dependencias | G1 v1.4.0: cuentas `svc-*`, secreto `siem_db_password` y lista de claves permitidas por cuenta (25/11). G7: variables nuevas del compose, coordinadas por G1 |
 
-El [OpenAPI](openapi.json) (esquema `bearerAuth` y respuestas 401/503) se actualiza en SEM-133, junto con la implementación. Hasta entonces sigue describiendo la API sin autenticación. El formato de eventos y alertas no cambia.
+El [OpenAPI](openapi.json) incluye desde SEM-133 el esquema `bearerAuth` y las respuestas 401 `UNAUTHENTICATED` y 503 `IDENTITY_UNAVAILABLE`. El formato de eventos y alertas no cambia.
 
 ## Criterios verificables de integración
 
