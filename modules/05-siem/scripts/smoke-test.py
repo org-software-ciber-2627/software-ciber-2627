@@ -10,13 +10,19 @@ from urllib.error import HTTPError
 root = Path(__file__).resolve().parents[1]
 base = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8005").rstrip("/")
 # SEM-133: the SIEM requires a token validated by Identity (G1). Pass it in SIEM_TOKEN; never commit it.
+# SEM-142: SIEM_TOKEN is used to read (analista, admin or svc-soar). Each event is published with the token
+# of its source account (SIEM_TOKEN_IDS, SIEM_TOKEN_HONEYPOT, SIEM_TOKEN_SCANNER, SIEM_TOKEN_PENTESTING);
+# if one is missing, SIEM_TOKEN is used.
 token = os.environ.get("SIEM_TOKEN", "")
+def producer_token(source):
+    return os.environ.get("SIEM_TOKEN_" + source.upper(), "") or token
 checks = []
-def request(path, body=None, content_type="application/json"):
+def request(path, body=None, content_type="application/json", source=None):
     data = body.encode() if body is not None else None
     headers = {"Content-Type": content_type} if data is not None else {}
-    if token:
-        headers["Authorization"] = "Bearer " + token
+    bearer = producer_token(source) if source else token
+    if bearer:
+        headers["Authorization"] = "Bearer " + bearer
     req = Request(base + path, data=data, headers=headers)
     try:
         with urlopen(req, timeout=10) as response:
@@ -35,7 +41,7 @@ status, body = request("/alerts")
 check("listing has an alerts array", status == 200 and isinstance(body.get("alerts"), list))
 for path in sorted((root / "contract/examples").glob("*.json")):
     event = json.loads(path.read_text())
-    status, body = request("/events", path.read_text())
+    status, body = request("/events", path.read_text(), source=event["source"])
     check("POST " + event["source"], status == 200 and body["event_id"] == event["event_id"] and body["status"] == "success")
     status, body = request("/alerts")
     matches = [a for a in body.get("alerts", []) if a.get("event_id") == event["event_id"] and a.get("source") == event["source"]]
@@ -51,8 +57,8 @@ for path in sorted((root / "contract/examples").glob("*.json")):
 status, body = request("/alerts/UNKNOWN")
 check("unknown alert returns JSON 404", status == 404 and body["error"]["code"] == "ALERT_NOT_FOUND")
 for invalid in ["{", "{}", "[]", "null"]:
-    status, body = request("/events", invalid)
+    status, body = request("/events", invalid, source="honeypot")
     check("invalid event " + invalid, status == 400 and "error" in body)
-status, body = request("/events", "test", "text/plain")
+status, body = request("/events", "test", "text/plain", source="honeypot")
 check("unsupported content type", status == 415 and body["error"]["code"] == "UNSUPPORTED_MEDIA_TYPE")
 print(json.dumps({"result":"PASS", "base_url":base, "checks":checks, "count":len(checks)}, ensure_ascii=False, indent=2))

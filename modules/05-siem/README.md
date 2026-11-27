@@ -63,7 +63,8 @@ Acceso local: `http://localhost:8005`. La red Docker compartida usa `http://siem
 | `GET /alerts` | 200 con `{"alerts":[]}` si está vacío, 503/500 ante fallo de consulta |
 | `GET /alerts/{id}` | 200 con una alerta o 404 si no existe, 503/500 ante fallo de consulta |
 
-Además, todas las rutas salvo `GET /health` pueden responder 401 `UNAUTHENTICATED` y 503 `IDENTITY_UNAVAILABLE` (ver [Autenticación](#autenticación-con-identidad-sem-133)).
+Además, todas las rutas salvo `GET /health` pueden responder 401 `UNAUTHENTICATED` y 503 `IDENTITY_UNAVAILABLE` (ver [Autenticación](#autenticación-con-identidad-sem-133)). Desde SEM-142, una petición autenticada sin permiso recibe 403 `FORBIDDEN`, y un productor que publica un `source` que no es el suyo, 403 `SOURCE_MISMATCH` (matriz en [roles-permissions.md](contract/roles-permissions.md)).
+
 
 El [OpenAPI vigente de esta rama](contract/openapi.json) documenta ingesta persistente, histórico y alertas reales. La semántica detallada de ingesta está en [SEM-65](contract/sem65-ingestion-proposal.md) y la consulta en [history-events.md](contract/history-events.md).
 
