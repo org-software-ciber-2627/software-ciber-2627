@@ -4,7 +4,7 @@ Servidor Java 21 y Spring Boot 4.1.1 para recibir eventos, persistirlos en Postg
 
 Consulta la [guía de configuración y persistencia](docs/sem67-persistence-guide.md), las [pruebas de almacenamiento](docs/sem66-storage-tests.md) y la [verificación manual](docs/sem67-acceptance-check.md).
 
-Los [requisitos de integración en el Compose común](docs/common-compose-integration.md) describen la configuración que debe incorporar G7 para PostgreSQL, perfil de persistencia, migraciones y comprobaciones de aceptación. El fragmento propuesto no está incorporado al Compose raíz.
+Los [requisitos de integración en el Compose común](docs/common-compose-integration.md) describen PostgreSQL, el perfil de persistencia, las migraciones y la verificación del despliegue. Incluyen la configuración ya incorporada y los mapeos de productores pendientes.
 
 ## Alcance
 
@@ -66,7 +66,7 @@ Acceso local con el puerto publicado por defecto: `http://localhost:8005`. Los s
 | `GET /alerts` | 200 con `{"alerts":[]}` si está vacío, 503/500 ante fallo de consulta |
 | `GET /alerts/{id}` | 200 con una alerta o 404 si no existe, 503/500 ante fallo de consulta |
 
-Además, todas las rutas salvo `GET /health` pueden responder 401 `UNAUTHENTICATED` y 503 `IDENTITY_UNAVAILABLE` (ver [Autenticación](#autenticación-con-identidad-sem-133)). Desde SEM-142, una petición autenticada sin permiso recibe `403 FORBIDDEN`. Si un productor publica un `source` que no le corresponde, recibe `403 SOURCE_MISMATCH` con `Cache-Control: no-store` y el evento se descarta. Consulta la [matriz de permisos de SEM-141](https://github.com/org-software-ciber-2627/software-ciber-2627/blob/1b1bbfe0ef1cafb51c0f8aec5ebc1da2d330e6d5/modules/05-siem/contract/roles-permissions.md).
+Además, todas las rutas salvo `GET /health` pueden responder 401 `UNAUTHENTICATED` y 503 `IDENTITY_UNAVAILABLE` (ver [Autenticación](#autenticación-con-identidad-sem-133)). Desde SEM-142, una petición autenticada sin permiso recibe `403 FORBIDDEN`. Si un productor publica un `source` que no le corresponde, recibe `403 SOURCE_MISMATCH` con `Cache-Control: no-store` y el evento se descarta. Consulta la [matriz de permisos de SEM-141](contract/roles-permissions.md).
 
 
 El [OpenAPI vigente de esta rama](contract/openapi.json) documenta ingesta persistente, histórico y alertas reales. La semántica detallada de ingesta está en [SEM-65](contract/sem65-ingestion-proposal.md) y la consulta en [history-events.md](contract/history-events.md).
