@@ -1,7 +1,8 @@
 import { getAlerts, getAlertById } from "./SIEM-client.js";
 import { logout, validate } from "./auth-client.js";
-import { pintar as mostrarEstado } from "./api-estado.js";
+import { crearSeguimiento } from "./api-estado.js";
 
+const seguimientoSIEM = crearSeguimiento();
 const botonLogout = document.getElementById("logout-btn");
 
 botonLogout.addEventListener("click", async () => {
@@ -129,12 +130,37 @@ async function cargar() {
   }
 
   const resultado = await getAlerts();
-  mostrarEstado(document.getElementById("error"), resultado, pintar);
-  document.getElementById("tabla").style.display = resultado.estado === "ok" ? "" : "none";
+  const aviso = document.getElementById("error");
+  const tabla = document.getElementById("tabla");
 
   if (resultado.estado === "ok" || resultado.estado === "vacio") {
+    seguimientoSIEM.registrarExito();
+
+    pintar(resultado.datos);
+
+    aviso.style.display = resultado.estado === "vacio" ? "block" : "none";
+    aviso.textContent = resultado.mensaje;
+    aviso.className = resultado.estado === "vacio" ? "aviso-vacio" : "";
+
+    tabla.style.display = "";
+
     document.getElementById("hora-actualizacion").textContent =
-      new Date().toLocaleTimeString();
+        new Date().toLocaleTimeString();
+
+  } else if (resultado.estado === "error" && seguimientoSIEM.tieneDatos()) {
+    // Conservamos las últimas alertas válidas.
+    aviso.textContent =
+        seguimientoSIEM.obtenerAviso() || resultado.mensaje;
+
+    aviso.className = "aviso-error";
+    aviso.style.display = "block";
+    tabla.style.display = "";
+  } else {
+    pintar([]);
+    aviso.textContent = resultado.mensaje;
+    aviso.className = "aviso-error";
+    aviso.style.display = "block";
+    tabla.style.display = "none";
   }
 }
 
