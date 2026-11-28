@@ -56,7 +56,7 @@ Los resultados de JUnit están en `target/surefire-reports/`; el runner genera `
 
 ## Límites
 
-Las pruebas de compatibilidad envían JSON preparado. Para acreditar la integración real se necesita un evento generado por el Escáner, su acuse correlacionado por `event_id`, comprobación de almacenamiento y un fallo de entrega observable. La versión de publicador referenciada en el contrato todavía ignora respuestas y excepciones de envío; estas pruebas no modifican ni validan ese comportamiento.
+Las pruebas de compatibilidad de este informe envían JSON preparado. El [ensayo histórico con el Escáner](scanner-integration.md) fija `f04a1efd`, cuyo publicador no comprobaba el acuse. G4 ha incorporado esa comprobación en la [PR #95](https://github.com/org-software-ciber-2627/software-ciber-2627/pull/95). Este informe documenta los resultados de las versiones probadas entonces. Para verificar la revisión integrada se necesita un evento generado por el Escáner, su acuse correlacionado por `event_id`, la comprobación del histórico y un fallo de entrega observable.
 
 La API no implementa autenticación ni autorización de productores y se usa HTTP sin TLS en el laboratorio. Los eventos sintéticos no contienen secretos reales; la conexión a PostgreSQL sí utiliza su contraseña externa. La ampliación no añade reintentos automáticos, correlación, generación de alertas ni cambios en otros módulos.
 

@@ -4,7 +4,7 @@
 
 Este contrato especifica la publicación de eventos del Escáner hacia `POST /events`: formato, identidad, severidad, destino, acuse y errores. Se reutilizan la ingesta común y la persistencia del SIEM; no se crea un endpoint específico por productor.
 
-La referencia de persistencia es `cb27971d6ce59919f43bc3a824739de348ee1a16`. El comportamiento de almacenamiento se describe en [sem65-ingestion-proposal.md](sem65-ingestion-proposal.md). La referencia de formato del productor es el [parser del Escáner](https://github.com/org-software-ciber-2627/software-ciber-2627/blob/f04a1efd16fde000ddaee16711f00de86ee91b81/modules/04-escaner/src/parser.py). Estas referencias identifican versiones de código; no acreditan una ejecución de integración.
+La referencia de persistencia es `cb27971d6ce59919f43bc3a824739de348ee1a16`. El comportamiento de almacenamiento se describe en [sem65-ingestion-proposal.md](sem65-ingestion-proposal.md). La referencia del productor confirmada por G4 es el [parser](https://github.com/org-software-ciber-2627/software-ciber-2627/blob/649cffb229486866facadca1bff45127bca56561/modules/04-escaner/src/parser.py) de la [PR #95](https://github.com/org-software-ciber-2627/software-ciber-2627/pull/95), pendiente de incorporación en la revisión de SEM-124.
 
 | Aspecto | Base de persistencia | Especificación de integración |
 | --- | --- | --- |
@@ -21,9 +21,9 @@ El [OpenAPI](openapi.json) describe la ingesta persistente y esta ampliación. E
 
 ### Compatibilidad del publicador referenciado
 
-El [publicador del Escáner en la versión referenciada](https://github.com/org-software-ciber-2627/software-ciber-2627/blob/f04a1efd16fde000ddaee16711f00de86ee91b81/modules/04-escaner/src/jobs.py) envía cada evento con `requests.post`, pero no inspecciona la respuesta HTTP ni el `event_id` del acuse y descarta las excepciones de publicación. Por tanto, esa versión no satisface los requisitos de observabilidad de entrega definidos aquí, aunque su parser ya utilice `scanner` y `details.target`.
+El [publicador de la PR #95](https://github.com/org-software-ciber-2627/software-ciber-2627/blob/649cffb229486866facadca1bff45127bca56561/modules/04-escaner/src/jobs.py) envía un evento por petición y comprueba HTTP `200`, `status: success` y coincidencia exacta de `event_id`. Registra rechazos y fallos de red en `siem_delivery` y permite que el escaneo termine. La [versión histórica `f04a1efd`](https://github.com/org-software-ciber-2627/software-ciber-2627/blob/f04a1efd16fde000ddaee16711f00de86ee91b81/modules/04-escaner/src/jobs.py), usada en ensayos anteriores, enviaba los eventos sin comprobar el acuse.
 
-Comprobar el acuse y hacer visibles los rechazos o fallos de conexión son responsabilidades del módulo productor. El SIEM no modifica ese publicador ni transforma sus eventos para ocultar incompatibilidades. La finalización del escaneo no debe presentarse como evidencia de una entrega confirmada; estos criterios necesitan una versión compatible y su prueba de integración.
+La finalización del escaneo y el estado de entrega son comprobaciones distintas. La validación de la revisión integrada debe correlacionar el acuse con el evento almacenado e incluir un fallo de entrega observable.
 
 ## Petición y transporte
 
@@ -78,7 +78,7 @@ El destino observado se representa dentro de `details.target`, nunca como una pr
 | `details.tool` | Herramienta utilizada, por ejemplo `nmap` |
 | `details.profile` | Perfil del escaneo |
 | `details.script_id` | Script asociado, o `null` cuando no aplica |
-| `details.evidence` | Evidencia textual, o `null` cuando no aplica |
+| `details.evidence` | Evidencia textual acotada por el Escáner a 300 caracteres, o `null` cuando no aplica |
 | `details.cve` | Referencia CVE, o `null` cuando no se dispone de ella |
 | `details.cvss` | Puntuación CVSS, o `null` cuando no se dispone de ella |
 
@@ -90,10 +90,10 @@ Este perfil describe los atributos que publica el Escáner. El validador común 
 | --- | --- | --- |
 | `port_open` | Observación de un puerto abierto | `info` para inventario, sin afirmar una vulnerabilidad por ese hecho aislado |
 | `service_detected` | Identificación de un servicio | `info` para inventario |
-| `cve_detected` | Hallazgo asociado a una referencia CVE | Severidad no informativa asignada por el productor según el hallazgo |
-| `vulnerability_detected` | Hallazgo de vulnerabilidad sin referencia CVE obligatoria | Severidad no informativa asignada por el productor según el hallazgo |
+| `cve_detected` | Hallazgo asociado a una referencia CVE | `low`, `medium`, `high` o `critical`, según la clasificación del productor |
+| `vulnerability_detected` | Hallazgo de vulnerabilidad sin referencia CVE obligatoria | `low`, `medium`, `high` o `critical`, según la clasificación del productor |
 
-`info` significa **observación informativa que, por sí sola, no expresa una vulnerabilidad ni implica generar una alerta**. No se convierte en `low`, no significa que un activo sea seguro y no sustituye una severidad desconocida o ausente.
+G4 emite `port_open` y `service_detected` exclusivamente con `info`, para registrar el inventario en el histórico sin generar alertas. En el Escáner, `low`, `medium`, `high` y `critical` se reservan a hallazgos de vulnerabilidades. Esta clasificación pertenece al productor y mantiene el catálogo común del SIEM.
 
 El catálogo de tipos de esta tabla documenta la integración; la validación común de `event_type` continúa admitiendo un string no vacío. No se añaden en esta ampliación reglas automáticas que calculen severidad a partir de CVSS o de `event_type`. La clasificación corresponde al productor y el SIEM conserva el valor recibido cuando cumple el contrato.
 

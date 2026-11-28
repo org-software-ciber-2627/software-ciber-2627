@@ -1,0 +1,15 @@
+{
+  "event_id": "HP-R-7",
+  "timestamp": "2026-11-24T10:04:00Z",
+  "source": "honeypot",
+  "event_type": "peticiones_rechazadas",
+  "severity": "info",
+  "title": "Peticiones rechazadas por el limitador",
+  "description": "3 peticiones rechazadas desde 198.51.100.50 en honeypot-web durante el minuto 2026-11-24T10:04:00Z",
+  "details": {
+    "source_ip": "198.51.100.50",
+    "service": "honeypot-web",
+    "minuto": "2026-11-24T10:04:00Z",
+    "rechazos": 3
+  }
+}
