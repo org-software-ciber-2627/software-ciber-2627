@@ -608,6 +608,87 @@ class TestSecretosPorModulo(BaseTest):  # contrato 1.4.0: cada cuenta solo lee l
         self.assertEqual(self.leer("svc-siem").status_code, 200)
 
 
+class TestPersistenciaYResiembra(BaseTest):  # AAA-106: con volumen, el .env manda en cada arranque
+    def sembrar(self):
+        with app.app_context():
+            app_module.seed()
+
+    def token(self, usuario, clave):
+        return self.login(username=usuario, password=clave).get_json()["token"]
+
+    def test_1_si_cambia_la_contrasena_en_el_entorno_la_cuenta_se_actualiza(self):
+        antigua, nueva = secrets.token_hex(8), secrets.token_hex(8)
+        os.environ["SERVICE_PASSWORD_IDS"] = antigua
+        self.sembrar()
+        os.environ["SERVICE_PASSWORD_IDS"] = nueva
+        self.sembrar()
+        self.assertEqual(self.login(username="svc-ids", password=nueva).status_code, 200)
+        self.assertEqual(self.login(username="svc-ids", password=antigua).status_code, 401)
+        self.assertEqual(self.contar_usuarios(), 1)
+
+    def test_2_con_la_misma_contrasena_no_se_reescribe_el_hash(self):
+        os.environ["SERVICE_PASSWORD_IDS"] = secrets.token_hex(8)
+        self.sembrar()
+        with app.app_context():
+            antes = User.query.filter_by(username="svc-ids").first().password_hash
+        self.sembrar()
+        with app.app_context():
+            self.assertEqual(User.query.filter_by(username="svc-ids").first().password_hash, antes)
+
+    def test_3_quitar_la_variable_no_borra_la_cuenta(self):
+        clave = secrets.token_hex(8)
+        os.environ["SERVICE_PASSWORD_IDS"] = clave
+        self.sembrar()
+        os.environ.pop("SERVICE_PASSWORD_IDS")
+        self.sembrar()
+        self.assertEqual(self.login(username="svc-ids", password=clave).status_code, 200)
+
+    def test_4_una_cuenta_sembrada_recupera_su_rol(self):
+        os.environ["SERVICE_PASSWORD_IDS"] = secrets.token_hex(8)
+        self.sembrar()
+        with app.app_context():
+            User.query.filter_by(username="svc-ids").first().role = "admin"
+            db.session.commit()
+        self.sembrar()
+        with app.app_context():
+            self.assertEqual(User.query.filter_by(username="svc-ids").first().role, "servicio")
+
+    def test_5_si_cambia_el_valor_de_un_secreto_se_sirve_el_nuevo(self):
+        clave = secrets.token_hex(8)
+        os.environ["SERVICE_PASSWORD_SIEM"] = clave
+        os.environ["SECRET_SIEM_DB_PASSWORD"] = "valor-antiguo"
+        self.sembrar()
+        os.environ["SECRET_SIEM_DB_PASSWORD"] = "valor-nuevo"
+        self.sembrar()
+        r = self.client.get("/secrets/siem_db_password", headers=self.con_token(self.token("svc-siem", clave)))
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.get_json()["valor"], "valor-nuevo")
+        with app.app_context():
+            self.assertEqual(Secret.query.filter_by(clave="siem_db_password").count(), 1)
+
+    def test_6_si_rota_la_aes_key_el_secreto_se_vuelve_a_cifrar_con_la_nueva(self):
+        clave = secrets.token_hex(8)
+        os.environ["SERVICE_PASSWORD_SIEM"] = clave
+        os.environ["SECRET_SIEM_DB_PASSWORD"] = "valor-del-siem"
+        self.sembrar()
+        app.config["AES_KEY"] = os.urandom(32)
+        self.sembrar()
+        r = self.client.get("/secrets/siem_db_password", headers=self.con_token(self.token("svc-siem", clave)))
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.get_json()["valor"], "valor-del-siem")
+
+    def test_7_el_compose_guarda_la_base_de_datos_en_un_volumen(self):
+        ruta = os.path.join(os.path.dirname(__file__), "..", "..", "..", "docker-compose.yml")
+        if not os.path.exists(ruta):
+            self.skipTest("docker-compose.yml no está en esta copia del repositorio")
+        with open(ruta, encoding="utf-8") as f:
+            compose = f.read()
+        bloque = compose.split("\n  identidad:", 1)[1].split("\n  ids:", 1)[0]
+        self.assertIn('DATABASE_URL: "sqlite:////data/identidad.db"', bloque)
+        self.assertIn("- identidad-data:/data", bloque)
+        self.assertIn("\n  identidad-data:", compose.split("\nvolumes:", 1)[1])
+
+
 class TestLogout(BaseTest):  # AAA-62
     def setUp(self):
         super().setUp()
