@@ -28,6 +28,10 @@ services:
       JWT_EXPIRES_SECONDS: ${JWT_EXPIRES_SECONDS:-1800}
       TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
       IDS_URL: "http://ids/logs"
+      # Base de datos en un volumen: usuarios y tokens revocados sobreviven a reinicios (AAA-106)
+      DATABASE_URL: "sqlite:////data/identidad.db"
+    volumes:
+      - identidad-data:/data
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
       interval: 10s
@@ -42,8 +46,9 @@ services:
     environment:
       SIEM_URL: "http://siem:80/events"
       IDENTIDAD_URL: ${IDENTIDAD_URL:-http://identidad:80}
-      IDS_SERVICE_USERNAME: ${IDS_SERVICE_USERNAME:-servicio}
-      IDS_SERVICE_PASSWORD: ${SERVICE_PASSWORD:-}
+      # Cuenta propia del IDS (Identidad 1.4.0); la misma variable crea la cuenta en identidad
+      IDS_SERVICE_USERNAME: ${IDS_SERVICE_USERNAME:-svc-ids}
+      IDS_SERVICE_PASSWORD: ${SERVICE_PASSWORD_IDS:-}
     networks:
       - ciberurjc
     healthcheck:
@@ -259,6 +264,7 @@ networks:
     internal: true
 
 volumes:
+  identidad-data:
   honeypot-data:
   soar-data:
   siem-postgres-data:

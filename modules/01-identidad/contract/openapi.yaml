@@ -90,7 +90,7 @@ info:
     |---|---|---|
     | `JWT_SECRET_KEY` | Sí (para auth y secrets) | Clave de firma del JWT |
     | `AES_KEY` | Sí (para /secrets) | Clave AES-256, base64 de 32 bytes aleatorios |
-    | `DATABASE_URL` | No | URI de base de datos; por defecto `sqlite:///identidad.db` |
+    | `DATABASE_URL` | No | URI de base de datos; por defecto `sqlite:///identidad.db`. En el compose, `sqlite:////data/identidad.db` sobre el volumen `identidad-data` |
     | `TRUSTED_PROXY_HOPS` | No | Nº de proxies de confianza delante (0 = ninguno) |
     | `JWT_EXPIRES_SECONDS` | No | Caducidad del JWT en segundos; por defecto 1800 |
     | `IDS_URL` | No | URL del endpoint de logs del IDS; por defecto `http://ids/logs` |

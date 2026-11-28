@@ -140,7 +140,8 @@ Los valores sensibles se leen de **variables de entorno**, nunca del código. El
 | `IDS_URL` | Destino del envío de logs (por defecto `http://ids/logs`) |
 | `IDS_RETRY_SECONDS` | Espera base entre reintentos al IDS (por defecto 30 s, con tope de 300 s) |
 | `IDS_REINTENTOS` | `0` desactiva el hilo de reintentos (solo para pruebas) |
-| `TRUSTED_PROXY_HOPS`, `JWT_EXPIRES_SECONDS`, `DATABASE_URL` | Opcionales |
+| `TRUSTED_PROXY_HOPS`, `JWT_EXPIRES_SECONDS` | Opcionales |
+| `DATABASE_URL` | Opcional; por defecto `sqlite:///identidad.db`. En el compose vale `sqlite:////data/identidad.db`, sobre el volumen `identidad-data` |
 
 ### Cargar las cuentas y los secretos
 
@@ -149,6 +150,8 @@ Las contraseñas y los valores de los secretos **nunca** se escriben en el códi
 1. Copiad `.env.example` a `.env` en la raíz del monorepo (`.env` está en `.gitignore`).
 2. Rellenad `JWT_SECRET_KEY`, `AES_KEY` y, para cada cuenta o secreto que haga falta, su `SERVICE_PASSWORD_*` o `SECRET_*`. Generad valores aleatorios, por ejemplo con `python -c "import secrets; print(secrets.token_urlsafe(24))"`; para `AES_KEY`, `python -c "import os, base64; print(base64.b64encode(os.urandom(32)).decode())"`.
 3. Arrancad con `docker compose up --build`. Al iniciar, Identidad crea las cuentas y guarda cada secreto **cifrado con AES-256-GCM** en la base de datos, con su cuenta dueña. Una variable vacía no crea nada.
+
+   La base de datos está en el volumen `identidad-data`, así que usuarios, cuentas y tokens revocados sobreviven a `docker compose down` y a los reinicios. **El `.env` manda en cada arranque:** si cambiáis la contraseña de una cuenta o el valor de un secreto, se actualiza al volver a levantar Identidad, y lo mismo si rota `AES_KEY` (los secretos se vuelven a cifrar). Quitar una variable **no** borra la cuenta ni el secreto; para empezar de cero, `docker compose down -v` (borra también los usuarios registrados).
 4. Comprobad que funciona haciendo login con la cuenta y leyendo su secreto (ver [`shared/auth-contract.md`](../../shared/auth-contract.md#cómo-leer-un-secreto-desde-vuestro-módulo)).
 5. Entregad cada contraseña de cuenta a su módulo **por mensaje privado**.
 

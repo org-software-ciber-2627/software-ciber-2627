@@ -11,7 +11,8 @@ endpoint que la necesita responde 500 (pero /health sigue en 200 para no romper 
 Variables de entorno:
   JWT_SECRET_KEY      clave de firma del JWT (obligatoria para registro, login, validate, secrets)
   AES_KEY             clave AES-256 en base64 de 32 bytes aleatorios (obligatoria para /secrets)
-  DATABASE_URL        opcional; por defecto sqlite:///identidad.db
+  DATABASE_URL        opcional; por defecto sqlite:///identidad.db (en el compose, sqlite:////data/identidad.db
+                      sobre el volumen identidad-data, para que usuarios y tokens revocados sobrevivan a reinicios)
   TRUSTED_PROXY_HOPS  opcional; nº de proxies de confianza delante (0 = ninguno, por defecto)
   JWT_EXPIRES_SECONDS opcional; por defecto 1800 (30 minutos, como dice el contrato)
   IDS_URL             opcional; destino del envío de logs (por defecto http://ids/logs)
@@ -222,13 +223,25 @@ SECRETOS = (
 
 
 def seed():
-    """Crea cuentas y secretos solo si su variable de entorno está definida."""
+    """Crea o actualiza cuentas y secretos a partir de sus variables de entorno.
+
+    Con la base de datos en un volumen (AAA-106) los datos sobreviven a los reinicios, así que
+    el entorno manda: si una variable cambia, la cuenta o el secreto se actualiza al arrancar.
+    Una variable vacía o ausente no borra nada.
+    """
     for username, email, role, env_var in CUENTAS:
         password = os.environ.get(env_var)
-        if password and not User.query.filter_by(username=username).first():
+        if not password:
+            continue
+        user = User.query.filter_by(username=username).first()
+        if not user:
             user = User(username=username, email=email, role=role)
             user.set_password(password)
             db.session.add(user)
+            continue
+        if not user.check_password(password):
+            user.set_password(password)
+        user.role = role  # una cuenta sembrada siempre conserva su rol
 
     aes_key = app.config.get("AES_KEY")
     if aes_key:
@@ -237,9 +250,13 @@ def seed():
             existente = Secret.query.filter_by(clave=clave).first()
             if existente:
                 existente.dueno = dueno  # bases de datos anteriores a 1.4.0: asigna el dueño
-            elif valor:
+            if valor:
+                # Se vuelve a cifrar en cada arranque: recoge un valor nuevo del entorno o una AES_KEY rotada
                 enc, iv, tag = encrypt(valor, aes_key)
-                db.session.add(Secret(clave=clave, valor_encriptado=enc, iv=iv, tag=tag, dueno=dueno))
+                if existente:
+                    existente.valor_encriptado, existente.iv, existente.tag = enc, iv, tag
+                else:
+                    db.session.add(Secret(clave=clave, valor_encriptado=enc, iv=iv, tag=tag, dueno=dueno))
 
     db.session.commit()
 
