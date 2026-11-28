@@ -4,6 +4,8 @@ Servidor Java 21 y Spring Boot 4.1.1 para recibir eventos, persistirlos en Postg
 
 Consulta la [guía de configuración y persistencia](docs/sem67-persistence-guide.md), las [pruebas de almacenamiento](docs/sem66-storage-tests.md) y la [verificación manual](docs/sem67-acceptance-check.md).
 
+Los [requisitos de integración en el Compose común](docs/common-compose-integration.md) describen la configuración que debe incorporar G7 para PostgreSQL, perfil de persistencia, migraciones y comprobaciones de aceptación. El fragmento propuesto no está incorporado al Compose raíz.
+
 ## Alcance
 
 Con el perfil Spring `persistence`, `POST /events` valida y almacena el evento antes de confirmar la recepción. La clave primaria `(source, event_id)` evita duplicar eventos: el reenvío con el mismo contenido recibe 200 y el mismo identificador con otro contenido recibe 409. Sin almacenamiento disponible, la ingesta responde 503. La validación conserva 400 y 415. El límite de cuerpo se indica con 413.
