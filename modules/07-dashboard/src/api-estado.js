@@ -39,3 +39,35 @@ export function pintar(aviso, resultado, pintarLista) {
     aviso.className = resultado.estado === "vacio" ? "aviso-vacio" : "aviso-error";
     aviso.style.display = "block";
 }
+// Umbral técnico provisional: 60 segundos.
+export const UMBRAL_ANTIGUEDAD = 60_000;
+
+// Registra cuándo se obtuvo información correctamente.
+export function crearSeguimiento() {
+    let ultimaConsultaCorrecta = null;
+
+    return {
+        registrarExito(fecha = Date.now()) {
+            ultimaConsultaCorrecta = fecha;
+        },
+
+        obtenerAviso(fecha = Date.now()) {
+            if (ultimaConsultaCorrecta === null) return null;
+
+            if (fecha - ultimaConsultaCorrecta < UMBRAL_ANTIGUEDAD) {
+                return null;
+            }
+
+            const hora = new Date(ultimaConsultaCorrecta).toLocaleTimeString(
+                "es-ES",
+                { hour: "2-digit", minute: "2-digit", hour12: false }
+            );
+
+            return `Sin datos desde ${hora}`;
+        },
+
+        tieneDatos() {
+            return ultimaConsultaCorrecta !== null;
+        }
+    };
+}

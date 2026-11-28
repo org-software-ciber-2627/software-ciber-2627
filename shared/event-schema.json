@@ -1,5 +1,72 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Evento de seguridad (placeholder)",
-  "type": "object"
+  "title": "SIEM security event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "timestamp",
+    "source",
+    "event_type",
+    "severity",
+    "title",
+    "description",
+    "details"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Unique within source; stable on retries. UUID is not required. Letters, digits, dot, underscore, colon and hyphen only.",
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$",
+      "description": "Original detection time in UTC."
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "ids",
+        "honeypot",
+        "scanner",
+        "pentesting"
+      ]
+    },
+    "event_type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Event type reported by the producer.",
+      "pattern": "\\S"
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "description": "info denotes an informational observation; it does not imply a vulnerability or generate an alert."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "details": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Producer-specific event attributes."
+    }
+  }
 }

@@ -18,10 +18,38 @@ Nada obligatorio. Si el SIEM no responde, los intentos se guardan igual. Para pr
 
 ## Cómo arrancarlo
 - *Con Docker* (desde la raíz del repo): `docker compose up --build honeypot` → `http://localhost:8003/login`
-- *Sin Docker* (desde `modules/03-honeypot`, con Java 25 o superior): `./mvnw spring-boot:run` → `http://localhost:8080/login`
+- *Sin Docker* (desde `modules/03-honeypot`, con Java 21 o superior): `./mvnw spring-boot:run` → `http://localhost:8080/login`
 - *SSH:* `ssh -p 2222 root@localhost` · *FTP:* cualquier cliente FTP contra `localhost:2121`
 - *Pruebas:* `./mvnw test`
-- *Mock del SIEM:* `java mocks/SiemMockServer.java` (escucha `POST /events` en el puerto `8081`)
+- *Mock del SIEM:* `java mocks/SiemIdentidadMockServer.java` (escucha `POST /events` en el puerto `8081`)
+
+### Ejecución integrada con el SIEM real (Docker Compose)
+
+En el `docker-compose.yml` de la raíz del repositorio, el servicio `honeypot` tiene configurada la variable `SIEM_URL=http://siem:80/events` y comparte la red interna `honeypot-siem` con el servicio `siem`.
+
+Para levantar ambos servicios juntos desde la raíz del proyecto:
+
+```bash
+docker compose up --build siem honeypot
+```
+### Aislamiento detrás del proxy (HP-89)
+
+El honeypot no tiene salida a internet. Solo está en redes internas (`internal: true`):
+
+| Red | Para qué |
+| --- | --- |
+| `honeypot-entrada` | Recibe el tráfico del proxy (alias `honeypot-interno`) |
+| `honeypot-siem` | Envía los eventos al SIEM |
+| `honeypot-identidad` | Pide el token a Identidad |
+
+Desde fuera solo se llega a través de `honeypot-proxy` (nginx sin privilegios), que publica 8003, 2121 y 2222 en `127.0.0.1` igual que antes. En `honeypot-publica` el proxy tiene el alias `honeypot`, así que Pentesting sigue atacando al mismo nombre.
+
+Para no perder la IP del atacante:
+- *Web:* el proxy manda `X-Forwarded-For` con la IP de la conexión (sobrescribe la que traiga el atacante) y Spring la usa con `server.forward-headers-strategy=native`.
+- *SSH y FTP:* el proxy antepone la cabecera del protocolo PROXY (`proxy_protocol on`). El SSH la lee con `ProxyProtocolAcceptor` de `sshd-contrib`; el FTP la trata como primera línea de la conexión y no responde a ella. Solo vale como primera línea, así que un atacante no puede falsearla.
+- El contacto para detectar escaneos se apunta al recibir el primer mensaje o al cerrar la conexión, no al crearla, porque al crearla todavía se ve la IP del proxy.
+
+El proxy no tiene healthcheck para no generar contactos falsos en el detector de escaneos. El healthcheck del honeypot solo consulta `/health` desde dentro del contenedor.
 
 ## Perfil dev
 La página `/attempts` (ver y borrar intentos) solo existe arrancando con
@@ -31,7 +59,7 @@ La página `/attempts` (ver y borrar intentos) solo existe arrancando con
 ## Estado
 - Hecho: login web, FTP y SSH señuelo (`HP-6`, `HP-2`), registro de intentos, envío al SIEM, detección de fuerza bruta (`HP-12`) y de credenciales por defecto (`HP-25`), aislamiento del contenedor (`HP-30`: puertos solo en local, sin root, red interna con el SIEM) y límites de peticiones y de recursos con resumen de rechazos (`HP-32`).
 - Sprint 3: conectar con el SIEM real en Docker (`HP-21`), enviar el resumen de rechazos (`HP-86`), bloquear la salida a internet (`HP-89`) y credenciales por defecto en el FTP (`HP-90`).
-
+- **HP-21 (Hecho):** El honeypot envía los eventos al SIEM real (`http://siem:80/events`) mediante la configuración del `docker-compose.yml` global.
 ## Configuración de la detección de fuerza bruta
 
 Se configura en `src/main/resources/application.properties`:
@@ -63,7 +91,7 @@ También en `application.properties`:
 
 Para añadir una credencial basta con ponerla en la lista, sin tocar el código. En el login web el usuario es un correo, así que se compara lo que va antes de la @: `admin@loquesea.com` con la contraseña `admin` cuenta como `admin:admin`. Un intento que usa una de ellas se etiqueta como `credenciales_por_defecto` y se envía al SIEM con severidad `high`. Si además es fuerza bruta, gana `fuerza_bruta` (acuerdo con el grupo 5). En el FTP todavía no se comprueba, porque el usuario y la contraseña llegan en comandos distintos.
 
-## Plan de pruebas (Sprint 2)
+## Plan de pruebas (Sprints 2 y 3)
 
 Cada criterio de aceptación del sprint tiene al menos una prueba. Las automáticas se lanzan con `.\mvnw.cmd test` (Windows) o `./mvnw test` desde `modules/03-honeypot`, y la CI las pasa en cada PR (job *Honeypot Tests*). Las manuales se hacen antes de cerrar la historia, y el PO deja en Jira lo que ha comprobado.
 
@@ -100,3 +128,17 @@ En el Sprint 3 el grupo 8 hará pentesting contra el honeypot.
 | HP-32 | Resumen de rechazos en la BD | `RechazoResumenServiceIntegracionTest`: `variosRechazosEnElMismoMinutoSonUnSoloRegistro` y `otroMinutoEsOtroRegistro` (`HP-88`) | Integración | Sí | Hecho |
 | HP-32 | Límites de CPU y memoria | Revisar el compose y `docker stats` (`HP-72`, PR #22) | Manual | No | Hecho |
 | HP-32 | El resto de módulos sigue funcionando | Lanzar una ráfaga y comprobar el `/health` de otros módulos (`HP-73`) | Manual | No | Hecho |
+| HP-22 | Si el SIEM no responde o da error, el evento queda pendiente | `SiemSenderServiceTest`: `siElSiemNoRespondeElEventoQuedaPendiente` y `siElSiemDaErrorElEventoQuedaPendiente` | Unitaria | Sí | Hecho |
+| HP-22 | Cuando el SIEM vuelve, los pendientes se reenvían en orden | `ReintentoSiemServiceTest`: `cuandoElSiemVuelveLosPendientesLleganEnOrden` y `siFallaUnoSeParaParaNoDesordenar` | Unitaria | Sí | Hecho |
+| HP-22 | Con el SIEM caído no se pierde ningún evento | Mock apagado, 3 intentos en `/login`; al encender el mock llegan los 3 en orden en menos de 30 s | Manual | No | Hecho |
+| HP-21 | El honeypot envía eventos al SIEM real en Docker Compose | `docker compose up --build siem honeypot`, intento en `/login` y verificación de envío a `http://siem:80/events` y consulta en `GET http://localhost:8005/events` | Manual | No | Hecho |
+| HP-90 (HP-93) | El FTP recuerda el USER de cada sesión, un USER nuevo sustituye al anterior y se olvida al cerrar la conexión | `FtpUsuarioSesionTest` (5 pruebas, una por criterio de HP-93) | Unitaria | Sí | Hecho |
+| HP-90 | USER y PASS de la lista en la misma sesión se etiquetan `credenciales_por_defecto` | `FtpCredencialesPorDefectoIntegracionTest`: `userYPassDeLaListaSeEtiquetanComoCredencialesPorDefecto` y `unaParejaQueNoEstaEnLaListaNoSeEtiqueta`; `FtpEventServiceSiemTest`: llega al SIEM con esa etiqueta | Integración y unitaria | Sí | Hecho |
+| HP-90 | Si además es fuerza bruta, prevalece `fuerza_bruta` | `FtpCredencialesPorDefectoIntegracionTest`: `siAdemasEsFuerzaBrutaGanaFuerzaBruta` | Integración | Sí | Hecho |
+| HP-90 | Un PASS sin USER previo se registra sin la etiqueta de credenciales | `FtpCredencialesPorDefectoIntegracionTest`: `unPassSinUserPrevioNoSeEtiquetaComoCredencialPorDefecto`; `FtpPassConUsuarioTest`: `unPassSinUserPrevioLlegaSinUsuarioYResponde530` | Integración y unitaria | Sí | Hecho |
+| HP-89 | El honeypot no tiene salida a internet | `docker compose exec honeypot wget -qO- http://example.com` falla (no resuelve el nombre) | Manual | No | Hecho |
+| HP-89 | Sigue llegando al SIEM y a Identidad | `docker compose exec honeypot wget -qO- http://siem/health` y `http://identidad/health` responden | Manual | No | Hecho |
+| HP-89 | Los 3 servicios funcionan a través del proxy | Login en `http://127.0.0.1:8003/login`, `ssh -p 2222 prueba@127.0.0.1` y `curl.exe --user root:toor ftp://127.0.0.1:2121/` con `honeypot-proxy` levantado | Manual | No | Hecho |
+| HP-89 (HP-122) | Llega la IP real del atacante, no la del proxy | `IpRealWebTest`, `SshHoneypotServerProxyTest` y `FtpHoneypotProxyTest`; en Docker los logs muestran la puerta de enlace de `honeypot-publica` y no la IP del proxy | Integración y manual | Sí | Hecho |
+| HP-89 (HP-122) | Una cabecera PROXY que no es la primera línea no cambia la IP | `FtpHoneypotProxyTest`: `unaCabeceraProxyTardiaNoCambiaLaIp` | Unitaria | Sí | Hecho |
+| HP-89 (HP-123) | El honeypot aparece sano aunque tarde en arrancar | `docker compose up -d honeypot` y `docker compose ps`: `(healthy)` sin errores de dependencias | Manual | No | Hecho |

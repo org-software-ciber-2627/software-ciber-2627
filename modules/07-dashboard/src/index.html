@@ -214,6 +214,25 @@
     <!-- Al final del body, junto al script del SIEM -->
     <script type="module" src="SOAR-alert.js"></script>
 
+    <!-- SECCIÓN HONEYPOT (DASHG7-32): eventos con origen honeypot del historial del SIEM -->
+    <h2 style="margin-top: 40px;">Actividad reciente del honeypot</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Hora</th>
+                <th>IP de origen</th>
+                <th>Servicio señuelo</th>
+                <th>Tipo de intento</th>
+            </tr>
+        </thead>
+        <tbody id="honeypot-body">
+        </tbody>
+    </table>
+
+    <div id="error-honeypot" style="display:none;color:#b91c1c"></div>
+
+    <script type="module" src="HONEYPOT-actividad.js"></script>
+
 
 </body>
 

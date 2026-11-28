@@ -28,12 +28,16 @@ Sprint 1: página estática (nginx) que lista las alertas del SIEM ordenadas por
 | DASHG7-67 · Estados de error y de datos vacíos | Cada tabla muestra un aviso distinto si el servicio no responde, no hay datos, no hay permiso o la respuesta no tiene el formato esperado. | El aviso de datos no actualizados (DASHG7-36) queda para el Sprint 3. |
 | DASHG7-19 / DASHG7-47 · Login contra Identidad | `login.html` consulta a Identidad (`POST /auth/login`) a través del proxy `/api/identidad/` de nginx, que solo deja pasar login, validate y logout. El token JWT se guarda en `sessionStorage` y se valida con `GET /auth/validate` al abrir el Dashboard; sin sesión válida, o con Identidad caída, redirige al login. Gestiona el 429 con cuenta atrás. | Las cuentas las crea Identidad a partir de variables de entorno: sin ellas no hay usuario con el que entrar (ver «Para poder iniciar sesión en la prueba»). |
 | DASHG7-84 / DASHG7-85 / DASHG7-20 · Cierre de sesión y token caducado | «Cerrar Sesión» llama a `POST /auth/logout` de Identidad (espera como máximo 3 s) y borra el token del navegador, aunque Identidad no responda. Si el token caduca mientras se usa el Dashboard, la validación de cada refresco y un 401 del SIEM borran el token y devuelven al login. | Un fallo distinto de 401 (por ejemplo un 500 de Identidad) redirige al login pero no borra el token. |
+| DASHG7-32 · Actividad reciente del honeypot | Tabla «Actividad reciente del honeypot» con hora, IP de origen, servicio señuelo y tipo de intento de los 20 eventos más recientes con origen `honeypot`. Los pide al historial del SIEM (`GET /events?limit=500&offset=0`, por el proxy `/api/siem/` de nginx) y filtra por `source` en el navegador, porque el SIEM no filtra. Se refresca cada 30 s y usa los mismos avisos de error y de «sin datos» que el resto de tablas. | No muestra usuario, contraseña ni comando del atacante. Solo ve los honeypot que estén entre los últimos 500 eventos del SIEM. |
 
 Pendiente: hallazgos del escáner, proxy de nginx hacia el SOAR y aviso de datos no actualizados (DASHG7-36).
 
 ## Cómo probarlo
 ```bash
 cp .env.example .env
+```
+Antes de arrancar, abrid `.env` y rellenad al menos `SIEM_DB_PASSWORD` (la contraseña de la base de datos del SIEM). Va vacía en `.env.example` y el compose no arranca sin ella: con el valor vacío falla con `required variable SIEM_DB_PASSWORD is missing`. Elegid una contraseña propia, solo local; `.env` no se sube al repositorio. Si el volumen `siem-postgres-data` ya existe, cambiar la contraseña no la cambia en la base de datos: ejecutad `docker compose down -v` para empezar de cero. Para iniciar sesión también hacen falta `JWT_SECRET_KEY` y `ADMIN_PASSWORD` (ver «Para poder iniciar sesión en la prueba»).
+```bash
 docker compose up --build dashboard
 ```
 Abrid `http://localhost:8007`: si no existe una sesión válida, redirige a `login.html`. Iniciad sesión con una cuenta válida del servicio Identidad para acceder a las alertas. Comprobad también `curl -f http://localhost:8007/health`.
@@ -48,7 +52,7 @@ Para hacerlo todo de una vez (arranca, comprueba y limpia al terminar, sin tocar
 **Nota:** Las opciones de los scripts se escriben por separado (`-s -m`, no `-sm`). En PowerShell se utilizan igual.
 
 ### Para poder iniciar sesión en la prueba (demo)
-Los scripts parten de `.env.example`, cuyas claves van vacías. Con eso las comprobaciones automáticas pasan, pero Identidad no crea el usuario `admin` y el login real falla. Antes de lanzar el script, define en la misma terminal una clave JWT y una contraseña de administrador (valores de prueba, solo locales; no se suben al repositorio). Docker Compose da prioridad a las variables de la terminal sobre el fichero `.env`. La contraseña debe tener entre 8 y 128 caracteres.
+Los scripts parten de `.env.example`, cuyas claves van vacías, y definen por su cuenta una `SIEM_DB_PASSWORD` de usar y tirar (se borra con los volúmenes al parar). Con eso las comprobaciones automáticas pasan, pero Identidad no crea el usuario `admin` y el login real falla. Antes de lanzar el script, define en la misma terminal una clave JWT y una contraseña de administrador (valores de prueba, solo locales; no se suben al repositorio). Docker Compose da prioridad a las variables de la terminal sobre el fichero `.env`. La contraseña debe tener entre 8 y 128 caracteres.
 
 Windows (PowerShell):
 ```powershell
@@ -94,8 +98,11 @@ Las pruebas del front usan el ejecutor integrado de Node (`node --test`) y `jsdo
 | `tests/mock-soar.test.js` | El mock `mocks/soar-incidents.json` mantiene los campos y valores del formato de incidentes del SOAR. |
 | `tests/mock-scanner.test.js` | Los ficheros de `modules/04-escaner/contract/dashboard/` mantienen la forma que espera el Dashboard. |
 | `tests/contrato-proveedores.test.js` | **Contratos de los proveedores (DASHG7-133).** Lee `modules/05-siem/contract/openapi.json`, `modules/01-identidad/contract/openapi.yaml` y `modules/06-soar/contract/README.md`: pasa sus ejemplos por `SIEM-client.js`, `auth-client.js` y `SOAR-client.js`, y comprueba que siguen declarados los códigos de estado y los campos que usa el Dashboard. Si G1, G5 o G6 cambian su contrato, falla. |
+| `tests/honeypot.test.js` | Actividad del honeypot (DASHG7-32): el cliente pide `GET /events` con el token, filtra por origen y ordena; la vista muestra hora, IP, servicio y tipo usando los ejemplos del contrato del honeypot (`modules/03-honeypot/contract/examples`), no enseña credenciales, escapa el HTML del atacante y cubre error, sin datos, 401, 403 y refresco. |
+| `tests/estado-antiguedad.test.js` | Seguimiento del aviso de datos no actualizados (DASHG7-36): umbral de 60 s, sin aviso antes de la primera consulta correcta, y reinicio al recibir datos. |
+| `tests/soar-alert.test.js` | Tabla de incidentes del SOAR sobre el `index.html` real: muestra los incidentes, conserva los datos si falla una actualización y avisa pasados 60 s sin datos. |
 
-En total son 73 pruebas. El job `contract-tests` del CI ejecuta solo las de contrato (`mock-siem`, `login`, `sesion`, `mock-soar`, `mock-scanner` y `contrato-proveedores`) como comprobación separada.
+En total son 102 pruebas. El job `contract-tests` del CI ejecuta solo las de contrato (`mock-siem`, `login`, `sesion`, `mock-soar`, `mock-scanner` y `contrato-proveedores`) como comprobación separada.
 
 Límites conocidos: `mock-siem` y `mock-soar` comprueban nuestros propios mocks, no el contrato del proveedor; el contrato vivo es el que lee `contrato-proveedores.test.js`. G6 no publica ejemplos JSON sueltos, así que se leen de los bloques `json` de su `README.md`. Si G6 cambia ese formato de documento, la prueba lo avisa pero habrá que adaptarla.
 

@@ -3,6 +3,7 @@ package com.honeypot.honeypot.ftp;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -68,7 +69,8 @@ class FtpHoneypotTest {
         verify(ftpEventService, times(3)).registrarComando(
                 eq("127.0.0.1"),
                 commandCaptor.capture(),
-                eq("test")
+                eq("test"),
+                isNull()
         );
 
         assertEquals(

@@ -1,11 +1,13 @@
 package com.honeypot.honeypot.ssh;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -25,13 +27,45 @@ class SshAttemptRecorderTest {
 
     private LoginAttemptRepository repositorio;
     private ClasificadorAtaquesService clasificador;
+    private SiemSenderService siem;
     private SshAttemptRecorder recorder;
 
     @BeforeEach
     void preparar() {
         repositorio = mock(LoginAttemptRepository.class);
         clasificador = mock(ClasificadorAtaquesService.class);
-        recorder = new SshAttemptRecorder(repositorio, clasificador, new EventoMapper(), mock(SiemSenderService.class));
+        siem = mock(SiemSenderService.class);
+        recorder = new SshAttemptRecorder(repositorio, clasificador, new EventoMapper(), siem);
+    }
+
+    // HP-103: la severidad del evento enviado sale de EventoMapper.severidadDe
+    @Test
+    void unIntentoConCredencialPorDefectoLlegaAlSiemConSeveridadHigh() {
+        when(clasificador.clasificar(eq("203.0.113.72"), eq(ahora), eq("root"), eq("toor")))
+                .thenReturn(ClasificadorAtaquesService.CREDENCIALES_POR_DEFECTO);
+
+        recorder.onAttempt(new SshAttemptData("203.0.113.72", 50002, ahora, "root",
+                SshAttemptData.AuthMethod.PASSWORD, "toor", null, "SSH-2.0-OpenSSH_9.6"));
+
+        assertThat(jsonEnviado()).contains("\"severity\":\"high\"");
+    }
+
+    @Test
+    void unIntentoSinClasificarLlegaAlSiemConSeveridadLow() {
+        // El clasificador (mock) devuelve null: el evento va como intento_login
+        recorder.onAttempt(new SshAttemptData("203.0.113.73", 50003, ahora, "pepe",
+                SshAttemptData.AuthMethod.PASSWORD, "clave", null, "SSH-2.0-OpenSSH_9.6"));
+
+        assertThat(jsonEnviado())
+                .contains("\"event_type\":\"intento_login\"")
+                .contains("\"severity\":\"low\"");
+    }
+
+    private String jsonEnviado() {
+        ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
+        // El envío es en segundo plano: timeout espera hasta 2 s a que ocurra
+        verify(siem, timeout(2000)).enviarEvento(json.capture(), any());
+        return json.getValue();
     }
 
     // HP-67: un intento con contraseña se guarda con servicio, usuario, contraseña y la etiqueta del clasificador
