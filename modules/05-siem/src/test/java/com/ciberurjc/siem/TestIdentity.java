@@ -25,6 +25,15 @@ public final class TestIdentity {
     /** Token con el que el validador de test simula que Identidad (G1) no responde. */
     public static final String UNAVAILABLE_TOKEN = "test-identity-unavailable";
     public static final String BEARER = "Bearer " + VALID_TOKEN;
+        /** Cuenta que devuelve el validador de test para VALID_TOKEN; TestAccessPolicy no le aplica la matriz. */
+    public static final String UNRESTRICTED_USERNAME = "test-sin-restricciones";
+    /** Prefijo de los tokens de test que simulan una cuenta y un rol concretos (SEM-142). */
+    public static final String AS_PREFIX = "test-as.";
+
+    /** Cabecera Authorization para actuar como {@code username} con rol {@code role}. */
+    public static String bearerAs(String username, String role) {
+        return "Bearer " + AS_PREFIX + username + "." + role;
+    }
 
     private TestIdentity() {
     }

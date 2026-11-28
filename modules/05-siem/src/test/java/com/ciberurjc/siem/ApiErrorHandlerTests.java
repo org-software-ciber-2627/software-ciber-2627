@@ -42,7 +42,7 @@ class ApiErrorHandlerTests {
             errors.addError(new FieldError("event", entry.getKey(), "SECRET_REJECTED_VALUE",
                 false, null, null, entry.getValue()));
         }
-        var parameter = new MethodParameter(EventController.class.getMethod("receiveEvent", Event.class), 0);
+        var parameter = new MethodParameter(EventController.class.getMethod("receiveEvent", Event.class, jakarta.servlet.http.HttpServletRequest.class), 0);
         var response = handler.invalidEvent(new MethodArgumentNotValidException(parameter, errors));
 
         assertEquals(400, response.getStatusCode().value());
@@ -119,8 +119,24 @@ class ApiErrorHandlerTests {
     private MockMvc processingFailure(RuntimeException failure) {
         var service = mock(EventService.class);
         doThrow(failure).when(service).processIncomingEvent(any(Event.class));
-        return MockMvcBuilders.standaloneSetup(new EventController(service))
+        return MockMvcBuilders.standaloneSetup(new EventController(service, allowAll()))
             .setControllerAdvice(handler).build();
+    }
+
+    /** Sin filtros en MockMvc no hay identidad: estos tests prueban errores, no la autorización (SEM-142). */
+    private static com.ciberurjc.siem.security.AccessPolicy allowAll() {
+        return new com.ciberurjc.siem.security.AccessPolicy() {
+            @Override
+            public boolean canAccess(com.ciberurjc.siem.security.AuthenticatedIdentity identity,
+                                     String method, String path) {
+                return true;
+            }
+
+            @Override
+            public boolean canPublish(com.ciberurjc.siem.security.AuthenticatedIdentity identity, String source) {
+                return true;
+            }
+        };
     }
 
     private InputCoercionException numericOverflow() throws Exception {

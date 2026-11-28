@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "SIEM · Event ingestion and static alerts",
-    "version": "0.4.0",
-    "description": "Persistent event ingestion, paginated event history and real alert queries. Every operation except GET /health requires a Bearer token issued by Identity (Module 1) and validated with GET /auth/validate on each request (SEM-133, contract identity-auth.md)."
+    "version": "0.5.0",
+    "description": "Persistent event ingestion, paginated event history and real alert queries. Every operation except GET /health requires a Bearer token issued by Identity (Module 1) and validated with GET /auth/validate on each request (SEM-133, contract identity-auth.md). Authorization per account and role follows contract/roles-permissions.md (SEM-141/SEM-142): an authenticated request without permission receives 403."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -244,6 +244,45 @@
                   "error": {
                     "code": "UNAUTHENTICATED",
                     "message": "Missing, invalid, expired or revoked token"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token valid but the request is not allowed (roles-permissions.md). FORBIDDEN: the account is not a producer account (svc-ids, svc-honeypot, svc-escaner, svc-pentesting with role servicio); checked before reading the body. SOURCE_MISMATCH: the event is valid but its source does not belong to the account; checked after validation and before storing. Nothing is stored and the client must not retry.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authorization errors are not cached.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "summary": "Account or role not allowed to publish",
+                    "value": {
+                      "error": {
+                        "code": "FORBIDDEN",
+                        "message": "This account is not allowed to perform this operation"
+                      }
+                    }
+                  },
+                  "source_mismatch": {
+                    "summary": "Producer publishing another source",
+                    "value": {
+                      "error": {
+                        "code": "SOURCE_MISMATCH",
+                        "message": "The event source does not match the authenticated account"
+                      }
+                    }
                   }
                 }
               }
@@ -540,6 +579,31 @@
               }
             }
           },
+          "403": {
+            "description": "Token valid but only the roles analista and admin may read the event history (roles-permissions.md). Nothing is returned.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authorization errors are not cached.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "FORBIDDEN",
+                    "message": "This account is not allowed to perform this operation"
+                  }
+                }
+              }
+            }
+          },
           "503": {
             "description": "Persistence disabled, unavailable storage or query timeout. Also returned with IDENTITY_UNAVAILABLE when the identity service cannot confirm the token (fail-closed); access is never granted.",
             "headers": {
@@ -751,6 +815,31 @@
               }
             }
           },
+          "403": {
+            "description": "Token valid but only svc-soar (role servicio) and the roles analista and admin may read alerts (roles-permissions.md).",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authorization errors are not cached.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "FORBIDDEN",
+                    "message": "This account is not allowed to perform this operation"
+                  }
+                }
+              }
+            }
+          },
           "503": {
             "description": "Alert storage is temporarily unavailable Also returned with IDENTITY_UNAVAILABLE when the identity service cannot confirm the token (fail-closed); access is never granted.",
             "content": {
@@ -869,6 +958,31 @@
                   "error": {
                     "code": "UNAUTHENTICATED",
                     "message": "Missing, invalid, expired or revoked token"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token valid but only svc-soar (role servicio) and the roles analista and admin may read alerts (roles-permissions.md).",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authorization errors are not cached.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "FORBIDDEN",
+                    "message": "This account is not allowed to perform this operation"
                   }
                 }
               }
@@ -1153,7 +1267,9 @@
                   "PAYLOAD_TOO_LARGE",
                   "STORAGE_FULL",
                   "UNAUTHENTICATED",
-                  "IDENTITY_UNAVAILABLE"
+                  "IDENTITY_UNAVAILABLE",
+                  "FORBIDDEN",
+                  "SOURCE_MISMATCH"
                 ]
               },
               "message": {
