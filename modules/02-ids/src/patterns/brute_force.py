@@ -4,7 +4,7 @@ from util.pattern_loader import pattern
 from util.pattern_base import PatternBase
 
 
-@pattern("P004", "Fuerza Bruta", "Medio")
+@pattern("P004", "Fuerza Bruta", "Alto")
 class BruteForce(PatternBase):
     def __init__(self, threshold, window, *args, **kwargs):
         super().__init__()
@@ -65,7 +65,7 @@ class BruteForce(PatternBase):
             severity = "high"
             title = "Posible ataque de password spraying"
         else:
-            severity = "medium"
+            severity = "high"
             title = "Posible ataque de fuerza bruta"
 
         description = (
