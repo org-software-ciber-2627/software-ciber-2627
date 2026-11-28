@@ -188,3 +188,24 @@ jobs:
 
       - name: Run dashboard tests
         run: npm test
+
+  test-escaner:
+    name: test-escaner
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modules/04-escaner/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ../requirements.txt
+
+      - name: Run tests (unitarios + contrato con el Dashboard)
+        run: python -m unittest discover -p 'test_*.py' -v
