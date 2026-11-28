@@ -26,13 +26,18 @@ Sprint 1: página estática (nginx) que lista las alertas del SIEM ordenadas por
 | DASHG7-23 · Detalle de una alerta | «Ver detalle» en cada fila muestra todos los campos de la alerta (`GET /alerts/{id}` del SIEM, también por el proxy). | El SIEM no ofrece eventos relacionados, así que el detalle se limita a los campos de la alerta. |
 | DASHG7-26 · Listado de incidentes | Tabla «Incidentes del SOAR» con identificador, alerta de origen, estado y playbook aplicado. | Lee el mock `mocks/soar-incidents.json`, no el SOAR real: hace falta un proxy de nginx hacia el SOAR cuando su API llegue a `main`. |
 | DASHG7-67 · Estados de error y de datos vacíos | Cada tabla muestra un aviso distinto si el servicio no responde, no hay datos, no hay permiso o la respuesta no tiene el formato esperado. | El aviso de datos no actualizados (DASHG7-36) queda para el Sprint 3. |
-| DASHG7-19 / DASHG7-47 · Login contra Identidad | `login.html` consulta a Identidad (`POST /auth/login`) a través del proxy `/api/identidad/` de nginx, que solo deja pasar login, validate y logout. El token JWT se guarda en `sessionStorage` y se valida con `GET /auth/validate` al abrir el Dashboard; sin sesión válida, o con Identidad caída, redirige al login. Gestiona el 429 con cuenta atrás. | El botón «Cerrar Sesión» solo borra el token del navegador: todavía no lo revoca en Identidad. |
+| DASHG7-19 / DASHG7-47 · Login contra Identidad | `login.html` consulta a Identidad (`POST /auth/login`) a través del proxy `/api/identidad/` de nginx, que solo deja pasar login, validate y logout. El token JWT se guarda en `sessionStorage` y se valida con `GET /auth/validate` al abrir el Dashboard; sin sesión válida, o con Identidad caída, redirige al login. Gestiona el 429 con cuenta atrás. | Las cuentas las crea Identidad a partir de variables de entorno: sin ellas no hay usuario con el que entrar (ver «Para poder iniciar sesión en la prueba»). |
+| DASHG7-84 / DASHG7-85 / DASHG7-20 · Cierre de sesión y token caducado | «Cerrar Sesión» llama a `POST /auth/logout` de Identidad (espera como máximo 3 s) y borra el token del navegador, aunque Identidad no responda. Si el token caduca mientras se usa el Dashboard, la validación de cada refresco y un 401 del SIEM borran el token y devuelven al login. | Un fallo distinto de 401 (por ejemplo un 500 de Identidad) redirige al login pero no borra el token. |
+| DASHG7-32 · Actividad reciente del honeypot | Tabla «Actividad reciente del honeypot» con hora, IP de origen, servicio señuelo y tipo de intento de los 20 eventos más recientes con origen `honeypot`. Los pide al historial del SIEM (`GET /events?limit=500&offset=0`, por el proxy `/api/siem/` de nginx) y filtra por `source` en el navegador, porque el SIEM no filtra. Se refresca cada 30 s y usa los mismos avisos de error y de «sin datos» que el resto de tablas. | No muestra usuario, contraseña ni comando del atacante. Solo ve los honeypot que estén entre los últimos 500 eventos del SIEM. |
 
-Pendiente: cierre de sesión contra Identidad, detección de un token caducado mientras se usa el Dashboard (DASHG7-20), hallazgos del escáner y aviso de datos no actualizados.
+Pendiente: hallazgos del escáner, proxy de nginx hacia el SOAR y aviso de datos no actualizados (DASHG7-36).
 
 ## Cómo probarlo
 ```bash
 cp .env.example .env
+```
+Antes de arrancar, abrid `.env` y rellenad al menos `SIEM_DB_PASSWORD` (la contraseña de la base de datos del SIEM). Va vacía en `.env.example` y el compose no arranca sin ella: con el valor vacío falla con `required variable SIEM_DB_PASSWORD is missing`. Elegid una contraseña propia, solo local; `.env` no se sube al repositorio. Si el volumen `siem-postgres-data` ya existe, cambiar la contraseña no la cambia en la base de datos: ejecutad `docker compose down -v` para empezar de cero. Para iniciar sesión también hacen falta `JWT_SECRET_KEY` y `ADMIN_PASSWORD` (ver «Para poder iniciar sesión en la prueba»).
+```bash
 docker compose up --build dashboard
 ```
 Abrid `http://localhost:8007`: si no existe una sesión válida, redirige a `login.html`. Iniciad sesión con una cuenta válida del servicio Identidad para acceder a las alertas. Comprobad también `curl -f http://localhost:8007/health`.
@@ -45,6 +50,30 @@ Para hacerlo todo de una vez (arranca, comprueba y limpia al terminar, sin tocar
 | Windows (PowerShell) | `powershell -ExecutionPolicy Bypass -File modules\07-dashboard\scripts\probar.ps1` |
 
 **Nota:** Las opciones de los scripts se escriben por separado (`-s -m`, no `-sm`). En PowerShell se utilizan igual.
+
+### Para poder iniciar sesión en la prueba (demo)
+Los scripts parten de `.env.example`, cuyas claves van vacías, y definen por su cuenta una `SIEM_DB_PASSWORD` de usar y tirar (se borra con los volúmenes al parar). Con eso las comprobaciones automáticas pasan, pero Identidad no crea el usuario `admin` y el login real falla. Antes de lanzar el script, define en la misma terminal una clave JWT y una contraseña de administrador (valores de prueba, solo locales; no se suben al repositorio). Docker Compose da prioridad a las variables de la terminal sobre el fichero `.env`. La contraseña debe tener entre 8 y 128 caracteres.
+
+Windows (PowerShell):
+```powershell
+$env:JWT_SECRET_KEY = "<clave secreta local>"
+$env:ADMIN_PASSWORD = "<contraseña de 8 a 128 caracteres>"
+```
+Linux y macOS:
+```bash
+export JWT_SECRET_KEY="<clave secreta local>"
+export ADMIN_PASSWORD="<contraseña de 8 a 128 caracteres>"
+```
+Después entra en `http://localhost:8007` con el usuario `admin` y esa contraseña.
+
+El SIEM del compose raíz guarda los eventos en PostgreSQL (perfil `persistence`), así que `POST /events` responde 200, y las alertas se mantienen en memoria: arranca sin ellas. Para ver la tabla con datos, envíale eventos de ejemplo (desde la raíz del clon; en Windows usa `curl.exe`):
+```bash
+curl -i -H "Content-Type: application/json" --data-binary @modules/05-siem/contract/examples/grupo_3_honeypot.json http://localhost:8005/events
+curl -i -H "Content-Type: application/json" --data-binary @modules/05-siem/contract/examples/grupo_8_pentesting.json http://localhost:8005/events
+```
+Actualiza el Dashboard o espera al refresco de 30 s.
+
+Flujo de la demo: una vez antes, sin opciones (construye las imágenes); en la demo, `-s -m` para dejarlo levantado, `-c` para comprobarlo y `-p` al terminar.
 
 | Opción | Qué hace |
 |---|---|
@@ -63,6 +92,10 @@ Las pruebas del front usan el ejecutor integrado de Node (`node --test`) y `jsdo
 | `tests/siem-client.test.js` | Cliente del SIEM: envía el token como `Bearer`, devuelve siempre `{ estado, datos, mensaje }` (ok, vacío, error o sin permiso), y ante un 401 borra el token y redirige al login. |
 | `tests/siem-alert.test.js` | Tabla de alertas sobre el `index.html` real: orden por severidad y fecha, escapado de HTML, estado de error, refresco cada 30 s. |
 | `tests/mock-siem.test.js` | El mock `mocks/siem-alerts.json` mantiene los campos y valores que el Dashboard necesita. |
+| `tests/sesion.test.js` | Sesión sobre `auth-client.js`: cierre de sesión (borra el token y llama a `POST /auth/logout` con `Bearer`, sin romperse si Identidad no responde), `validate`, `requireSession` (sesión válida, sin token, 401 que borra el token, 500 que lo conserva) y el botón «Cerrar Sesión». |
+| `tests/honeypot.test.js` | Actividad del honeypot (DASHG7-32): el cliente pide `GET /events` con el token, filtra por origen y ordena; la vista muestra hora, IP, servicio y tipo usando los ejemplos del contrato del honeypot (`modules/03-honeypot/contract/examples`), no enseña credenciales, escapa el HTML del atacante y cubre error, sin datos, 401, 403 y refresco. |
+
+En total son 56 pruebas.
 
 Para ejecutarlas en local hace falta Node 20 o superior (no hace falta Docker):
 ```bash

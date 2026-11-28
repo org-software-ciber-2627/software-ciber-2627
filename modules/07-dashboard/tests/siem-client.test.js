@@ -55,12 +55,12 @@ test("envía el token guardado en sessionStorage como Bearer", async () => {
   assert.equal(llamadas[0].opciones.headers.Authorization, "Bearer abc123");
 });
 
-test("sin token en sessionStorage usa el token de prueba", async () => {
+test("sin token en sessionStorage no envía credencial", async () => {
   simularFetch(respuesta(200, { alerts: [] }));
 
   await getAlerts();
 
-  assert.equal(llamadas[0].opciones.headers.Authorization, "Bearer token-de-prueba");
+  assert.equal(llamadas[0].opciones.headers.Authorization, undefined);
 });
 
 test("401 borra el token y redirige al login", async () => {

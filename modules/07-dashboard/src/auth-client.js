@@ -58,6 +58,7 @@ export async function logout() {
         await fetch(`${AUTH_BASE}/auth/logout`, {
             method: "POST",
             headers: { Authorization: `Bearer ${token}` },
+            signal: AbortSignal.timeout(3000), // si Identidad no responde, no se bloquea el cierre de sesión
         });
     } catch { /* el token ya está descartado en el navegador */ }
 

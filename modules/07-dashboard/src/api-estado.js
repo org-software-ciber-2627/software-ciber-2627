@@ -1,10 +1,11 @@
 // Pide una lista a un servicio externo y siempre devuelve { estado, datos, mensaje }.
 // estado: "ok" | "vacio" | "error" | "sin_permiso" | "pendiente"
 export async function pedirLista(url, extraer = (d) => d, nombre = "el servicio") {
-    const token = sessionStorage.getItem("token") || "token-de-prueba";
+    // Sin token no se envía credencial: el servidor responde 401 y se vuelve al login (falla cerrado).
+    const token = sessionStorage.getItem("token");
     let r;
     try {
-        r = await fetch(url, { headers: { "Authorization": "Bearer " + token } });
+        r = await fetch(url, { headers: token ? { "Authorization": "Bearer " + token } : {} });
     } catch {
         return { estado: "error", datos: [], mensaje: `No se pudo conectar con ${nombre}.` };
     }
@@ -37,4 +38,36 @@ export function pintar(aviso, resultado, pintarLista) {
     aviso.textContent = resultado.mensaje;
     aviso.className = resultado.estado === "vacio" ? "aviso-vacio" : "aviso-error";
     aviso.style.display = "block";
+}
+// Umbral técnico provisional: 60 segundos.
+export const UMBRAL_ANTIGUEDAD = 60_000;
+
+// Registra cuándo se obtuvo información correctamente.
+export function crearSeguimiento() {
+    let ultimaConsultaCorrecta = null;
+
+    return {
+        registrarExito(fecha = Date.now()) {
+            ultimaConsultaCorrecta = fecha;
+        },
+
+        obtenerAviso(fecha = Date.now()) {
+            if (ultimaConsultaCorrecta === null) return null;
+
+            if (fecha - ultimaConsultaCorrecta < UMBRAL_ANTIGUEDAD) {
+                return null;
+            }
+
+            const hora = new Date(ultimaConsultaCorrecta).toLocaleTimeString(
+                "es-ES",
+                { hour: "2-digit", minute: "2-digit", hour12: false }
+            );
+
+            return `Sin datos desde ${hora}`;
+        },
+
+        tieneDatos() {
+            return ultimaConsultaCorrecta !== null;
+        }
+    };
 }

@@ -1,0 +1,175 @@
+package com.honeypot.honeypot.service;
+
+import com.honeypot.honeypot.model.EventoContrato;
+import com.honeypot.honeypot.model.LoginAttempt;
+import com.honeypot.honeypot.repository.LoginAttemptRepository;
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import tools.jackson.databind.json.JsonMapper;
+
+@Service
+public class FtpEventService {
+
+    private static final Logger log = LoggerFactory.getLogger(FtpEventService.class);
+    private static final String REDACTED = "[REDACTED]";
+
+    
+    private static final String EVENT_TYPE_NORMAL = "intento_login";
+
+    private final LoginAttemptRepository loginAttemptRepository;
+    private final EventoMapper eventoMapper;
+    private final SiemSenderService siemSenderService;
+    private final ClasificadorAtaquesService clasificadorAtaquesService;
+    private final DetectorEscaneoService detectorEscaneoService;
+    private final JsonMapper jsonMapper = JsonMapper.builder().build();
+
+    public FtpEventService(
+            LoginAttemptRepository loginAttemptRepository,
+            EventoMapper eventoMapper,
+            SiemSenderService siemSenderService,
+            ClasificadorAtaquesService clasificadorAtaquesService,
+            DetectorEscaneoService detectorEscaneoService
+    ) {
+        this.loginAttemptRepository = loginAttemptRepository;
+        this.eventoMapper = eventoMapper;
+        this.siemSenderService = siemSenderService;
+        this.clasificadorAtaquesService = clasificadorAtaquesService;
+        this.detectorEscaneoService = detectorEscaneoService;
+    }
+
+    public void registrarComando(String sourceIp, String command, String argument) {
+        registrarComando(sourceIp, command, argument, null);
+    }
+
+    public void registrarConexion(String sourceIp) {
+        detectorEscaneoService.registrarContacto(
+                truncate(sourceIp, 64), "ftp", Instant.now());
+    }
+
+    /**
+     * HP-94: igual que el anterior, pero con el USER que se envió antes en la misma
+     * sesión FTP. Al llegar el PASS se junta con la contraseña para comprobar si es
+     * una credencial por defecto (misma lista y mismo clasificador que el login web).
+     */
+    public void registrarComando(String sourceIp, String command, String argument,
+            String usuarioSesion) {
+
+        LoginAttempt attempt = new LoginAttempt();
+
+        attempt.setSourceIp(truncate(sourceIp, 64));
+        attempt.setOccurredAt(Instant.now());
+        attempt.setServiceAttacked("ftp");
+        attempt.setRequestPath(null);
+        attempt.setUserAgent(null);
+
+        boolean passwordCommand = "PASS".equals(command);
+
+        if ("USER".equals(command)) {
+            attempt.setUsername(truncate(argument, 320));
+        } else if (passwordCommand) {
+            // HP-94: el PASS se guarda con el USER de su sesión
+            attempt.setUsername(truncate(usuarioSesion, 320));
+            attempt.setCredentialAttempt(REDACTED);
+            attempt.setPasswordLength(argument == null ? null : argument.length());
+        }
+
+        String attemptedCommand = passwordCommand
+                ? "PASS " + REDACTED
+                : argument == null || argument.isBlank()
+                    ? command
+                    : command + " " + argument;
+
+        attempt.setAttemptedCommand(truncate(attemptedCommand, 2000));
+
+       
+        String tipoAtaque = null;
+
+        if (passwordCommand) {
+            // HP-94: en el FTP el usuario y la contraseña llegan en comandos distintos,
+            // así que se usa el USER guardado en la sesión (HP-93). Sin USER previo,
+            // el clasificador no puede marcarlo como credencial por defecto.
+            tipoAtaque = clasificadorAtaquesService.clasificar(
+                    attempt.getSourceIp(),
+                    attempt.getOccurredAt(),
+                    usuarioSesion,
+                    argument
+            );
+
+            attempt.setTipoAtaque(tipoAtaque);
+        }
+
+        attempt = loginAttemptRepository.save(attempt);
+
+        String eventType = tipoAtaque != null
+                ? tipoAtaque
+                : EVENT_TYPE_NORMAL;
+
+        // La severidad sale de la tabla de EventoMapper según el event_type (HP-103)
+        String severity = EventoMapper.severidadDe(eventType);
+
+        try {
+            EventoContrato evento = eventoMapper.mapearAEvento(
+                    attempt,
+                    eventType,
+                    severity
+            );
+
+            String json = jsonMapper.writeValueAsString(evento);
+            LoginAttempt savedAttempt = attempt;
+
+            CompletableFuture.runAsync(() -> enviarAlSiem(
+                    json,
+                    evento,
+                    savedAttempt
+            )).exceptionally(e -> {
+                log.error(
+                        "Error procesando el evento FTP {} en segundo plano",
+                        evento.eventId(),
+                        e
+                );
+                return null;
+            });
+
+        } catch (Exception e) {
+            log.error(
+                    "No se pudo preparar el evento FTP {} para el SIEM",
+                    attempt.getId(),
+                    e
+            );
+        }
+    }
+
+    private void enviarAlSiem(
+            String json,
+            EventoContrato evento,
+            LoginAttempt attempt
+    ) {
+        int statusCode = siemSenderService.enviarEvento(json, attempt.getId());
+
+        if (statusCode == 200 || statusCode == 201) {
+            attempt.setEnviado(true);
+            loginAttemptRepository.save(attempt);
+
+            log.info(
+                    "Evento FTP {} enviado al SIEM (HTTP {})",
+                    evento.eventId(),
+                    statusCode
+            );
+        } else {
+            log.warn(
+                    "El SIEM respondio con codigo {} para el evento FTP {}",
+                    statusCode,
+                    evento.eventId()
+            );
+        }
+    }
+
+    private static String truncate(String value, int maxLength) {
+        return value == null || value.length() <= maxLength
+                ? value
+                : value.substring(0, maxLength);
+    }
+}

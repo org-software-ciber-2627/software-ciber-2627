@@ -88,12 +88,15 @@ class TestCatalogo(unittest.TestCase):
         nuevo = evento("192.0.2.11", 80)
         self.job("a", eventos=[comun, ausente])
         self.job("b", eventos=[comun, nuevo])
+        originales = {i: load_job(i) for i in ("a", "b")}
         r = self.get("/diff?base=a&target=b")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.get_json(), {
             "base_scan_id": "a", "target_scan_id": "b",
             "diff": {"new": [nuevo], "fixed": [ausente], "unchanged": [comun]},
         })
+
+        self.assertEqual({i: load_job(i) for i in originales}, originales)
 
     def test_diff_completados_vacios(self):
         self.job("a")

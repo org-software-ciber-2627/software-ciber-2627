@@ -19,4 +19,5 @@ def parse_config(config_path) -> dict:
     return config
 
 
-config.update(parse_config("config/ids.conf"))
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "ids.conf"
+config.update(parse_config(DEFAULT_CONFIG_PATH))

@@ -1,0 +1,16 @@
+target/
+data/
+*.mv.db
+*.trace.db
+.env
+.env.*
+!.env.example
+.vscode/
+
+hostkey.ser
+# Copias que deja la herramienta de conflictos de Git
+*_BACKUP_*
+*_BASE_*
+*_LOCAL_*
+*_REMOTE_*
+*.orig
