@@ -1,4 +1,4 @@
-"""Módulo 1 · Identidad y secretos: servicio HTTP completo en un único fichero (contrato v1.3.0).
+"""Módulo 1 · Identidad y secretos: servicio HTTP completo en un único fichero (contrato v1.4.0).
 
 Sprint 1: GET /health, POST /auth/register (AAA-18), POST /auth/login (AAA-3) y emisión del
 token (AAA-19). Además incluye GET /auth/validate (adelanta AAA-20) y GET /secrets/{clave}
@@ -18,9 +18,15 @@ Variables de entorno:
   IDS_RETRY_SECONDS   opcional; espera base entre reintentos de envío al IDS (por defecto 30)
   IDS_REINTENTOS      opcional; "0" desactiva el hilo de reintentos (lo usan los tests)
   ADMIN_PASSWORD      opcional; si existe se crea la cuenta "admin"
-  SERVICE_PASSWORD    opcional; si existe se crea la cuenta "servicio"
+  SERVICE_PASSWORD    opcional y TRANSITORIA; si existe se crea la cuenta compartida "servicio"
+                      (se retirará cuando IDS y SIEM usen su cuenta propia)
+  SERVICE_PASSWORD_IDS, _HONEYPOT, _ESCANER, _PENTESTING, _SOAR, _SIEM
+                      opcionales; si existen se crean las cuentas de rol servicio "svc-ids",
+                      "svc-honeypot", "svc-escaner", "svc-pentesting", "svc-soar" y "svc-siem"
+  SECRET_SIEM_DB_PASSWORD
+                      opcional; si existe se guarda cifrado como secreto "siem_db_password" (dueño svc-siem)
   SECRET_DB_PASSWORD, SECRET_API_KEY, SECRET_JWT_SECRET
-                      opcionales; si existen se guardan cifrados como secretos de demostración
+                      opcionales; secretos de demostración (dueño: cuenta "servicio")
 """
 import base64
 import os
@@ -39,6 +45,7 @@ from flask_jwt_extended import (JWTManager, create_access_token, decode_token,
 from flask_jwt_extended.exceptions import JWTExtendedException
 from flask_sqlalchemy import SQLAlchemy
 from jwt.exceptions import PyJWTError
+from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -143,6 +150,8 @@ class Secret(db.Model):
     valor_encriptado = db.Column(db.Text,        nullable=False)
     iv               = db.Column(db.String(64),  nullable=False)
     tag              = db.Column(db.String(64),  nullable=False)
+    # Cuenta (username) que puede leer el secreto. Sin dueño, no lo lee nadie (contrato 1.4.0).
+    dueno            = db.Column(db.String(50),  nullable=True)
 
 
 class TokenBlocklist(db.Model):
@@ -187,13 +196,28 @@ class AuditLog(db.Model):
 # (username, email, rol, variable de entorno con la contraseña)
 CUENTAS = (
     ("admin",    "admin@ciberurjc.local",    "admin",    "ADMIN_PASSWORD"),
+    # Cuenta compartida TRANSITORIA: la usan hoy IDS (IDS_SERVICE_USERNAME) y el CI del SIEM.
     ("servicio", "servicio@ciberurjc.local", "servicio", "SERVICE_PASSWORD"),
+    # Una cuenta de servicio por módulo (AAA-113, contrato 1.4.0)
+    ("svc-ids",        "svc-ids@ciberurjc.local",        "servicio", "SERVICE_PASSWORD_IDS"),
+    ("svc-honeypot",   "svc-honeypot@ciberurjc.local",   "servicio", "SERVICE_PASSWORD_HONEYPOT"),
+    ("svc-escaner",    "svc-escaner@ciberurjc.local",    "servicio", "SERVICE_PASSWORD_ESCANER"),
+    ("svc-pentesting", "svc-pentesting@ciberurjc.local", "servicio", "SERVICE_PASSWORD_PENTESTING"),
+    ("svc-soar",       "svc-soar@ciberurjc.local",       "servicio", "SERVICE_PASSWORD_SOAR"),
+    ("svc-siem",       "svc-siem@ciberurjc.local",       "servicio", "SERVICE_PASSWORD_SIEM"),
 )
-# (clave del secreto, variable de entorno con su valor)
+# Nombres que el registro público no puede usar (nadie puede adelantarse a una cuenta sembrada)
+USUARIOS_RESERVADOS = frozenset(c[0] for c in CUENTAS)
+EMAILS_RESERVADOS = frozenset(c[1] for c in CUENTAS)
+
+# (clave del secreto, variable de entorno con su valor, cuenta dueña). Todo secreto tiene dueño:
+# solo esa cuenta lo lee; cualquier otra cuenta servicio recibe 403 (contrato 1.4.0).
 SECRETOS = (
-    ("db_password", "SECRET_DB_PASSWORD"),
-    ("api_key",     "SECRET_API_KEY"),
-    ("jwt_secret",  "SECRET_JWT_SECRET"),
+    ("siem_db_password", "SECRET_SIEM_DB_PASSWORD", "svc-siem"),
+    # Secretos de demostración del Sprint 1: los conserva la cuenta transitoria "servicio"
+    ("db_password",      "SECRET_DB_PASSWORD",      "servicio"),
+    ("api_key",          "SECRET_API_KEY",          "servicio"),
+    ("jwt_secret",       "SECRET_JWT_SECRET",       "servicio"),
 )
 
 
@@ -208,17 +232,29 @@ def seed():
 
     aes_key = app.config.get("AES_KEY")
     if aes_key:
-        for clave, env_var in SECRETOS:
+        for clave, env_var, dueno in SECRETOS:
             valor = os.environ.get(env_var)
-            if valor and not Secret.query.filter_by(clave=clave).first():
+            existente = Secret.query.filter_by(clave=clave).first()
+            if existente:
+                existente.dueno = dueno  # bases de datos anteriores a 1.4.0: asigna el dueño
+            elif valor:
                 enc, iv, tag = encrypt(valor, aes_key)
-                db.session.add(Secret(clave=clave, valor_encriptado=enc, iv=iv, tag=tag))
+                db.session.add(Secret(clave=clave, valor_encriptado=enc, iv=iv, tag=tag, dueno=dueno))
 
     db.session.commit()
 
 
+def migrar_esquema():
+    """Añade la columna 'dueno' a una tabla secrets creada antes de 1.4.0 (create_all no altera tablas)."""
+    columnas = [c["name"] for c in inspect(db.engine).get_columns("secrets")]
+    if "dueno" not in columnas:
+        with db.engine.begin() as conexion:
+            conexion.execute(text("ALTER TABLE secrets ADD COLUMN dueno VARCHAR(50)"))
+
+
 with app.app_context():
     db.create_all()
+    migrar_esquema()
     seed()
 
 
@@ -524,6 +560,8 @@ def register():
     error = validar_registro(data)
     if error:
         return jsonify(error=error), 400
+    if data["username"].strip().lower() in USUARIOS_RESERVADOS or data["email"].strip().lower() in EMAILS_RESERVADOS:
+        return jsonify(error="El usuario o el email ya existen"), 409
     user = User(username=data["username"], email=data["email"].lower())
     user.set_password(data["password"])
     db.session.add(user)
@@ -617,6 +655,10 @@ def leer_secreto(clave):
     if not secret:
         registrar_evento("secret_denied", "fail", username=claims["sub"], role=claims.get("role"), clave=clave)
         return jsonify(error="No se encontró un secreto para esa clave"), 404
+    if secret.dueno != claims["sub"]:
+        # Todo secreto tiene un módulo dueño; las demás cuentas servicio no lo leen (1.4.0)
+        registrar_evento("secret_denied", "fail", username=claims["sub"], role=claims.get("role"), clave=clave)
+        return jsonify(error="Este secreto pertenece a otro módulo"), 403
     aes_key = get_aes_key()
     try:
         valor = decrypt(secret.valor_encriptado, secret.iv, secret.tag, aes_key)

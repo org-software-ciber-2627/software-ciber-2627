@@ -32,6 +32,9 @@ jobs:
           echo "::add-mask::${service_password}"
           echo "JWT_SECRET_KEY=${jwt_key}" >> "$GITHUB_ENV"
           echo "SERVICE_PASSWORD=${service_password}" >> "$GITHUB_ENV"
+          escaner_password="$(openssl rand -hex 16)"
+          echo "::add-mask::${escaner_password}"
+          echo "SERVICE_PASSWORD_ESCANER=${escaner_password}" >> "$GITHUB_ENV"
 
       - name: Build images
         run: docker compose build
@@ -51,7 +54,7 @@ jobs:
         run: |
           token="$(curl -sf -X POST "http://localhost:8001/auth/login" \
             -H 'Content-Type: application/json' \
-            -d "{\"username\":\"servicio\",\"password\":\"${SERVICE_PASSWORD}\"}" \
+            -d "{\"username\":\"svc-escaner\",\"password\":\"${SERVICE_PASSWORD_ESCANER}\"}" \
             | python3 -c 'import json, sys; print(json.load(sys.stdin)["token"])')"
           echo "::add-mask::${token}"
 
@@ -69,6 +72,9 @@ jobs:
             --data @modules/05-siem/contract/examples/grupo_4_scanner_info.json)"
           echo "POST /events con token -> ${status}"
           test "${status}" = "200"
+
+      - name: Check SIEM token validation (SEM-134)
+        run: python3 modules/05-siem/scripts/test-auth.py
 
       - name: Stop services
         if: always()
@@ -106,11 +112,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java 25
+      - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "25"
+          java-version: "21"
           cache: maven
 
       - name: Run honeypot tests

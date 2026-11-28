@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import signal
+import time
 from pathlib import Path
 from threading import Event, Thread
 
@@ -15,6 +16,7 @@ from util.health import (
 from util.log_parser import parse_log_lines
 from util.log_storage import ParsedLogStorage
 from util.parsers import parse_rules
+from util.siem_publisher import publish_and_queue, retry_pending
 
 
 logger = logging.getLogger(__name__)
@@ -102,6 +104,17 @@ def _process_log_batch(log_path: Path, rules, storage):
             else:
                 logger.info("---Regla %s desactivada---", rule.pattern_id)
 
+        if detecciones:
+            logger.info("---Se han detectado %s alertas:---", len(detecciones))
+
+            for deteccion in detecciones:
+                logger.info("ALERTA: %s", deteccion)
+                publish_and_queue(deteccion)
+        else:
+            logger.info("No se han detectado alertas.")
+
+        retry_pending()
+
         events_path = Path(__file__).resolve().parents[1] / "output"
         events_path.mkdir(parents=True, exist_ok=True)
         _append_events(events_path / "events.json", detecciones)
@@ -127,7 +140,8 @@ def _process_log_batch(log_path: Path, rules, storage):
 
 def _poll_logs(stop_event: Event, rules, storage, log_path: Path, interval: float):
     waiting_logged = False
-
+    status_interval = 20 * 60
+    last_status = time.monotonic()
     while True:
         if stop_event.is_set():
             break
@@ -140,6 +154,17 @@ def _poll_logs(stop_event: Event, rules, storage, log_path: Path, interval: floa
                 waiting_logged = True
         else:
             waiting_logged = False
+
+        now = time.monotonic()
+
+        if now - last_status >= status_interval:
+            if waiting_logged:
+                logger.info(
+                    "IDS activo y esperando nuevos logs. "
+                    "No se han recibido registros nuevos en los últimos 20 minutos."
+                )
+
+            last_status = now
 
         stop_event.wait(interval)
 

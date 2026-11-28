@@ -20,6 +20,9 @@ public class ClasificadorAtaquesService {
     /** event_type que se envía al SIEM cuando el intento no tiene etiqueta (acuerdo con el grupo 5). */
     public static final String INTENTO_LOGIN = "intento_login";
 
+    /** event_type del contrato para escaneos de puertos/servicios. */
+    public static final String ESCANEO = "escaneo";
+
     private final LoginAttemptRepository loginAttemptRepository;
     private final FuerzaBrutaConfig fuerzaBrutaConfig;
     private final CredencialesPorDefectoConfig credencialesPorDefectoConfig;

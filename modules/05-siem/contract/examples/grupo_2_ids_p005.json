@@ -1,0 +1,29 @@
+{
+  "event_id": "IDS-P005-192.0.2.9-20261123T110000Z",
+  "timestamp": "2026-11-23T11:00:20Z",
+  "source": "ids",
+  "event_type": "endpoint_scan",
+  "severity": "medium",
+  "title": "Posible escaneo de endpoints",
+  "description": "La IP 192.0.2.9 ha contactado con 3 endpoints distintos (3 conexiones) entre 2026-11-23T11:00:00Z y 2026-11-23T11:00:20Z.",
+  "details": {
+    "rule_id": "P005",
+    "source_ip": "192.0.2.9",
+    "targets": 3,
+    "target_ips": [
+      "198.51.100.10",
+      "198.51.100.11",
+      "198.51.100.12"
+    ],
+    "ports": [
+      22,
+      80,
+      443
+    ],
+    "connections": 3,
+    "threshold": 3,
+    "window_seconds": 60,
+    "first_seen": "2026-11-23T11:00:00Z",
+    "last_seen": "2026-11-23T11:00:20Z"
+  }
+}

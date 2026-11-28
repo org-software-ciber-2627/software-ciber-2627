@@ -4,17 +4,19 @@ Equipo 01 - **CypherGate**
 
 Servicio transversal del que dependen los otros 7 módulos: **autenticación, roles y almacén de secretos**.
 
-## Estado (Sprint 2)
+## Estado (Sprint 3)
 
 | Elemento | Estado |
 |---|---|
-| Contrato de la API (`contract/openapi.yaml`) | Publicado, v1.3.0 |
+| Contrato de la API (`contract/openapi.yaml`) | Publicado, v1.4.0 |
 | Resumen para los demás equipos (`shared/auth-contract.md`) | Publicado |
 | `POST /auth/register` y `POST /auth/login` (JWT HS256, 30 min) | Implementados |
 | Límite de intentos de login (5 fallos en 15 min por usuario e IP; `429` con `Retry-After`) | Implementado |
 | `GET /auth/validate` | Implementado |
 | `POST /auth/logout` (revoca el token por su `jti`) | Implementado |
-| `GET /secrets/{clave}` (solo rol `servicio`, AES-GCM) | Implementado |
+| `GET /secrets/{clave}` (AES-GCM; cada secreto solo lo lee la cuenta de servicio dueña, `403` para las demás) | Implementado |
+| Una cuenta de servicio por módulo (`svc-*`, desde variables de entorno; nombres reservados en el registro) | Implementado |
+| Secreto `siem_db_password` para el SIEM (dueño `svc-siem`) | Implementado |
 | Registro de auditoría interno y envío de logs al IDS (`POST /logs` del módulo 2, lotes de hasta 200, con reintentos si el IDS cae) | Implementado |
 | CORS para el Dashboard (`http://localhost:8007`, en login, register, validate y logout) | Implementado |
 | Rotación manual de secretos | Sprint 3 |
@@ -26,10 +28,11 @@ Servicio transversal del que dependen los otros 7 módulos: **autenticación, ro
 - Registro e inicio de sesión de usuarios y emisión de un **JWT**.
 - **Roles fijos:** `admin`, `analista`, `servicio`.
 - **Validación de token** para que el resto de módulos compruebe sesión y rol (`GET /auth/validate`).
-- **Almacén de secretos** clave-valor cifrado en reposo (AES), con rotación manual, accesible solo al rol `servicio`.
+- **Cuentas de servicio por módulo** (`svc-ids`, `svc-siem`…), creadas solo desde variables de entorno.
+- **Almacén de secretos** clave-valor cifrado en reposo (AES-256-GCM). Cada secreto tiene una cuenta dueña y solo ella lo lee. Rotación manual prevista en el Sprint 3.
 - **Registro de auditoría interno** de los intentos de login y de los accesos a secretos. No se consulta por la API: se envía al IDS en lotes (`source` `01-identidad`), con líneas syslog al estilo OpenSSH, ids estables y orden cronológico. Si el IDS no responde, los eventos quedan pendientes y se reintentan con espera creciente sin bloquear el login.
 
-**Fuera de alcance:** SSO con proveedores externos, MFA, rotación automática de secretos y permisos granulares por recurso.
+**Fuera de alcance:** SSO con proveedores externos, MFA, rotación automática de secretos y permisos más finos que el dueño de cada secreto.
 
 ## Endpoints
 
@@ -40,7 +43,7 @@ Servicio transversal del que dependen los otros 7 módulos: **autenticación, ro
 | `POST /auth/login` | Usuarios | Login; devuelve JWT. `429` tras 5 fallos seguidos |
 | `POST /auth/logout` | Usuarios | Revoca el token actual |
 | `GET /auth/validate` | Los otros 7 módulos | Valida un token y devuelve usuario y rol |
-| `GET /secrets/{clave}` | Solo rol `servicio` | Devuelve un secreto descifrado |
+| `GET /secrets/{clave}` | La cuenta de servicio dueña del secreto | Devuelve un secreto descifrado (`403` si es de otro módulo) |
 
 Detalle completo y códigos de error: [`contract/openapi.yaml`](./contract/openapi.yaml) y [`shared/auth-contract.md`](../../shared/auth-contract.md).
 
@@ -129,12 +132,27 @@ Los valores sensibles se leen de **variables de entorno**, nunca del código. El
 |---|---|
 | `JWT_SECRET_KEY` | Clave de firma del JWT (HS256). Obligatoria para login, registro, validate y secretos |
 | `AES_KEY` | Clave AES-256 en base64 de 32 bytes. Obligatoria para `/secrets` |
-| `ADMIN_PASSWORD`, `SERVICE_PASSWORD` | Si existen, se crean las cuentas `admin` y `servicio` |
-| `SECRET_DB_PASSWORD`, `SECRET_API_KEY`, `SECRET_JWT_SECRET` | Si existen, se guardan cifrados como secretos de demostración |
+| `ADMIN_PASSWORD` | Si existe, se crea la cuenta `admin` |
+| `SERVICE_PASSWORD` | **Transitoria.** Si existe, se crea la cuenta compartida `servicio` (la usan hoy IDS y el CI del SIEM) |
+| `SERVICE_PASSWORD_IDS`, `_HONEYPOT`, `_ESCANER`, `_PENTESTING`, `_SOAR`, `_SIEM` | Si existen, se crean las cuentas de rol `servicio` `svc-ids`, `svc-honeypot`, `svc-escaner`, `svc-pentesting`, `svc-soar` y `svc-siem`. Esos nombres no se pueden registrar (`409`) |
+| `SECRET_SIEM_DB_PASSWORD` | Si existe, se guarda cifrado como secreto `siem_db_password`; solo lo lee `svc-siem` |
+| `SECRET_DB_PASSWORD`, `SECRET_API_KEY`, `SECRET_JWT_SECRET` | Si existen, se guardan cifrados como secretos de demostración; solo los lee `servicio` |
 | `IDS_URL` | Destino del envío de logs (por defecto `http://ids/logs`) |
 | `IDS_RETRY_SECONDS` | Espera base entre reintentos al IDS (por defecto 30 s, con tope de 300 s) |
 | `IDS_REINTENTOS` | `0` desactiva el hilo de reintentos (solo para pruebas) |
 | `TRUSTED_PROXY_HOPS`, `JWT_EXPIRES_SECONDS`, `DATABASE_URL` | Opcionales |
+
+### Cargar las cuentas y los secretos
+
+Las contraseñas y los valores de los secretos **nunca** se escriben en el código, el compose ni el repositorio:
+
+1. Copiad `.env.example` a `.env` en la raíz del monorepo (`.env` está en `.gitignore`).
+2. Rellenad `JWT_SECRET_KEY`, `AES_KEY` y, para cada cuenta o secreto que haga falta, su `SERVICE_PASSWORD_*` o `SECRET_*`. Generad valores aleatorios, por ejemplo con `python -c "import secrets; print(secrets.token_urlsafe(24))"`; para `AES_KEY`, `python -c "import os, base64; print(base64.b64encode(os.urandom(32)).decode())"`.
+3. Arrancad con `docker compose up --build`. Al iniciar, Identidad crea las cuentas y guarda cada secreto **cifrado con AES-256-GCM** en la base de datos, con su cuenta dueña. Una variable vacía no crea nada.
+4. Comprobad que funciona haciendo login con la cuenta y leyendo su secreto (ver [`shared/auth-contract.md`](../../shared/auth-contract.md#cómo-leer-un-secreto-desde-vuestro-módulo)).
+5. Entregad cada contraseña de cuenta a su módulo **por mensaje privado**.
+
+Cómo piden los demás módulos su cuenta y leen sus secretos: [`shared/auth-contract.md`, sección «Secretos y cuentas de servicio»](../../shared/auth-contract.md#secretos-y-cuentas-de-servicio).
 
 ## Pruebas
 
@@ -159,4 +177,4 @@ Antes de fusionar un Pull Request, el CI debe finalizar correctamente. Si alguna
 
 ## Equipo
 
-CypherGate: Natalia (Product Owner), Omar (Scrum Master), Ainoa, Nerea, Jaime y Diego (equipo de desarrollo). Seguimiento en Jira, proyecto **AAA**.
+CypherGate: Diego (Product Owner), Ainoa (Scrum Master), Omar, Nerea, Jaime y Natalia (equipo de desarrollo). Seguimiento en Jira, proyecto **AAA**.

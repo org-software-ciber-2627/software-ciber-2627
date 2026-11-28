@@ -9,6 +9,42 @@ Publica los eventos de seguridad que detecta hacia el SIEM.
 Además, la aplicación dispone de un endpoint para revisar su correcto funcionamiento
 - `GET /health`
 
+## Publicación al SIEM
+
+P004 y P005 se publican por HTTP en cuanto se cierra su detección. La URL se
+configura con `SIEM_URL` y usa `http://siem:80/events` dentro de Docker Compose.
+
+Los fallos temporales se conservan en `output/pending_events.json`. Los reintentos
+envían una copia profunda del evento original; no regeneran el `event_id`, el
+`timestamp` ni el resto del contenido.
+Un HTTP `409 EVENT_ID_CONFLICT` se registra como rechazo definitivo y se elimina
+de la cola. Los timeouts, errores de conexión y respuestas `503` / `5xx` siguen
+siendo fallos temporales y conservan el evento original para reintentos.
+
+### Autenticación con Identidad (G1)
+
+Cada `POST /events` se autentica con un JWT de la cuenta de servicio de G1. El IDS
+inicia sesión en `POST {IDENTIDAD_URL}/auth/login` con
+`{"username": "...", "password": "..."}` y usa el campo `token` de la respuesta
+como `Authorization: Bearer <token>` al publicar en el SIEM. Los tokens duran
+30 minutos; el IDS los renueva automáticamente cuando quedan 2 minutos o menos.
+Ante un `401` del SIEM, invalida el token, vuelve a iniciar sesión y repite esa
+petición una sola vez. Si el login falla o el segundo envío recibe `401`, el
+evento queda en la cola de fallos temporales. Sin credenciales, el IDS no envía
+el evento sin autenticar y lo deja en esa misma cola.
+
+| Variable | Uso | Valor por defecto |
+|---|---|---|
+| `IDENTIDAD_URL` | URL base de G1 (sin `/auth/login`) | `http://identidad:80` |
+| `IDS_SERVICE_USERNAME` | Usuario de servicio de G1 | `servicio` |
+| `IDS_SERVICE_PASSWORD` | Contraseña de la cuenta de servicio | Sin valor; necesaria para publicar |
+
+En Docker Compose, el nombre de usuario y la URL se pueden sobrescribir con esas
+variables. `IDS_SERVICE_PASSWORD` se obtiene de `SERVICE_PASSWORD`, la misma
+variable que precarga la cuenta `servicio` en G1. Configúrala en el `.env` local,
+nunca en el repositorio. Al ejecutar el IDS fuera de Compose, configura
+`IDS_SERVICE_PASSWORD` directamente en el entorno.
+
 ## Qué consume
 Nada obligatorio (opcionalmente puede validar sesión de su panel de administración contra Identidad).
 

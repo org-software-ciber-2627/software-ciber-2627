@@ -2,6 +2,8 @@
 
 Especificación de la rama actual: ingesta persistente de HU8, histórico de HU10 y alertas reales. [openapi.json](openapi.json) es el contrato de referencia; [history-events.md](history-events.md) detalla navegación, errores y límites del histórico. No implementa autenticación ni autorización. La integración del Escáner se detalla en [scanner-events.md](scanner-events.md). La autenticación con Identidad (G1) se detalla en [identity-auth.md](identity-auth.md), ratificado con G1 el 20/11/2026.
 
+El [inventario de contratos de integración](integration-contracts.md) identifica versiones revisadas, ejemplos, discrepancias y acuerdos pendientes de SEM-123/SEM-116. Distingue el contrato vigente de las propuestas de identidad, permisos, filtros y despliegue del Sprint 3.
+
 ## Interfaz
 
 | Método | Ruta | Respuesta |

@@ -85,7 +85,9 @@ class RoleAuthorizationHttpTests {
     @Test
     void producerPublishingAnotherSourceIsRejectedWithoutStoring() throws Exception {
         var event = example("grupo_3_honeypot.json");
-        assertError(postEvent(mapper.writeValueAsString(event), IDS), "SOURCE_MISMATCH");
+        var response = postEvent(mapper.writeValueAsString(event), IDS);
+        assertError(response, "SOURCE_MISMATCH");
+        assertEquals("no-store", response.headers().firstValue("Cache-Control").orElse(null));
         assertTrue(events.findById("honeypot", event.get("event_id").asText()).isEmpty());
         // La cuenta correcta sí puede publicar el mismo evento.
         assertEquals(200, postEvent(mapper.writeValueAsString(event), HONEYPOT).statusCode());

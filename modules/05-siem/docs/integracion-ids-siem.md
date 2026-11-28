@@ -10,7 +10,7 @@ La comunicación entre el IDS y el SIEM se realizará mediante peticiones HTTP u
 
 Cuando ambos módulos se ejecuten mediante Docker Compose, la dirección utilizada será http://siem:80/events. Si el SIEM se ejecuta localmente y está disponible en el puerto 8005, la dirección será http://localhost:8005/events.
 
-Actualmente, el IDS todavía no realiza el envío automático de eventos al SIEM. Esta funcionalidad está prevista en la historia IDS-52 del Sprint 3. Mientras tanto, se podrán realizar pruebas enviando manualmente los eventos generados por el IDS.
+G2 confirmó en SEM-124 el envío automático una vez cerradas las detecciones P004/P005. El [publicador de la rama `equipo-02-ids`](https://github.com/org-software-ciber-2627/software-ciber-2627/blob/582dde5dbcb1f90563e952e54cfb7f17086689d1/modules/02-ids/src/util/siem_publisher.py) en el commit `582dde5` usa `SIEM_URL` y envía un evento JSON por petición. Reintenta fallos temporales como `503`, timeouts y errores de conexión con el mismo `event_id`, `timestamp` y contenido.
 
 3. Formato de los eventos
 
@@ -54,10 +54,10 @@ El equipo 02 ya ha implementado la generación de eventos correspondientes a los
 
 Por su parte, el equipo 05 dispone del endpoint POST /events, encargado de recibir y procesar los eventos de seguridad.
 
-Sin embargo, la comunicación automática entre ambos módulos todavía está pendiente de la implementación de IDS-52. Hasta entonces, se realizarán pruebas manuales y automatizadas utilizando eventos JSON generados por el IDS para verificar que el SIEM los recibe y procesa correctamente.
+El publicador se revisó en el commit `582dde5`. La [suite automatizada de G2](https://github.com/org-software-ciber-2627/software-ciber-2627/actions/runs/45196741717/job/137769091367) superó 34 pruebas, con cobertura del rechazo `409`, el fallo temporal y el acuse `200`. Queda por verificar el despliegue conjunto con el SIEM.
 
-8. Acuerdos pendientes
+8. Acuerdo de SEM-124 y verificación pendiente
 
-Queda pendiente confirmar formalmente con el equipo 02 la aceptación del tipo de evento endpoint_scan, obtener un ejemplo JSON completo generado por P005 y verificar conjuntamente el comportamiento del sistema ante eventos duplicados.
+G2 confirmó P004 y P005 para el escenario y facilitó una [muestra P005](../contract/examples/grupo_2_ids_p005.json) compatible con el esquema de eventos del SIEM. La muestra usa direcciones de documentación y conserva el formato, el recuento y los tiempos comunicados.
 
-Una vez completada la funcionalidad IDS-52, se realizarán pruebas de integración completas para comprobar el envío automático de eventos desde el IDS hasta el SIEM.
+Un `409 EVENT_ID_CONFLICT` se registra como rechazo definitivo y el evento queda fuera de la cola automática. Un `200` solo confirma la entrega y retira el pendiente si el acuse contiene el mismo `event_id`. En SEM-127 se comprobarán estos casos contra el SIEM, además del reenvío idéntico sin duplicados y la conservación de los destinos múltiples de P005.

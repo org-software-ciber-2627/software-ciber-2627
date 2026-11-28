@@ -82,12 +82,11 @@ public class SshAttemptRecorder implements SshAttemptListener {
     private void enviarAlSiem(LoginAttempt attempt) {
         CompletableFuture.runAsync(() -> {
             try {
-                // Severidad "high" para credenciales por defecto, como en el login web
-                String severidad = ClasificadorAtaquesService.CREDENCIALES_POR_DEFECTO
-                        .equals(attempt.getTipoAtaque()) ? "high" : "medium";
+                // La severidad sale de la tabla de EventoMapper según el event_type (HP-103)
+                String severidad = EventoMapper.severidadDe(EventoMapper.tipoDeEvento(attempt));
                 EventoContrato evento = eventoMapper.mapearAEvento(attempt, severidad);
                 String json = jsonMapper.writeValueAsString(evento);
-                int statusCode = siemSenderService.enviarEvento(json);
+                int statusCode = siemSenderService.enviarEvento(json, attempt.getId());
 
                 if (statusCode == 200 || statusCode == 201) {
                     attempt.setEnviado(true);
