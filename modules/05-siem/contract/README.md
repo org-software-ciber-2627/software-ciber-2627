@@ -31,7 +31,7 @@ La validación común comprueba la cabecera común y que `details` sea un objeto
 
 ## Acuse y errores
 
-Con el perfil `persistence`, POST confirma 200 después de almacenar o reconocer un reenvío idéntico. Misma clave `(source, event_id)` con otro contenido produce 409. Sin perfil o con almacenamiento inaccesible durante la petición responde 503. Con persistencia activa, PostgreSQL debe estar disponible al arrancar. Si se agota la capacidad del almacén de alertas, devuelve 507 con el evento ya guardado. El reenvío idéntico puede crear la alerta cuando exista capacidad. El acuse utiliza mensajes en inglés:
+Con el perfil `persistence`, POST confirma 200 después de almacenar o reconocer un reenvío idéntico. Misma clave `(source, event_id)` con otro contenido produce 409. Sin perfil o con almacenamiento inaccesible durante la petición responde 503. Con persistencia activa, PostgreSQL debe estar disponible al arrancar. Un error de esquema o integridad del almacén devuelve 500 `INTERNAL_ERROR` sin guardar el evento ni la alerta; reintentar no lo corrige. Evento y alerta se guardan en la misma transacción y no hay límite de alertas, así que esta implementación no produce 507. `507 STORAGE_FULL` se mantiene en OpenAPI 0.5.0 hasta que SOAR (G6) y Dashboard (G7) acuerden retirarlo. El acuse utiliza mensajes en inglés:
 
 ```json
 {"status":"success","message":"Event stored successfully","event_id":"HP-981839239323"}

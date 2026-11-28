@@ -152,6 +152,6 @@ Esto conserva el volumen nombrado del mismo proyecto. No uses `down -v` ni borre
 | 409 al repetir un ejemplo | El contenido guardado para esa clave difiere; no borrar datos para forzar 200 |
 | Pruebas PostgreSQL omitidas | Usar el ejecutor SEM-66 o una base exclusiva de pruebas configurada |
 
-La ingesta aún no autentica productores. El arranque de esta guía se limita a loopback; la exposición compartida necesita acordar controles de acceso. Las alertas generadas se guardan en PostgreSQL junto a su evento y, como el histórico, se conservan al reiniciar el SIEM con el mismo `alert_id`.
+La ingesta exige un token Bearer validado con Identidad (G1) y aplica la matriz de roles por cuenta y origen. El arranque de esta guía se limita a loopback; la exposición compartida necesita acordar controles de acceso. Las alertas generadas se guardan en PostgreSQL junto a su evento y, como el histórico, se conservan al reiniciar el SIEM con el mismo `alert_id`.
 
 Para comprobar manualmente el guardado completo y la conservación, sigue [la verificación de persistencia](sem67-acceptance-check.md).

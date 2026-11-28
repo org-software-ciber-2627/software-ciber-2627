@@ -14,7 +14,7 @@ La [especificación Escáner → SIEM](contract/scanner-events.md) define el for
 
 `GET /events` consulta los eventos realmente almacenados. Devuelve `events`, `next_offset` y `next`; la colección vacía es un 200 y la ausencia de almacenamiento un 503. Consulta el [contrato del histórico](contract/history-events.md) y su [matriz de pruebas](docs/history-events-tests.md).
 
-`GET /alerts` y `GET /alerts/{id}` consultan la tabla `alerts` de PostgreSQL; sin el perfil `persistence` responden 503. Los eventos `info` se almacenan sin generar alertas. Los demás eventos pasan por el conversor y P004 usa el [evaluador de intentos repetidos](docs/sem29-deteccion-intentos-fallidos.md). Evento y alerta se guardan en la misma transacción y la alerta se conserva al reiniciar con el mismo `alert_id` ([diseño SEM-146](docs/sem146-diseno-persistencia-alertas.md)).
+`GET /alerts` y `GET /alerts/{id}` consultan la tabla `alerts` de PostgreSQL; sin el perfil `persistence` responden 503. Los eventos `info` se almacenan sin generar alertas. Los demás eventos pasan por el conversor y P004 usa el [evaluador de intentos repetidos](docs/sem29-deteccion-intentos-fallidos.md). Evento y alerta se guardan en la misma transacción y la alerta se conserva al reiniciar con el mismo `alert_id` ([diseño SEM-146, PR #97](https://github.com/org-software-ciber-2627/software-ciber-2627/pull/97)).
 
 ## Autenticación con Identidad (SEM-133)
 
@@ -107,7 +107,7 @@ docker compose --env-file /dev/null -f modules/05-siem/compose.storage.yml ps si
 
 La base de datos es `siem_bd` y el usuario es `siem`. PostgreSQL se publica solo en `127.0.0.1:5433`; `SIEM_DB_PORT` permite cambiar el puerto local. Este Compose proporciona solo PostgreSQL para el SIEM local. El Compose común configura también el servicio `siem` con el perfil `persistence`.
 
-El esquema crea `events` desde `db/init/001-create-events.sql`. Su clave primaria es `(source, event_id)`, `occurred_at` conserva el instante UTC y `details` se almacena como JSONB. El segundo script añade `original_timestamp` para conservar el texto completo del timestamp recibido. El tercero permite la severidad `info` sin alterar los eventos existentes. El cuarto sustituye la restricción de `source` para aceptar también `pentesting` (G8). Los scripts de inicialización se aplican automáticamente solo a un volumen vacío; en una base ya inicializada hay que aplicar las migraciones que falten (002 para el timestamp, 003 para `info` y 004 para `pentesting`).
+El esquema crea `events` desde `db/init/001-create-events.sql`. Su clave primaria es `(source, event_id)`, `occurred_at` conserva el instante UTC y `details` se almacena como JSONB. El segundo script añade `original_timestamp` para conservar el texto completo del timestamp recibido. El tercero permite la severidad `info` sin alterar los eventos existentes. El cuarto sustituye la restricción de `source` para aceptar también `pentesting` (G8). El quinto crea la tabla `alerts` sin modificar `events`. Los scripts de inicialización se aplican automáticamente solo a un volumen vacío; en una base ya inicializada hay que aplicar las migraciones que falten (002 para el timestamp, 003 para `info`, 004 para `pentesting` y 005 para `alerts`). Con el perfil `persistence`, el SIEM no arranca si falta la tabla `alerts`; la [guía de persistencia](docs/sem67-persistence-guide.md) indica cómo aplicar la 005 con la aplicación detenida.
 
 El volumen `siem-postgres-data` conserva los datos al recrear el contenedor. No uses `docker compose down -v` si quieres conservarlos.
 
