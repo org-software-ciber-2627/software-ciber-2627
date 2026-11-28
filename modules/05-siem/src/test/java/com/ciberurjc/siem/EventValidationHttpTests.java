@@ -32,7 +32,7 @@ class EventValidationHttpTests {
         + "event_id, timestamp, source, event_type, severity, title, description, details";
     @Autowired Environment environment;
     @Autowired ObjectMapper mapper;
-    final HttpClient client = HttpClient.newHttpClient();
+    final HttpClient client = TestIdentity.authenticatedClient();
     String baseUrl;
 
     @BeforeEach

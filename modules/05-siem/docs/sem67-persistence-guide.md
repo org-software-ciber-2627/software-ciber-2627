@@ -101,7 +101,7 @@ Mantén esta terminal abierta para la comprobación y el reinicio. Con la API de
 
 ```bash
 curl -f http://127.0.0.1:8005/health
-python3 modules/05-siem/scripts/smoke-test.py http://127.0.0.1:8005
+SIEM_TOKEN='<token de Identidad>' python3 modules/05-siem/scripts/smoke-test.py http://127.0.0.1:8005
 ```
 
 El smoke inserta los ejemplos de laboratorio en la base seleccionada; úsalo en un entorno de desarrollo. Se puede repetir si esos identificadores conservan el mismo contenido. No limpia esas filas. Para comprobar persistencia sin añadir datos al volumen de trabajo, utiliza el ejecutor SEM-66.

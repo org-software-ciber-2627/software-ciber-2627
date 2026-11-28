@@ -30,7 +30,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class EventHardeningHttpTests {
     @Autowired Environment environment;
     @Autowired ObjectMapper mapper;
-    final HttpClient client = HttpClient.newHttpClient();
+    final HttpClient client = TestIdentity.authenticatedClient();
     String baseUrl;
 
     @BeforeEach

@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "SIEM · Event ingestion and static alerts",
-    "version": "0.3.0-sprint2",
-    "description": "Persistent event ingestion, paginated event history and real alert queries."
+    "version": "0.4.0",
+    "description": "Persistent event ingestion, paginated event history and real alert queries. Every operation except GET /health requires a Bearer token issued by Identity (Module 1) and validated with GET /auth/validate on each request (SEM-133, contract identity-auth.md)."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -14,6 +14,11 @@
     {
       "url": "http://siem:80",
       "description": "Docker network ciberurjc"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
     }
   ],
   "paths": {
@@ -36,7 +41,8 @@
               }
             }
           }
-        }
+        },
+        "security": []
       }
     },
     "/events": {
@@ -211,6 +217,38 @@
               }
             }
           },
+          "401": {
+            "description": "Missing Authorization header, header not in \"Bearer <token>\" form, or token rejected by Identity (invalid, expired or revoked). The request is not processed and nothing is stored.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always \"Bearer\".",
+                "schema": {
+                  "type": "string",
+                  "const": "Bearer"
+                }
+              },
+              "Cache-Control": {
+                "description": "Authentication errors are not cached.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing, invalid, expired or revoked token"
+                  }
+                }
+              }
+            }
+          },
           "415": {
             "description": "Tipo de contenido no admitido.",
             "content": {
@@ -244,7 +282,7 @@
             }
           },
           "503": {
-            "description": "Persistence disabled or storage unavailable during the request.",
+            "description": "Persistence disabled or storage unavailable during the request. Also returned with IDENTITY_UNAVAILABLE when the identity service cannot confirm the token (fail-closed); access is never granted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -255,6 +293,15 @@
                     "code": "STORAGE_UNAVAILABLE",
                     "message": "Event storage is temporarily unavailable"
                   }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds before retrying; present when Identity is down, slow or answers 5xx.",
+                "schema": {
+                  "type": "string",
+                  "const": "30"
                 }
               }
             }
@@ -446,11 +493,18 @@
               }
             }
           },
-          "503": {
-            "description": "Persistence disabled, unavailable storage or query timeout.",
+          "401": {
+            "description": "Missing Authorization header, header not in \"Bearer <token>\" form, or token rejected by Identity (invalid, expired or revoked). The request is not processed and nothing is stored.",
             "headers": {
+              "WWW-Authenticate": {
+                "description": "Always \"Bearer\".",
+                "schema": {
+                  "type": "string",
+                  "const": "Bearer"
+                }
+              },
               "Cache-Control": {
-                "description": "Prevents caching event data and handled history errors.",
+                "description": "Authentication errors are not cached.",
                 "schema": {
                   "type": "string",
                   "const": "no-store"
@@ -469,7 +523,57 @@
                         "error": {
                           "properties": {
                             "code": {
-                              "const": "STORAGE_UNAVAILABLE"
+                              "const": "UNAUTHENTICATED"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing, invalid, expired or revoked token"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Persistence disabled, unavailable storage or query timeout. Also returned with IDENTITY_UNAVAILABLE when the identity service cannot confirm the token (fail-closed); access is never granted.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Prevents caching event data and handled history errors.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds before retrying; present when Identity is down, slow or answers 5xx.",
+                "schema": {
+                  "type": "string",
+                  "const": "30"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "STORAGE_UNAVAILABLE",
+                                "IDENTITY_UNAVAILABLE"
+                              ]
                             }
                           }
                         }
@@ -615,8 +719,40 @@
               }
             }
           },
+          "401": {
+            "description": "Missing Authorization header, header not in \"Bearer <token>\" form, or token rejected by Identity (invalid, expired or revoked). The request is not processed and nothing is stored.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always \"Bearer\".",
+                "schema": {
+                  "type": "string",
+                  "const": "Bearer"
+                }
+              },
+              "Cache-Control": {
+                "description": "Authentication errors are not cached.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing, invalid, expired or revoked token"
+                  }
+                }
+              }
+            }
+          },
           "503": {
-            "description": "Alert storage is temporarily unavailable",
+            "description": "Alert storage is temporarily unavailable Also returned with IDENTITY_UNAVAILABLE when the identity service cannot confirm the token (fail-closed); access is never granted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -627,6 +763,15 @@
                     "code": "STORAGE_UNAVAILABLE",
                     "message": "Alert storage is temporarily unavailable"
                   }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds before retrying; present when Identity is down, slow or answers 5xx.",
+                "schema": {
+                  "type": "string",
+                  "const": "30"
                 }
               }
             }
@@ -697,6 +842,38 @@
               }
             }
           },
+          "401": {
+            "description": "Missing Authorization header, header not in \"Bearer <token>\" form, or token rejected by Identity (invalid, expired or revoked). The request is not processed and nothing is stored.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always \"Bearer\".",
+                "schema": {
+                  "type": "string",
+                  "const": "Bearer"
+                }
+              },
+              "Cache-Control": {
+                "description": "Authentication errors are not cached.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing, invalid, expired or revoked token"
+                  }
+                }
+              }
+            }
+          },
           "404": {
             "description": "Alerta inexistente.",
             "content": {
@@ -714,7 +891,7 @@
             }
           },
           "503": {
-            "description": "Alert storage is temporarily unavailable",
+            "description": "Alert storage is temporarily unavailable Also returned with IDENTITY_UNAVAILABLE when the identity service cannot confirm the token (fail-closed); access is never granted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -725,6 +902,15 @@
                     "code": "STORAGE_UNAVAILABLE",
                     "message": "Alert storage is temporarily unavailable"
                   }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds before retrying; present when Identity is down, slow or answers 5xx.",
+                "schema": {
+                  "type": "string",
+                  "const": "30"
                 }
               }
             }
@@ -750,6 +936,14 @@
     }
   },
   "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "JWT issued by Identity (Module 1) with POST /auth/login. The SIEM validates it with GET /auth/validate on every request, without caching. Tokens expire after 30 minutes."
+      }
+    },
     "schemas": {
       "SecurityEvent": {
         "type": "object",
@@ -957,7 +1151,9 @@
                   "EVENT_ID_CONFLICT",
                   "STORAGE_UNAVAILABLE",
                   "PAYLOAD_TOO_LARGE",
-                  "STORAGE_FULL"
+                  "STORAGE_FULL",
+                  "UNAUTHENTICATED",
+                  "IDENTITY_UNAVAILABLE"
                 ]
               },
               "message": {
