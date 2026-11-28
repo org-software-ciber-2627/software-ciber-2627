@@ -93,9 +93,18 @@ Las pruebas del front usan el ejecutor integrado de Node (`node --test`) y `jsdo
 | `tests/siem-alert.test.js` | Tabla de alertas sobre el `index.html` real: orden por severidad y fecha, escapado de HTML, estado de error, refresco cada 30 s. |
 | `tests/mock-siem.test.js` | El mock `mocks/siem-alerts.json` mantiene los campos y valores que el Dashboard necesita. |
 | `tests/sesion.test.js` | Sesión sobre `auth-client.js`: cierre de sesión (borra el token y llama a `POST /auth/logout` con `Bearer`, sin romperse si Identidad no responde), `validate`, `requireSession` (sesión válida, sin token, 401 que borra el token, 500 que lo conserva) y el botón «Cerrar Sesión». |
+| `tests/login.test.js` | Cliente de login de `auth-client.js`: `POST /auth/login` con usuario y contraseña, guarda el token y gestiona 400, 401, 429 (con `Retry-After`) y errores del servidor. |
+| `tests/siem-detail.test.js` | Detalle de una alerta (`GET /alerts/{id}`): envía el token y gestiona 401, 403, 404 y errores. |
+| `tests/mock-soar.test.js` | El mock `mocks/soar-incidents.json` mantiene los campos y valores del formato de incidentes del SOAR. |
+| `tests/mock-scanner.test.js` | Los ficheros de `modules/04-escaner/contract/dashboard/` mantienen la forma que espera el Dashboard. |
+| `tests/contrato-proveedores.test.js` | **Contratos de los proveedores (DASHG7-133).** Lee `modules/05-siem/contract/openapi.json`, `modules/01-identidad/contract/openapi.yaml` y `modules/06-soar/contract/README.md`: pasa sus ejemplos por `SIEM-client.js`, `auth-client.js` y `SOAR-client.js`, y comprueba que siguen declarados los códigos de estado y los campos que usa el Dashboard. Si G1, G5 o G6 cambian su contrato, falla. |
 | `tests/honeypot.test.js` | Actividad del honeypot (DASHG7-32): el cliente pide `GET /events` con el token, filtra por origen y ordena; la vista muestra hora, IP, servicio y tipo usando los ejemplos del contrato del honeypot (`modules/03-honeypot/contract/examples`), no enseña credenciales, escapa el HTML del atacante y cubre error, sin datos, 401, 403 y refresco. |
+| `tests/estado-antiguedad.test.js` | Seguimiento del aviso de datos no actualizados (DASHG7-36): umbral de 60 s, sin aviso antes de la primera consulta correcta, y reinicio al recibir datos. |
+| `tests/soar-alert.test.js` | Tabla de incidentes del SOAR sobre el `index.html` real: muestra los incidentes, conserva los datos si falla una actualización y avisa pasados 60 s sin datos. |
 
-En total son 56 pruebas.
+En total son 102 pruebas. El job `contract-tests` del CI ejecuta solo las de contrato (`mock-siem`, `login`, `sesion`, `mock-soar`, `mock-scanner` y `contrato-proveedores`) como comprobación separada.
+
+Límites conocidos: `mock-siem` y `mock-soar` comprueban nuestros propios mocks, no el contrato del proveedor; el contrato vivo es el que lee `contrato-proveedores.test.js`. G6 no publica ejemplos JSON sueltos, así que se leen de los bloques `json` de su `README.md`. Si G6 cambia ese formato de documento, la prueba lo avisa pero habrá que adaptarla.
 
 Para ejecutarlas en local hace falta Node 20 o superior (no hace falta Docker):
 ```bash

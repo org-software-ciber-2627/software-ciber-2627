@@ -1,19 +1,71 @@
 [
   {
+    "id": 1,
+    "alert_key": "SIEM-ALERT-EJEMPLO-001",
+    "alert": {
+      "alert_id": "SIEM-ALERT-EJEMPLO-001",
+      "event_id": "EVT-001",
+      "timestamp": "2026-10-27T12:00:00Z",
+      "source": "ids",
+      "event_type": "fuerza_bruta",
+      "severity": "high",
+      "title": "Intentos repetidos de acceso",
+      "description": "Múltiples intentos de autenticación fallidos",
+      "source_ip": "192.168.1.50",
+      "target_ip": "192.168.1.10",
+      "details": {}
+    },
+    "first_seen": "2026-10-27T12:00:00Z",
     "incident_id": "INC-001",
-    "alert_id": "ALT-001",
+    "alert_id": "SIEM-ALERT-EJEMPLO-001",
     "event_type": "fuerza_bruta",
     "severity": "high",
     "priority": "critical",
     "source_ip": "192.168.1.50",
-    "status": "contained",
+    "status": "open",
     "created_at": "2026-10-27T12:00:00Z",
     "resolved_at": null,
-    "applied_playbook": "brute_force"
+    "applied_playbook": "brute_force",
+    "automation": {
+      "automatable": true,
+      "playbook": "brute_force",
+      "reason": "Incidente compatible con el playbook de fuerza bruta"
+    },
+    "responses": [
+      {
+        "response_id": "RES-4F9A2C",
+        "incident_id": "INC-001",
+        "playbook": "brute_force",
+        "action": "notify",
+        "status": "skipped",
+        "triggered_by": "automatic",
+        "executed_at": "2026-10-27T12:00:05Z",
+        "finished_at": "2026-10-27T12:00:06Z",
+        "message": "Notificación no configurada",
+        "error": "GROUP7_NOTIFY_URL no configurada",
+        "details": {}
+      }
+    ]
   },
   {
+    "id": 2,
+    "alert_key": "SIEM-ALERT-EJEMPLO-002",
+    "alert": {
+      "alert_id": "SIEM-ALERT-EJEMPLO-002",
+      "event_id": "EVT-002",
+      "timestamp": "2026-10-27T12:05:00Z",
+      "source": "ids",
+      "event_type": "port_scan",
+      "severity": "medium",
+      "title": "Escaneo de puertos detectado",
+      "description": "Actividad de reconocimiento de puertos",
+      "source_ip": "10.0.0.20",
+      "target_ip": "10.0.0.10",
+      "details": {}
+    },
+    "first_seen": "2026-10-27T12:05:00Z",
     "incident_id": "INC-002",
-    "alert_id": "ALT-002",
+    "alert_id": "SIEM-ALERT-EJEMPLO-002",
     "event_type": "port_scan",
     "severity": "medium",
     "priority": "medium",
@@ -21,6 +73,12 @@
     "status": "open",
     "created_at": "2026-10-27T12:05:00Z",
     "resolved_at": null,
-    "applied_playbook": null
+    "applied_playbook": null,
+    "automation": {
+      "automatable": false,
+      "playbook": null,
+      "reason": "No hay un playbook automático aplicable"
+    },
+    "responses": []
   }
 ]

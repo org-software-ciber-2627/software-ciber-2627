@@ -158,3 +158,31 @@ jobs:
 
       - name: Run dashboard tests
         run: npm test
+
+  contract-tests:
+    name: contract-tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modules/07-dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: modules/07-dashboard/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run contract tests
+        run: |
+          node --test \
+            tests/mock-siem.test.js \
+            tests/login.test.js \
+            tests/sesion.test.js \
+            tests/mock-soar.test.js \
+            tests/mock-scanner.test.js \
+            tests/contrato-proveedores.test.js
