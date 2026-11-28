@@ -116,7 +116,8 @@ P004,5,60,usernames=3
 - `UMBRAL`: número mínimo de intentos fallidos para generar alerta.
 - `VENTANA_SEGUNDOS`: tamaño de la ventana deslizante.
 - `usernames` (opcional): número de usuarios distintos a partir del cual se
-  considera *password spraying*. Si no se indica, nunca se asigna `high`.
+  considera *password spraying*. Si no se indica, las alertas se titulan
+  siempre como fuerza bruta.
 
 ### Criterio de detección
 
@@ -136,7 +137,7 @@ P004,5,60,usernames=3
 
 | Situación | Severidad |
 |---|---|
-| Se supera el umbral | `medium` |
+| Se supera el umbral | `high` |
 | Se supera el umbral y se intentan `usernames` usuarios distintos o más | `high` |
 | `successful_login` desde la misma IP durante la ráfaga o hasta `VENTANA_SEGUNDOS` después (posible acceso conseguido) | `critical` |
 
@@ -149,8 +150,8 @@ P004,5,60,usernames=3
   no cambie aunque la ráfaga crezca con logs nuevos.
 - `timestamp`: último intento de la ráfaga. Los logs syslog no traen zona
   horaria ni año, así que se interpretan como UTC y del año actual.
-- `title` según la severidad: `Posible ataque de fuerza bruta` (`medium`),
-  `Posible ataque de password spraying` (`high`) o
+- `title` según la situación: `Posible ataque de fuerza bruta` (`high`),
+  `Posible ataque de password spraying` (`high`, se alcanza `usernames`) o
   `Posible acceso conseguido por fuerza bruta` (`critical`).
 
 ```json
@@ -159,7 +160,7 @@ P004,5,60,usernames=3
   "timestamp": "2026-04-20T13:51:02Z",
   "source": "ids",
   "event_type": "brute_force",
-  "severity": "medium",
+  "severity": "high",
   "title": "Posible ataque de fuerza bruta",
   "description": "La IP 122.5.240.60 ha realizado 12 intentos fallidos de login contra 2 usuario(s) entre 2026-04-20T13:50:10Z y 2026-04-20T13:51:02Z.",
   "details": {
